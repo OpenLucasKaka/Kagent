@@ -648,6 +648,9 @@ def test_service_router_runtime_timeline_returns_compact_run_timeline(tmp_path):
         "tool_completed",
         "run_completed",
     ]
+    assert {event["run_id"] for event in payload["progress_events"]} == {
+        run_payload["run_id"]
+    }
     assert payload["progress_events"][3]["tool"] == "artifact"
     assert all("input" not in event for event in payload["events"])
     assert all("input" not in event for event in payload["progress_events"])

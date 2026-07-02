@@ -742,4 +742,5 @@ def test_runtime_agent_emits_redacted_progress_events():
     assert progress_events[3]["tool"] == "note"
     assert progress_events[-1]["status"] == "done"
     assert progress_events[-1]["duration_seconds"] == result["duration_seconds"]
+    assert {event["run_id"] for event in progress_events} == {result["run_id"]}
     assert "secret progress body" not in json.dumps(progress_events)

@@ -704,7 +704,10 @@ to discover non-coding deliverables without loading full observation bodies. Use
 policy, executor, and observation status fields without full inputs or outputs.
 Timeline responses also include redacted `progress_events` and
 `progress_event_count`, which are safe for operations dashboards because they
-exclude tool inputs, patch bodies, and observation outputs.
+exclude tool inputs, patch bodies, and observation outputs. Each progress event
+includes `run_id`, so streaming sinks and timeline UIs can correlate planner,
+policy, tool, and completion events without copying context from the outer
+response.
 Use
 `GET /runtime/runs/{run_id}/artifacts` to list artifact metadata without
 content before selecting a specific deliverable. Use

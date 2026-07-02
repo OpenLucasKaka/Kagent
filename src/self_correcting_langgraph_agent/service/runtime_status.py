@@ -1085,6 +1085,7 @@ def _runtime_timeline_progress_events(value: Any) -> list[Dict[str, str]]:
     if not isinstance(value, list):
         return []
     fields = [
+        "run_id",
         "type",
         "node",
         "status",

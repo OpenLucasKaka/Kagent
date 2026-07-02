@@ -95,9 +95,10 @@ def run_runtime_agent(
     progress_events: List[Dict[str, Any]] = []
 
     def emit_progress(event: Dict[str, Any]) -> None:
-        progress_events.append(event)
+        event_with_run_id = {"run_id": run_id, **event}
+        progress_events.append(event_with_run_id)
         if event_sink is not None:
-            event_sink(event)
+            event_sink(event_with_run_id)
 
     for iteration in range(1, max_iterations + 1):
         iteration_count = iteration

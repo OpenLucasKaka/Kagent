@@ -153,6 +153,8 @@ def test_production_readiness_checklist_documents_release_gates():
     assert "resource_controls_present" in readiness
     assert "trace_state_boundary_present" in readiness
     assert "required_metrics_present" in readiness
+    assert "required_metric_count" in readiness
+    assert "lower than the current live metric checklist" in readiness
     assert "required_alerts_present" in readiness
     assert "--provider-smoke-evidence" in readiness
     assert "--require-provider-smoke" in readiness

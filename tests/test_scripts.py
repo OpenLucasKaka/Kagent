@@ -1003,7 +1003,7 @@ def test_production_approval_bundle_script_builds_strict_release_evidence(tmp_pa
                 "metrics_endpoint": "/metrics.prom",
                 "metrics_status": "200",
                 "required_metrics_present": "true",
-                "required_metric_count": "8",
+                "required_metric_count": "10",
                 "metrics_sha256": "a" * 64,
                 "grafana_dashboard_status": "passed",
                 "grafana_dashboard_sha256": "b" * 64,
@@ -1648,7 +1648,7 @@ def test_production_readiness_audit_accepts_observability_acceptance_evidence(tm
                 "metrics_endpoint": "/metrics.prom",
                 "metrics_status": "200",
                 "required_metrics_present": "true",
-                "required_metric_count": "8",
+                "required_metric_count": "10",
                 "metrics_sha256": "a" * 64,
                 "grafana_dashboard_status": "passed",
                 "grafana_dashboard_sha256": "b" * 64,
@@ -1750,6 +1750,55 @@ def test_production_readiness_audit_rejects_incomplete_observability_evidence(
         "required_metric_count",
         "required_metrics_present",
     ]
+
+
+def test_production_readiness_audit_rejects_stale_observability_metric_count(
+    tmp_path,
+):
+    evidence_path = tmp_path / "observability-acceptance.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "evidence_schema_version": "1",
+                "status": "passed",
+                "base_url_host": "agent.internal",
+                "metrics_endpoint": "/metrics.prom",
+                "metrics_status": "200",
+                "required_metrics_present": "true",
+                "required_metric_count": "9",
+                "metrics_sha256": "a" * 64,
+                "grafana_dashboard_status": "passed",
+                "grafana_dashboard_sha256": "b" * 64,
+                "prometheus_rules_status": "passed",
+                "prometheus_rules_sha256": "c" * 64,
+                "prometheus_query_status": "not_configured",
+            }
+        )
+        + "\n"
+    )
+
+    completed = subprocess.run(
+        [
+            ".venv/bin/python",
+            "scripts/production_readiness_audit.py",
+            "--observability-acceptance-evidence",
+            str(evidence_path),
+            "--require-observability-acceptance",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert completed.returncode == 1
+    assert payload["observability_acceptance"]["status"] == "invalid_evidence"
+    assert payload["observability_acceptance"]["missing_fields"] == [
+        "required_metric_count"
+    ]
+    assert (
+        "observability_acceptance_invalid_evidence"
+        in payload["summary"]["failed_checks"]
+    )
 
 
 def test_production_readiness_audit_accepts_internal_rollout_evidence(tmp_path):

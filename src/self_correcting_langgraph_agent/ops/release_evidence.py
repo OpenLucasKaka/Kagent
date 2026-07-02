@@ -84,6 +84,7 @@ REQUIRED_OBSERVABILITY_ACCEPTANCE_SHA_FIELDS = (
     "metrics_sha256",
     "prometheus_rules_sha256",
 )
+MIN_OBSERVABILITY_ACCEPTANCE_REQUIRED_METRIC_COUNT = 10
 REQUIRED_INTERNAL_ROLLOUT_FIELDS = (
     "environment",
     "expected_environment",
@@ -598,6 +599,15 @@ def _observability_acceptance_missing_fields(payload: Dict[str, Any]) -> List[st
             ("required_metric_count",),
         )
     )
+    try:
+        required_metric_count = int(str(payload.get("required_metric_count", "")))
+    except ValueError:
+        required_metric_count = 0
+    if (
+        required_metric_count < MIN_OBSERVABILITY_ACCEPTANCE_REQUIRED_METRIC_COUNT
+        and "required_metric_count" not in missing
+    ):
+        missing.append("required_metric_count")
     for field in REQUIRED_OBSERVABILITY_ACCEPTANCE_SHA_FIELDS:
         if not _is_sha256(str(payload.get(field, ""))):
             missing.append(field)

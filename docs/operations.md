@@ -605,10 +605,12 @@ the same filters to continue scanning older matching runs. Use
 partition internal workflows without creating high-cardinality metrics labels.
 Runtime metadata is limited to small non-secret string maps; keys that look like
 tokens, passwords, API keys, or authorization headers are rejected before the
-run starts. Compact summaries expose `metadata_keys` and `tags` but never
-accept arbitrary nested metadata objects. CLI runtime runs use the same
-validation via repeated `--tag TAG` and `--metadata KEY=VALUE` flags, and
-interactive sessions attach those labels to each submitted goal.
+run starts. Values that look like API keys, bearer tokens, or URLs with embedded
+credentials are also rejected, so metadata remains safe to expose in compact
+status and filtering surfaces. Compact summaries expose `metadata_keys` and
+`tags` but never accept arbitrary nested metadata objects. CLI runtime runs use
+the same validation via repeated `--tag TAG` and `--metadata KEY=VALUE` flags,
+and interactive sessions attach those labels to each submitted goal.
 Use
 `has_errors=true` to find runs with observation-level
 `error_code_counts` or a run-level `error_code` before narrowing to a specific

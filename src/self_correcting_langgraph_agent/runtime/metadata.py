@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Tuple
 
 MAX_RUNTIME_TAGS = 16
@@ -23,6 +24,12 @@ _SECRET_KEY_PARTS = (
     "secret",
     "token",
 )
+_API_KEY_VALUE_PATTERN = re.compile(r"\bsk-[A-Za-z0-9:_-]{8,}\b")
+_BEARER_VALUE_PATTERN = re.compile(
+    r"\b(Authorization:\s*Bearer\s+|Bearer\s+)[A-Za-z0-9._~+/:-]{8,}",
+    re.IGNORECASE,
+)
+_URL_CREDENTIAL_VALUE_PATTERN = re.compile(r"\bhttps?://[^/\s:@]+:[^/\s@]+@")
 
 
 def validate_runtime_metadata(
@@ -63,6 +70,8 @@ def validate_runtime_metadata(
             )
         if not _safe_runtime_label_value(value):
             return {}, "metadata values must not contain control characters"
+        if _secret_like_runtime_label_value(value):
+            return {}, "metadata values must not contain secret-like values"
         normalized[key] = value
     return {key: normalized[key] for key in sorted(normalized)}, ""
 
@@ -97,3 +106,11 @@ def validate_runtime_tags(tags: Any) -> Tuple[list[str], str]:
 
 def _safe_runtime_label_value(value: str) -> bool:
     return all(ord(character) >= 32 for character in value)
+
+
+def _secret_like_runtime_label_value(value: str) -> bool:
+    return bool(
+        _API_KEY_VALUE_PATTERN.search(value)
+        or _BEARER_VALUE_PATTERN.search(value)
+        or _URL_CREDENTIAL_VALUE_PATTERN.search(value)
+    )

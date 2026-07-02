@@ -678,6 +678,31 @@ def test_cli_runtime_rejects_secret_like_metadata_without_traceback():
     assert "Traceback" not in completed.stderr
 
 
+def test_cli_runtime_rejects_secret_like_metadata_values_without_traceback():
+    api_key = "sk-" + "metadata-redaction-value"
+
+    completed = subprocess.run(
+        [
+            ".venv/bin/python",
+            "-m",
+            "self_correcting_langgraph_agent.cli",
+            "score readiness",
+            "--runtime",
+            "--runtime-plan",
+            '{"actions":[],"final_answer":"ready"}',
+            "--metadata",
+            f"ticket={api_key}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "metadata values must not contain secret-like values" in completed.stderr
+    assert api_key not in completed.stderr
+    assert "Traceback" not in completed.stderr
+
+
 def test_cli_interactive_runtime_runs_goals_from_stdin_with_inline_plan(tmp_path):
     project_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()

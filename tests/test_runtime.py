@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from self_correcting_langgraph_agent.providers.llm import FakeLLMProvider
 from self_correcting_langgraph_agent.runtime import run_runtime_agent
 from self_correcting_langgraph_agent.runtime import tools as runtime_tools
@@ -85,6 +87,18 @@ def test_runtime_agent_result_includes_run_metadata_and_tags():
 
     assert result["metadata"] == {"ticket": "REL-123", "workflow": "launch"}
     assert result["tags"] == ["ops", "release"]
+
+
+def test_runtime_agent_rejects_secret_like_metadata_values():
+    provider = FakeLLMProvider('{"actions":[],"final_answer":"ok"}')
+    api_key = "sk-" + "metadata-redaction-value"
+
+    with pytest.raises(ValueError, match="metadata values must not contain secret-like values"):
+        run_runtime_agent(
+            "capture metadata",
+            provider=provider,
+            metadata={"ticket": api_key},
+        )
 
 
 def test_runtime_agent_result_describes_prompt_observation_compaction():

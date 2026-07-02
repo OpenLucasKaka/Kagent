@@ -52,9 +52,11 @@ Start the interactive terminal runtime:
 
 TTY sessions show live progress and a compact operator transcript by default.
 Use `/json`, `/compact`, `/last`, `/trace`, `/memory`, `/clear`, and `/help`
-inside the shell. Add `--runtime-plan` for deterministic runtime tests and
-`--interactive-json` when you need full traces. Runtime and service config
-integers must be JSON integers, not strings or booleans.
+inside the shell. Persisted session memory is owner-only and redacts common
+API keys, bearer tokens, and URL credentials before writing to disk. Add
+`--runtime-plan` for deterministic runtime tests and `--interactive-json` when
+you need full traces. Runtime and service config values must use JSON integers,
+not strings or booleans.
 
 ## What It Can Do
 

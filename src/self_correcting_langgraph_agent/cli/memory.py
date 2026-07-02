@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,12 @@ from typing import Any
 from self_correcting_langgraph_agent.utils.json_output import json_ready
 
 SESSION_MEMORY_SCHEMA_VERSION = "1"
+_API_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9:_-]{8,}\b")
+_BEARER_TOKEN_PATTERN = re.compile(
+    r"\b(Authorization:\s*Bearer\s+|Bearer\s+)([A-Za-z0-9._~+/:-]{8,})",
+    re.IGNORECASE,
+)
+_URL_CREDENTIAL_PATTERN = re.compile(r"\b(https?://)([^/\s:@]+):([^/\s@]+)@")
 
 
 def load_runtime_session_memory(path: str, *, max_turns: int) -> list[dict[str, str]]:
@@ -37,7 +44,7 @@ def save_runtime_session_memory(path: str, turns: list[dict[str, str]]) -> None:
         output_dir.chmod(0o700)
     payload = {
         "schema_version": SESSION_MEMORY_SCHEMA_VERSION,
-        "turns": json_ready(turns),
+        "turns": json_ready(_redact_session_memory_turns(turns)),
     }
     data = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
     fd, temporary_name = tempfile.mkstemp(
@@ -72,9 +79,26 @@ def _normalize_session_memory_turns(
     for item in turns:
         if not isinstance(item, dict):
             continue
-        user = str(item.get("user", "")).strip()
-        assistant = str(item.get("assistant", "")).strip()
+        user = _redact_session_memory_text(str(item.get("user", "")).strip())
+        assistant = _redact_session_memory_text(str(item.get("assistant", "")).strip())
         if not user and not assistant:
             continue
         normalized.append({"user": user, "assistant": assistant})
     return normalized[-max_turns:]
+
+
+def _redact_session_memory_turns(turns: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        {
+            "user": _redact_session_memory_text(str(turn.get("user", ""))),
+            "assistant": _redact_session_memory_text(str(turn.get("assistant", ""))),
+        }
+        for turn in turns
+        if str(turn.get("user", "")).strip() or str(turn.get("assistant", "")).strip()
+    ]
+
+
+def _redact_session_memory_text(text: str) -> str:
+    redacted = _API_KEY_PATTERN.sub("[REDACTED_API_KEY]", text)
+    redacted = _BEARER_TOKEN_PATTERN.sub(r"\1[REDACTED_TOKEN]", redacted)
+    return _URL_CREDENTIAL_PATTERN.sub(r"\1[REDACTED_CREDENTIALS]@", redacted)

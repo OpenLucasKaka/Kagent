@@ -1340,6 +1340,36 @@ def test_cli_interactive_runtime_clear_persists_empty_session_memory(
     assert "memory cleared" in captured.out
 
 
+def test_cli_session_memory_redacts_secret_like_text_before_persisting(tmp_path):
+    from self_correcting_langgraph_agent.cli.memory import save_runtime_session_memory
+
+    memory_path = tmp_path / "agent-memory.json"
+    api_key = "sk-" + "test-redaction-value"
+
+    save_runtime_session_memory(
+        str(memory_path),
+        [
+            {
+                "user": (
+                    f"use key {api_key} and "
+                    "https://user:pass@example.com/v1"
+                ),
+                "assistant": "Authorization: Bearer super-secret-token",
+            }
+        ],
+    )
+
+    saved_text = memory_path.read_text(encoding="utf-8")
+    saved_memory = json.loads(saved_text)
+
+    assert api_key not in saved_text
+    assert "super-secret-token" not in saved_text
+    assert "user:pass@example.com" not in saved_text
+    assert "[REDACTED_API_KEY]" in saved_memory["turns"][0]["user"]
+    assert "https://[REDACTED_CREDENTIALS]@example.com/v1" in saved_memory["turns"][0]["user"]
+    assert "Authorization: Bearer [REDACTED_TOKEN]" in saved_memory["turns"][0]["assistant"]
+
+
 def test_cli_session_memory_requires_interactive_runtime():
     completed = subprocess.run(
         [

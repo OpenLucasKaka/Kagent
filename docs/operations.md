@@ -479,7 +479,10 @@ operator view, `/last` to replay the most recent compact result,
 the current session memory, `/clear` to clear it, and `/help` to list shell
 commands. Session memory is in-process by default; add `--session-memory PATH`
 to persist compact memory across shell restarts. The memory file is written
-owner-only, and `/clear` also clears the persisted file.
+owner-only, and `/clear` also clears the persisted file. Before writing
+session memory to disk, the CLI redacts common API keys, bearer tokens, and URL
+credentials so accidental provider or service secrets are not preserved in the
+memory file.
 
 `/openapi.json` includes named schemas for production integration, including
 `RunRequest`, `RunResponse`, readiness, config, tools, version, metrics, and

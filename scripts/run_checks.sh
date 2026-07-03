@@ -159,13 +159,15 @@ PYTHONWARNINGS=ignore sh scripts/smoke_internal_runtime.sh >/tmp/kagent-internal
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli --deterministic "calculate 2 + 3 then count words in 'ship small reliable agents'" >/tmp/kagent-smoke.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli "calculate 2 + 3 then subtract 10 - 4" --plan >/tmp/kagent-plan.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli --deterministic "uppercase text in 'agent loop'" --inject-fault "uppercase text in 'agent loop'=empty-answer" --summary --output /tmp/kagent-summary-output.json >/tmp/kagent-summary.json
-rm -f /tmp/kagent-session-memory.json
+rm -rf /tmp/kagent-session-memory-dir
+mkdir -p /tmp/kagent-session-memory-dir
+chmod 0755 /tmp/kagent-session-memory-dir
 printf '我是卡卡\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
     --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你好，卡卡。"}' \
-    --session-memory /tmp/kagent-session-memory.json \
+    --session-memory /tmp/kagent-session-memory-dir/session-memory.json \
     >/tmp/kagent-session-memory-smoke.json
 PYTHONWARNINGS=ignore .venv/bin/python - <<'PY'
 import json
@@ -173,8 +175,10 @@ import stat
 from pathlib import Path
 
 output = json.load(open("/tmp/kagent-session-memory-smoke.json", encoding="utf-8"))
-memory_path = Path("/tmp/kagent-session-memory.json")
+memory_dir = Path("/tmp/kagent-session-memory-dir")
+memory_path = memory_dir / "session-memory.json"
 memory = json.loads(memory_path.read_text(encoding="utf-8"))
+dir_mode = stat.S_IMODE(memory_dir.stat().st_mode)
 mode = stat.S_IMODE(memory_path.stat().st_mode)
 if output["status"] != "done" or output["answer"] != "你好，卡卡。":
     raise SystemExit(f"unexpected session memory smoke output: {output}")
@@ -182,16 +186,18 @@ if memory["schema_version"] != "1":
     raise SystemExit(f"unexpected session memory schema: {memory}")
 if memory["turns"] != [{"user": "我是卡卡", "assistant": "你好，卡卡。"}]:
     raise SystemExit(f"unexpected session memory turns: {memory}")
+if dir_mode != 0o700:
+    raise SystemExit(f"unexpected session memory directory mode: {oct(dir_mode)}")
 if mode != 0o600:
     raise SystemExit(f"unexpected session memory file mode: {oct(mode)}")
 PY
-chmod 0644 /tmp/kagent-session-memory.json
+chmod 0644 /tmp/kagent-session-memory-dir/session-memory.json
 if printf '我是谁\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
     --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你是卡卡。"}' \
-    --session-memory /tmp/kagent-session-memory.json \
+    --session-memory /tmp/kagent-session-memory-dir/session-memory.json \
     >/tmp/kagent-session-memory-unsafe.stdout \
     2>/tmp/kagent-session-memory-unsafe.stderr; then
     echo "interactive runtime unexpectedly loaded unsafe session memory" >&2
@@ -203,7 +209,7 @@ if grep "Traceback" /tmp/kagent-session-memory-unsafe.stderr >/dev/null; then
     echo "unsafe session memory unexpectedly emitted traceback" >&2
     exit 1
 fi
-chmod 0600 /tmp/kagent-session-memory.json
+chmod 0600 /tmp/kagent-session-memory-dir/session-memory.json
 rm -f /tmp/kagent-session-memory-link.json /tmp/kagent-session-memory-target.json
 printf '{"schema_version":"1","turns":[{"user":"我是卡卡","assistant":"你好，卡卡。"}]}\n' \
     >/tmp/kagent-session-memory-target.json

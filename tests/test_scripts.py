@@ -181,8 +181,9 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "--version" in run_checks
     assert "--plan" in run_checks
     assert "--deterministic" in run_checks
-    assert "--session-memory /tmp/kagent-session-memory.json" in run_checks
+    assert "--session-memory /tmp/kagent-session-memory-dir/session-memory.json" in run_checks
     assert "/tmp/kagent-session-memory-smoke.json" in run_checks
+    assert "unexpected session memory directory mode" in run_checks
     assert "unexpected session memory file mode" in run_checks
     assert "interactive runtime unexpectedly loaded unsafe session memory" in run_checks
     assert "session memory file must be owner-only" in run_checks

@@ -1598,6 +1598,23 @@ def test_cli_session_memory_redacts_secret_like_text_before_persisting(tmp_path)
     assert "Authorization: Bearer [REDACTED_TOKEN]" in saved_memory["turns"][0]["assistant"]
 
 
+def test_cli_session_memory_tightens_existing_parent_directory(tmp_path):
+    from kagent.cli.memory import save_runtime_session_memory
+
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    memory_dir.chmod(0o755)
+    memory_path = memory_dir / "agent-memory.json"
+
+    save_runtime_session_memory(
+        str(memory_path),
+        [{"user": "kaka", "assistant": "ready"}],
+    )
+
+    assert memory_dir.stat().st_mode & 0o777 == 0o700
+    assert memory_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_cli_session_memory_requires_interactive_runtime():
     completed = subprocess.run(
         [

@@ -56,9 +56,7 @@ def save_runtime_session_memory(path: str, turns: list[dict[str, str]]) -> None:
         return
     memory_path = Path(path)
     output_dir = memory_path.parent
-    if not output_dir.exists():
-        output_dir.mkdir(parents=True)
-        output_dir.chmod(0o700)
+    _ensure_owner_only_memory_dir(output_dir)
     payload = {
         "schema_version": SESSION_MEMORY_SCHEMA_VERSION,
         "turns": json_ready(_redact_session_memory_turns(turns)),
@@ -131,3 +129,8 @@ def _require_owner_only_memory_file(path: Path) -> None:
     mode = path.stat().st_mode & 0o777
     if mode & 0o077:
         raise ValueError("session memory file must be owner-only (0600)")
+
+
+def _ensure_owner_only_memory_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)

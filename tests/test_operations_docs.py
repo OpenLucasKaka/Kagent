@@ -34,6 +34,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "`kagent \"goal\"`" in runbook
     assert "--deterministic" in runbook
     assert "owner-only" in runbook
+    assert "parent directories are created or tightened" in runbook
     assert "symlink memory files" in runbook
     assert "group or world" in runbook
     assert "rejected before parsing" in runbook

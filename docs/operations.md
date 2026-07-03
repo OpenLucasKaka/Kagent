@@ -721,6 +721,9 @@ formats, artifact tags, and artifact byte volume before opening full traces.
 summary scalar metadata is limited to strings and non-boolean numbers for run,
 plan, observation, and artifact index fields; nested objects and arrays are
 omitted from dashboard summaries instead of being stringified.
+optional status fields such as answer, error, resume, cancel, timestamp, and
+duration metadata follow the same scalar-only rule; malformed object values are
+omitted from status and list responses.
 guardrail metadata is limited to the string fields `applied`, `reason`, and
 `original_answer_omitted`; malformed nested values are omitted before status,
 list, summary, or metrics aggregation.

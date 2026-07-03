@@ -478,7 +478,6 @@ def runtime_status_summary(
         "answer",
         "error_code",
         "error",
-        "pending_approval",
         "resumed_from_run_id",
         "resumed_by_auth_subject",
         "cancelled_at",
@@ -489,7 +488,11 @@ def runtime_status_summary(
         "duration_seconds",
     ]:
         if optional_field in trace:
-            summary[optional_field] = trace[optional_field]
+            field_value = _runtime_scalar(trace[optional_field])
+            if field_value:
+                summary[optional_field] = field_value
+    if "pending_approval" in trace:
+        summary["pending_approval"] = trace["pending_approval"]
     final_answer_guardrail = _trace_final_answer_guardrail(trace)
     if final_answer_guardrail:
         summary["final_answer_guardrail"] = final_answer_guardrail

@@ -281,7 +281,7 @@ def execute_runtime_artifact_request(
     return 200, json_ready(
         {
             "trace_type": RUNTIME_TRACE_TYPE,
-            "run_id": str(trace.get("run_id", run_id)),
+            "run_id": run_id,
             "trace_path": _runtime_trace_path(trace, service_config.trace_dir, run_id),
             "action_id": artifact["action_id"],
             "tool": artifact["tool"],
@@ -319,7 +319,7 @@ def execute_runtime_artifacts_request(
     return 200, json_ready(
         {
             "trace_type": RUNTIME_TRACE_TYPE,
-            "run_id": str(trace.get("run_id", run_id)),
+            "run_id": run_id,
             "trace_path": _runtime_trace_path(trace, service_config.trace_dir, run_id),
             "count": str(len(artifacts)),
             "artifacts": artifacts,
@@ -358,7 +358,7 @@ def execute_runtime_timeline_request(
     return 200, json_ready(
         {
             "trace_type": RUNTIME_TRACE_TYPE,
-            "run_id": str(trace.get("run_id", run_id)),
+            "run_id": run_id,
             "trace_path": _runtime_trace_path(trace, service_config.trace_dir, run_id),
             "event_count": str(len(events)),
             "progress_event_count": str(len(progress_events)),

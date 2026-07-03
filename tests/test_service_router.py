@@ -772,6 +772,65 @@ def test_service_router_runtime_timeline_filters_non_scalar_metadata(tmp_path):
     assert "secret" not in json.dumps(payload)
 
 
+def test_service_router_runtime_detail_children_derive_run_id_from_request(tmp_path):
+    trace_path = tmp_path / "forged-child-run-id.json"
+    trace_path.write_text(
+        json.dumps(
+            {
+                "trace_type": "codex_runtime",
+                "run_id": {"secret": "run-id"},
+                "status": "done",
+                "goal": "inspect child endpoints",
+                "events": [{"node": "planner", "status": "ok"}],
+                "observations": [
+                    {
+                        "action_id": "step-1",
+                        "tool": "artifact",
+                        "status": "ok",
+                        "output": {
+                            "artifact_id": "artifact-safe",
+                            "title": "Safe",
+                            "kind": "report",
+                            "format": "markdown",
+                            "content": "safe content",
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    timeline_status, timeline_payload = service_router.handle_request(
+        "GET",
+        "/runtime/runs/forged-child-run-id/timeline",
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+    artifacts_status, artifacts_payload = service_router.handle_request(
+        "GET",
+        "/runtime/runs/forged-child-run-id/artifacts",
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+    artifact_status, artifact_payload = service_router.handle_request(
+        "GET",
+        "/runtime/runs/forged-child-run-id/artifacts/artifact-safe",
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+
+    assert timeline_status == 200
+    assert artifacts_status == 200
+    assert artifact_status == 200
+    assert timeline_payload["run_id"] == "forged-child-run-id"
+    assert artifacts_payload["run_id"] == "forged-child-run-id"
+    assert artifact_payload["run_id"] == "forged-child-run-id"
+    assert "secret" not in json.dumps(timeline_payload)
+    assert "secret" not in json.dumps(artifacts_payload)
+    assert "secret" not in json.dumps(artifact_payload)
+
+
 def test_service_router_runtime_timeline_requires_trace_persistence():
     status_code, payload = service_router.handle_request(
         "GET",

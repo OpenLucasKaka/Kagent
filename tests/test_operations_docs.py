@@ -98,6 +98,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "GET /runtime/runs/{run_id}" in runbook
     assert "GET /runtime/runs/{run_id}/timeline" in runbook
     assert "timeline scalar metadata" in runbook
+    assert "child endpoint run_id" in runbook
     assert "GET /runtime/runs/{run_id}/artifacts" in runbook
     assert "GET /runtime/runs/{run_id}/artifacts/{artifact_id}" in runbook
     assert "POST /runtime/runs/{run_id}/cancel" in runbook

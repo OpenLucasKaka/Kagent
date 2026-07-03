@@ -742,6 +742,9 @@ policy, executor, and observation status fields without full inputs or outputs.
 timeline scalar metadata is limited to strings and non-boolean numbers; nested
 objects, arrays, and booleans are omitted so malformed trace files cannot leak
 object representations into operator timelines.
+child endpoint run_id values for timeline, artifact lists, and artifact detail
+responses are derived from the requested URL and trace store path, not from
+mutable trace JSON metadata.
 Timeline responses also include redacted `progress_events` and
 `progress_event_count`, which are safe for operations dashboards because they
 exclude tool inputs, patch bodies, and observation outputs. Each progress event

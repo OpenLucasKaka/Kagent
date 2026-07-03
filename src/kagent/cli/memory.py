@@ -122,6 +122,8 @@ def _redact_session_memory_text(text: str) -> str:
 
 
 def _require_owner_only_memory_file(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("session memory file must not be a symlink")
     mode = path.stat().st_mode & 0o777
     if mode & 0o077:
         raise ValueError("session memory file must be owner-only (0600)")

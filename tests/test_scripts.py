@@ -187,6 +187,9 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "interactive runtime unexpectedly loaded unsafe session memory" in run_checks
     assert "session memory file must be owner-only" in run_checks
     assert "unsafe session memory unexpectedly emitted traceback" in run_checks
+    assert "interactive runtime unexpectedly loaded symlink session memory" in run_checks
+    assert "session memory file must not be a symlink" in run_checks
+    assert "symlink session memory unexpectedly emitted traceback" in run_checks
 
 
 def test_run_checks_starts_real_service_smoke():

@@ -505,11 +505,11 @@ piped interactive runs keep memory in-process and do not write a default file.
 Add `--session-memory PATH` for an explicit memory file. Set
 `KAGENT_SESSION_MEMORY_PATH` to override the default location, or set it to an
 empty value to disable default persistence for TTY sessions. The memory file is
-loaded and written owner-only; existing memory files with group or world
-permissions are rejected before parsing, and `/clear` also clears the persisted
-file. Before writing session memory to disk, the CLI redacts common API keys,
-bearer tokens, and URL credentials so accidental provider or service secrets are
-not preserved in the memory file.
+loaded and written owner-only; symlink memory files and existing files with
+group or world permissions are rejected before parsing, and `/clear` also clears
+the persisted file. Before writing session memory to disk, the CLI redacts
+common API keys, bearer tokens, and URL credentials so accidental provider or
+service secrets are not preserved in the memory file.
 
 `/openapi.json` includes named schemas for production integration, including
 `RunRequest`, `RunResponse`, readiness, config, tools, version, metrics, and

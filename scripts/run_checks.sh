@@ -204,6 +204,28 @@ if grep "Traceback" /tmp/kagent-session-memory-unsafe.stderr >/dev/null; then
     exit 1
 fi
 chmod 0600 /tmp/kagent-session-memory.json
+rm -f /tmp/kagent-session-memory-link.json /tmp/kagent-session-memory-target.json
+printf '{"schema_version":"1","turns":[{"user":"我是卡卡","assistant":"你好，卡卡。"}]}\n' \
+    >/tmp/kagent-session-memory-target.json
+chmod 0600 /tmp/kagent-session-memory-target.json
+ln -s /tmp/kagent-session-memory-target.json /tmp/kagent-session-memory-link.json
+if printf '我是谁\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
+    --runtime \
+    --interactive \
+    --max-iterations 1 \
+    --runtime-plan '{"actions":[],"final_answer":"你是卡卡。"}' \
+    --session-memory /tmp/kagent-session-memory-link.json \
+    >/tmp/kagent-session-memory-symlink.stdout \
+    2>/tmp/kagent-session-memory-symlink.stderr; then
+    echo "interactive runtime unexpectedly loaded symlink session memory" >&2
+    exit 1
+fi
+grep "session memory file must not be a symlink" \
+    /tmp/kagent-session-memory-symlink.stderr >/dev/null
+if grep "Traceback" /tmp/kagent-session-memory-symlink.stderr >/dev/null; then
+    echo "symlink session memory unexpectedly emitted traceback" >&2
+    exit 1
+fi
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --fail-on-failure >/tmp/kagent-eval.json
 PYTHONWARNINGS=ignore .venv/bin/kagent-eval --list-cases >/tmp/kagent-entrypoint-eval-cases.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --list-cases >/tmp/kagent-eval-cases.json

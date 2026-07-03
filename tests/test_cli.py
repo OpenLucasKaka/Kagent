@@ -1494,6 +1494,26 @@ def test_cli_session_memory_rejects_group_or_world_readable_file(tmp_path):
         raise AssertionError("unsafe session memory file was loaded")
 
 
+def test_cli_session_memory_rejects_symlink_file(tmp_path):
+    from kagent.cli.memory import load_runtime_session_memory
+
+    target_path = tmp_path / "target-memory.json"
+    target_path.write_text(
+        json.dumps({"schema_version": "1", "turns": [{"user": "kaka"}]}),
+        encoding="utf-8",
+    )
+    target_path.chmod(0o600)
+    memory_path = tmp_path / "agent-memory.json"
+    memory_path.symlink_to(target_path)
+
+    try:
+        load_runtime_session_memory(str(memory_path), max_turns=12)
+    except ValueError as exc:
+        assert "session memory file must not be a symlink" in str(exc)
+    else:
+        raise AssertionError("symlink session memory file was loaded")
+
+
 def test_cli_session_memory_redacts_secret_like_text_before_persisting(tmp_path):
     from kagent.cli.memory import save_runtime_session_memory
 

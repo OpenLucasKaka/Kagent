@@ -51,8 +51,9 @@ def _runtime_trace():
                 "output": {
                     "changed_files": [
                         {
-                            "path": "docs/plan.md",
-                            "operation": "update",
+                            "path": "docs/final-plan.md",
+                            "previous_path": "docs/plan.md",
+                            "operation": "move",
                             "bytes": 22,
                             "sha256": "a" * 64,
                         }
@@ -99,8 +100,9 @@ def test_summarize_runtime_trace_builds_redacted_replay_summary():
         "changed_files": [
             {
                 "action_id": "step-2",
-                "path": "docs/plan.md",
-                "operation": "update",
+                "path": "docs/final-plan.md",
+                "previous_path": "docs/plan.md",
+                "operation": "move",
                 "bytes": "22",
             }
         ],

@@ -140,6 +140,7 @@ def _changed_files(observations: List[Any]) -> List[Dict[str, str]]:
                 {
                     "action_id": str(observation.get("action_id", "")),
                     "path": str(item.get("path", "")),
+                    "previous_path": str(item.get("previous_path", "")),
                     "operation": str(item.get("operation", "")),
                     "bytes": str(item.get("bytes", "")),
                 }

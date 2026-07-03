@@ -336,8 +336,9 @@ trace_path.write_text(
                     "output": {
                         "changed_files": [
                             {
-                                "path": "docs/plan.md",
-                                "operation": "update",
+                                "path": "docs/final-plan.md",
+                                "previous_path": "docs/plan.md",
+                                "operation": "move",
                                 "bytes": 22,
                                 "sha256": "b" * 64,
                             }
@@ -375,7 +376,9 @@ summary_text = open(
 summary = json.loads(summary_text)
 if summary["tool_counts"] != {"apply_patch": "1", "read_file": "1"}:
     raise SystemExit(f"unexpected trace replay tool counts: {summary}")
-if summary["changed_files"][0]["operation"] != "update":
+if summary["changed_files"][0]["operation"] != "move":
+    raise SystemExit(f"unexpected trace replay changed files: {summary}")
+if summary["changed_files"][0]["previous_path"] != "docs/plan.md":
     raise SystemExit(f"unexpected trace replay changed files: {summary}")
 if summary["progress_event_count"] != "4":
     raise SystemExit(f"unexpected trace replay progress count: {summary}")

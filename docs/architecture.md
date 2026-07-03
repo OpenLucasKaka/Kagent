@@ -337,7 +337,9 @@ The service intentionally keeps a narrow API:
   record the approver in `resumed_by_auth_subject`.
 - `/runtime/run trace persistence` uses the same configured trace directory as
   `/run`; successful persisted runtime responses include `trace_path`, and HTTP
-  responses expose it through `X-Trace-Path`.
+  responses expose it through `X-Trace-Path`. Runtime status and list surfaces
+  derive `trace_path` from the configured trace store and `run_id` instead of
+  trusting a `trace_path` field embedded in trace JSON.
 - Invalid JSON, missing goals, invalid config, and unknown routes become
   structured JSON failures with 4xx status codes. Failure responses include
   `status`, machine-readable `error_code`, and human-readable `error` fields.

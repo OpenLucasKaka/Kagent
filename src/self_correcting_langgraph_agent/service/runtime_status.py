@@ -414,10 +414,7 @@ def runtime_status_summary(
         "metadata": _trace_metadata(trace),
         "metadata_keys": _trace_metadata_keys(trace),
         "tags": _trace_tags(trace),
-        "trace_path": str(
-            trace.get("trace_path")
-            or Path(trace_dir) / f"{safe_trace_file_stem(run_id)}.json"
-        ),
+        "trace_path": _runtime_trace_path(trace, trace_dir, run_id),
         "iteration_count": _runtime_iteration_count(trace),
         "max_iterations": str(trace.get("max_iterations", "")),
         "iteration_budget_remaining": _runtime_iteration_budget_remaining(trace),
@@ -1125,10 +1122,7 @@ def _runtime_trace_path(
     trace_dir: str,
     requested_run_id: str,
 ) -> str:
-    return str(
-        trace.get("trace_path")
-        or Path(trace_dir) / f"{safe_trace_file_stem(requested_run_id)}.json"
-    )
+    return str(Path(trace_dir) / f"{safe_trace_file_stem(requested_run_id)}.json")
 
 
 def _trace_file_sort_key(path: Path) -> tuple[int, str]:

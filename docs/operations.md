@@ -399,6 +399,9 @@ trace files include `trace_type: "codex_runtime"`. `GET /runtime/runs`,
 `GET /runtime/runs/{run_id}`, and `POST /runtime/resume` require that marker
 and treat other JSON trace files as not found, which keeps older deterministic
 `/run` artifacts from appearing in runtime dashboards or approval workflows.
+Runtime status and list responses derive `trace_path` from the configured trace
+store path and `run_id`; they do not trust a `trace_path` value embedded inside
+the trace JSON.
 `GET /runtime/runs` skips unreadable trace files so one corrupted artifact does
 not break dashboards; direct status or resume requests for an unreadable trace
 return `trace_read_failed`.

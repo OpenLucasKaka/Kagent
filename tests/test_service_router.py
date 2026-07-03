@@ -2114,6 +2114,29 @@ def test_service_router_runtime_status_reports_persisted_run_summary(tmp_path):
     assert payload["tool_names"] == ["http_request"]
 
 
+def test_service_router_runtime_status_derives_trace_path_from_store(tmp_path):
+    persist_trace(
+        {
+            "trace_type": "codex_runtime",
+            "run_id": "forged-trace-path",
+            "status": "done",
+            "goal": "inspect path",
+            "trace_path": "/tmp/forged/outside.json",
+        },
+        str(tmp_path),
+    )
+
+    status_code, payload = service_router.handle_request(
+        "GET",
+        "/runtime/runs/forged-trace-path",
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+
+    assert status_code == 200
+    assert payload["trace_path"] == str(tmp_path / "forged-trace-path.json")
+
+
 def test_service_router_runtime_status_reports_final_answer_guardrail(tmp_path):
     persist_trace(
         {

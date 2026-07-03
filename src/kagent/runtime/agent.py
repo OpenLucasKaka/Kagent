@@ -315,6 +315,7 @@ def run_runtime_agent(
                 goal,
                 plan.final_answer,
             )
+            break
 
     result = {
         "trace_type": RUNTIME_TRACE_TYPE,

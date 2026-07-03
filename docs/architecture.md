@@ -309,6 +309,9 @@ The service intentionally keeps a narrow API:
   become `invalid_plan` observations, allowing the next planner call to correct
   its own output while budget remains. A converged planner may return
   `final_answer`, which the runtime exposes as the top-level response `answer`.
+  When actions and `final_answer` appear in the same valid plan, the runtime
+  executes the actions once and stops after successful execution, preserving the
+  remaining iteration budget and preventing duplicate side effects.
   When a terminal tool failure or planner failure exhausts the iteration
   budget, the final failed observation's `error_code` and `error` are promoted
   to the run top level so clients and status summaries do not need to inspect

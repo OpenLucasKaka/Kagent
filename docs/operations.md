@@ -331,7 +331,10 @@ planner output to each tool result. They also include `iteration_count`,
 `max_iterations`, and `iteration_budget_remaining` so dashboards can alert on
 runs that repeatedly spend most of their iteration budget. When a planner
 returns `final_answer`, the runtime also returns that value as top-level
-`answer` for clients that only need the final result.
+`answer` for clients that only need the final result. If a planner returns
+actions and `final_answer` together, the runtime executes those actions once
+and stops after they all succeed instead of spending the remaining iteration
+budget on duplicate tool calls.
 Tool input or execution failures are kept as observations and can drive another
 planner iteration while `max_iterations` budget remains. For deterministic
 replay of these correction loops over HTTP, send `plan_sequence` as an ordered

@@ -262,6 +262,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "blocking failures" in runbook
     assert "plans" in runbook
     assert "final_answer" in runbook
+    assert "duplicate tool calls" in runbook
     assert "llm_provider" in runbook
     assert "minLength" in runbook
     assert "maxLength" in runbook

@@ -770,6 +770,24 @@ def test_runtime_agent_returns_final_answer_from_converged_plan():
     assert result["plan"] == {"actions": [], "final_answer": "captured hello"}
 
 
+def test_runtime_agent_stops_after_successful_actions_with_final_answer():
+    provider = FakeLLMProvider(
+        '{"actions":[{"id":"step-1","tool":"note",'
+        '"input":{"text":"hello"},"reason":"capture"}],'
+        '"final_answer":"captured hello"}'
+    )
+
+    result = run_runtime_agent("capture hello", provider=provider, max_iterations=3)
+
+    assert result["status"] == "done"
+    assert result["answer"] == "captured hello"
+    assert result["iteration_count"] == "1"
+    assert result["iteration_budget_remaining"] == "2"
+    assert len(provider.calls) == 1
+    assert len(result["plans"]) == 1
+    assert len(result["observations"]) == 1
+
+
 def test_runtime_agent_normalizes_model_identity_answer():
     provider = FakeLLMProvider(
         '{"actions":[],"final_answer":"我是通义千问（Qwen），由阿里云研发。"}'

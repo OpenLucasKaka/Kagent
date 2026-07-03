@@ -81,6 +81,24 @@ def test_read_file_tool_rejects_path_traversal(tmp_path, monkeypatch):
     assert "path must stay inside the workspace" in observation.error
 
 
+def test_read_file_tool_rejects_symlink_paths(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "target.md"
+    target.write_text("safe target\n", encoding="utf-8")
+    (tmp_path / "target-link.md").symlink_to(target)
+
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "read_file",
+        {"path": "target-link.md"},
+        action_id="step-1",
+    )
+
+    assert observation.status == "failed"
+    assert observation.error_code == "invalid_tool_input"
+    assert observation.error == "path must not be a symlink"
+
+
 def test_list_files_tool_lists_workspace_entries(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "docs").mkdir()
@@ -338,6 +356,34 @@ def test_apply_patch_tool_rejects_path_traversal(tmp_path, monkeypatch):
     assert observation.error_code == "invalid_tool_input"
     assert "path must stay inside the workspace" in observation.error
     assert not (tmp_path.parent / "outside.md").exists()
+
+
+def test_apply_patch_tool_rejects_update_through_symlink(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "target.md"
+    target.write_text("old line\n", encoding="utf-8")
+    (tmp_path / "target-link.md").symlink_to(target)
+
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "apply_patch",
+        {
+            "patch": (
+                "*** Begin Patch\n"
+                "*** Update File: target-link.md\n"
+                "@@\n"
+                "-old line\n"
+                "+new line\n"
+                "*** End Patch\n"
+            )
+        },
+        action_id="step-1",
+    )
+
+    assert observation.status == "failed"
+    assert observation.error_code == "invalid_tool_input"
+    assert observation.error == "path must not be a symlink"
+    assert target.read_text(encoding="utf-8") == "old line\n"
 
 
 def test_apply_patch_tool_rejects_overwriting_existing_file(tmp_path, monkeypatch):

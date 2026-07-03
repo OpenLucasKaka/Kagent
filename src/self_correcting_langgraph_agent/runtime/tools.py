@@ -1065,6 +1065,7 @@ def _resolve_workspace_relative_path(workspace_root: Path, relative_path: str) -
         raise ValueError("path must stay inside the workspace")
     if any(part in {"", ".", ".."} for part in candidate_path.parts):
         raise ValueError("path must stay inside the workspace")
+    _reject_symlink_path_parts(workspace_root, candidate_path)
     normalized_path = os.path.normpath(relative_path)
     target = (workspace_root / normalized_path).resolve()
     try:
@@ -1072,6 +1073,16 @@ def _resolve_workspace_relative_path(workspace_root: Path, relative_path: str) -
     except ValueError as exc:
         raise ValueError("path must stay inside the workspace") from exc
     return target
+
+
+def _reject_symlink_path_parts(workspace_root: Path, candidate_path: Path) -> None:
+    current = workspace_root
+    for part in candidate_path.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("path must not be a symlink")
+        if not current.exists():
+            return
 
 
 def _http_request(input_payload: Dict[str, Any]) -> Dict[str, Any]:

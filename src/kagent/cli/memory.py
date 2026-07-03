@@ -40,6 +40,7 @@ def load_runtime_session_memory(path: str, *, max_turns: int) -> list[dict[str, 
     memory_path = Path(path)
     try:
         _require_owner_only_memory_file(memory_path)
+        _reject_symlink_memory_path_parts(memory_path)
         payload = json.loads(memory_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
@@ -55,6 +56,7 @@ def save_runtime_session_memory(path: str, turns: list[dict[str, str]]) -> None:
     if not path:
         return
     memory_path = Path(path)
+    _reject_symlink_memory_path_parts(memory_path)
     output_dir = memory_path.parent
     _ensure_owner_only_memory_dir(output_dir)
     payload = {
@@ -134,3 +136,9 @@ def _require_owner_only_memory_file(path: Path) -> None:
 def _ensure_owner_only_memory_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     path.chmod(0o700)
+
+
+def _reject_symlink_memory_path_parts(path: Path) -> None:
+    parent = path.parent
+    if parent.exists() and parent.is_symlink():
+        raise ValueError("session memory path must not contain symlinks")

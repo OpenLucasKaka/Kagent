@@ -232,6 +232,27 @@ if grep "Traceback" /tmp/kagent-session-memory-symlink.stderr >/dev/null; then
     echo "symlink session memory unexpectedly emitted traceback" >&2
     exit 1
 fi
+rm -rf /tmp/kagent-session-memory-parent-target /tmp/kagent-session-memory-parent-link
+mkdir -p /tmp/kagent-session-memory-parent-target
+chmod 0700 /tmp/kagent-session-memory-parent-target
+ln -s /tmp/kagent-session-memory-parent-target /tmp/kagent-session-memory-parent-link
+if printf '我是卡卡\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
+    --runtime \
+    --interactive \
+    --max-iterations 1 \
+    --runtime-plan '{"actions":[],"final_answer":"你好，卡卡。"}' \
+    --session-memory /tmp/kagent-session-memory-parent-link/session-memory.json \
+    >/tmp/kagent-session-memory-parent-symlink.stdout \
+    2>/tmp/kagent-session-memory-parent-symlink.stderr; then
+    echo "interactive runtime unexpectedly used symlink session memory parent" >&2
+    exit 1
+fi
+grep "session memory path must not contain symlinks" \
+    /tmp/kagent-session-memory-parent-symlink.stderr >/dev/null
+if grep "Traceback" /tmp/kagent-session-memory-parent-symlink.stderr >/dev/null; then
+    echo "symlink session memory parent unexpectedly emitted traceback" >&2
+    exit 1
+fi
 PYTHONWARNINGS=ignore .venv/bin/python - <<'PY'
 import io
 import sys

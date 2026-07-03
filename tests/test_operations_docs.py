@@ -36,9 +36,11 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "owner-only" in runbook
     assert "parent directories are created or tightened" in runbook
     assert "symlink memory files" in runbook
+    assert "symlink parent directories" in runbook
     assert "group or world" in runbook
     assert "rejected before parsing" in runbook
-    assert "not sent back to the model" in runbook
+    assert "not sent back to the" in runbook
+    assert "model or preserved" in runbook
     assert "progress_event_count" in runbook
     assert "exclude tool inputs" in runbook
     assert "--runtime-only" in runbook

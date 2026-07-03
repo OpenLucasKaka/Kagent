@@ -191,6 +191,9 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "interactive runtime unexpectedly loaded symlink session memory" in run_checks
     assert "session memory file must not be a symlink" in run_checks
     assert "symlink session memory unexpectedly emitted traceback" in run_checks
+    assert "interactive runtime unexpectedly used symlink session memory parent" in run_checks
+    assert "session memory path must not contain symlinks" in run_checks
+    assert "symlink session memory parent unexpectedly emitted traceback" in run_checks
     assert "interactive memory leaked API key" in run_checks
     assert "interactive memory leaked bearer token" in run_checks
     assert "interactive memory leaked URL credentials" in run_checks

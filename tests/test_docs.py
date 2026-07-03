@@ -161,6 +161,7 @@ def test_readme_documents_console_script_entrypoints():
     assert "owner-only on read and write" in readme
     assert "0700" in readme
     assert "rejects symlink memory files" in readme
+    assert "parent directories" in readme
     assert "before reusing memory" in readme
     assert "writing it to disk" in readme
     assert "progress_event_count" in readme

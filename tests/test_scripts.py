@@ -184,6 +184,9 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "--session-memory /tmp/kagent-session-memory.json" in run_checks
     assert "/tmp/kagent-session-memory-smoke.json" in run_checks
     assert "unexpected session memory file mode" in run_checks
+    assert "interactive runtime unexpectedly loaded unsafe session memory" in run_checks
+    assert "session memory file must be owner-only" in run_checks
+    assert "unsafe session memory unexpectedly emitted traceback" in run_checks
 
 
 def test_run_checks_starts_real_service_smoke():

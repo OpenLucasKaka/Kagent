@@ -39,6 +39,7 @@ def load_runtime_session_memory(path: str, *, max_turns: int) -> list[dict[str, 
         return []
     memory_path = Path(path)
     try:
+        _require_owner_only_memory_file(memory_path)
         payload = json.loads(memory_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
@@ -118,3 +119,9 @@ def _redact_session_memory_text(text: str) -> str:
     redacted = _API_KEY_PATTERN.sub("[REDACTED_API_KEY]", text)
     redacted = _BEARER_TOKEN_PATTERN.sub(r"\1[REDACTED_TOKEN]", redacted)
     return _URL_CREDENTIAL_PATTERN.sub(r"\1[REDACTED_CREDENTIALS]@", redacted)
+
+
+def _require_owner_only_memory_file(path: Path) -> None:
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise ValueError("session memory file must be owner-only (0600)")

@@ -185,6 +185,25 @@ if memory["turns"] != [{"user": "我是卡卡", "assistant": "你好，卡卡。
 if mode != 0o600:
     raise SystemExit(f"unexpected session memory file mode: {oct(mode)}")
 PY
+chmod 0644 /tmp/kagent-session-memory.json
+if printf '我是谁\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
+    --runtime \
+    --interactive \
+    --max-iterations 1 \
+    --runtime-plan '{"actions":[],"final_answer":"你是卡卡。"}' \
+    --session-memory /tmp/kagent-session-memory.json \
+    >/tmp/kagent-session-memory-unsafe.stdout \
+    2>/tmp/kagent-session-memory-unsafe.stderr; then
+    echo "interactive runtime unexpectedly loaded unsafe session memory" >&2
+    exit 1
+fi
+grep "session memory file must be owner-only" \
+    /tmp/kagent-session-memory-unsafe.stderr >/dev/null
+if grep "Traceback" /tmp/kagent-session-memory-unsafe.stderr >/dev/null; then
+    echo "unsafe session memory unexpectedly emitted traceback" >&2
+    exit 1
+fi
+chmod 0600 /tmp/kagent-session-memory.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --fail-on-failure >/tmp/kagent-eval.json
 PYTHONWARNINGS=ignore .venv/bin/kagent-eval --list-cases >/tmp/kagent-entrypoint-eval-cases.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --list-cases >/tmp/kagent-eval-cases.json

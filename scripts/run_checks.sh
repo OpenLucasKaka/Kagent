@@ -11,6 +11,9 @@ trap cleanup_local_build_artifacts EXIT
 PYTHONWARNINGS=ignore .venv/bin/python -m pip install -e '.[dev]' >/tmp/kagent-install.log
 PYTHONWARNINGS=ignore .venv/bin/python -m pytest
 PYTHONWARNINGS=ignore .venv/bin/python -m ruff check src tests
+if command -v npm >/dev/null 2>&1; then
+    npm run check >/tmp/kagent-npm-check.log
+fi
 rm -rf /tmp/kagent-pycache
 PYTHONPYCACHEPREFIX=/tmp/kagent-pycache PYTHONWARNINGS=ignore .venv/bin/python -m compileall -q src tests
 PYTHONWARNINGS=ignore .venv/bin/kagent --version >/tmp/kagent-entrypoint-version.json

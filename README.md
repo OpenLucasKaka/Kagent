@@ -15,6 +15,39 @@ operator output, and redacted production evidence.
 
 ## Quick Start
 
+Codex-style npm install:
+
+```sh
+npm install -g github:OpenLucasKaka/Kagent
+kagent
+```
+
+The first `kagent` run prepares a private Python runtime under your user cache,
+installs Kagent there, and then opens the terminal agent. Set provider
+configuration in your shell or secret manager before using the LLM-backed
+runtime:
+
+```sh
+export KAGENT_LLM_BASE_URL='https://your-openai-compatible-endpoint/v1'
+export KAGENT_LLM_API_KEY='your-api-key'
+export KAGENT_LLM_MODEL='qwen3.5-122b-a10b'
+kagent
+```
+
+One-shot runs use the same command:
+
+```sh
+kagent "draft an internal rollout checklist"
+```
+
+Start the local HTTP service after npm installation:
+
+```sh
+kagent-serve --host 127.0.0.1 --port 8000
+```
+
+Local source checkout:
+
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'

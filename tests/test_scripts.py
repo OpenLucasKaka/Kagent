@@ -178,6 +178,7 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "kagent-eval --list-cases" in run_checks
     assert "kagent-metrics" in run_checks
     assert "kagent-serve --help" in run_checks
+    assert "npm run check" in run_checks
     assert "--version" in run_checks
     assert "--plan" in run_checks
     assert "--deterministic" in run_checks

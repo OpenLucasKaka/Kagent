@@ -954,6 +954,75 @@ def test_open_url_tool_rejects_secret_like_url_fragment():
     assert observation.output == {}
 
 
+def test_open_app_tool_opens_local_app_by_name(monkeypatch):
+    calls = []
+
+    class FakeSubprocess:
+        CalledProcessError = RuntimeError
+
+        @staticmethod
+        def run(args, *, check, capture_output, text):
+            calls.append(
+                {
+                    "args": args,
+                    "check": check,
+                    "capture_output": capture_output,
+                    "text": text,
+                }
+            )
+
+    monkeypatch.setattr(runtime_tools, "subprocess", FakeSubprocess, raising=False)
+
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "open_app",
+        {"application": " Google   Chrome "},
+        action_id="step-1",
+    )
+
+    assert observation.status == "ok"
+    assert observation.tool == "open_app"
+    assert observation.output == {
+        "application": "Google Chrome",
+        "opened": True,
+        "command": "open -a",
+    }
+    assert calls == [
+        {
+            "args": ["open", "-a", "Google Chrome"],
+            "check": True,
+            "capture_output": True,
+            "text": True,
+        }
+    ]
+
+
+def test_open_app_tool_rejects_path_like_application_names():
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "open_app",
+        {"application": "/Applications/Google Chrome.app"},
+        action_id="step-1",
+    )
+
+    assert observation.status == "failed"
+    assert observation.error_code == "invalid_tool_input"
+    assert observation.error == "application must be an app name, not a path"
+
+
+def test_open_app_tool_rejects_shell_like_application_names():
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "open_app",
+        {"application": "Chrome; echo hi"},
+        action_id="step-1",
+    )
+
+    assert observation.status == "failed"
+    assert observation.error_code == "invalid_tool_input"
+    assert observation.error == "application contains unsupported characters"
+
+
 def test_runtime_tool_observation_includes_timing_metadata():
     observation = execute_runtime_tool(
         default_runtime_tools(),
@@ -1027,6 +1096,14 @@ def test_runtime_tool_specs_expose_input_schemas_for_planning():
         "properties": {"url": {"type": "string", "minLength": 1, "maxLength": 2048}},
         "additionalProperties": False,
     }
+    assert tools["open_app"].input_schema == {
+        "type": "object",
+        "required": ["application"],
+        "properties": {
+            "application": {"type": "string", "minLength": 1, "maxLength": 120}
+        },
+        "additionalProperties": False,
+    }
     assert tools["transform_text"].input_schema["required"] == ["text", "mode"]
     assert tools["transform_text"].input_schema["properties"]["mode"]["enum"] == [
         "uppercase",
@@ -1084,6 +1161,16 @@ def test_runtime_tool_specs_expose_output_schemas_for_planning_and_clients():
             "url": {"type": "string"},
             "opened": {"type": "boolean"},
             "application": {"type": "string"},
+            "command": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+    assert tools["open_app"].output_schema == {
+        "type": "object",
+        "required": ["application", "opened", "command"],
+        "properties": {
+            "application": {"type": "string"},
+            "opened": {"type": "boolean"},
             "command": {"type": "string"},
         },
         "additionalProperties": False,
@@ -1325,6 +1412,7 @@ def test_registered_runtime_tool_metadata_includes_input_schemas():
         "http_request",
         "list_files",
         "note",
+        "open_app",
         "open_url",
         "read_file",
         "rubric_score",
@@ -1393,6 +1481,13 @@ def test_registered_runtime_tool_metadata_includes_input_schemas():
     assert by_name["note"]["approval_required_by_default"] == "false"
     assert by_name["note"]["input_schema"]["required"] == ["text"]
     assert by_name["note"]["output_schema"]["required"] == ["text"]
+    assert by_name["open_app"]["approval_required_by_default"] == "false"
+    assert by_name["open_app"]["input_schema"]["required"] == ["application"]
+    assert by_name["open_app"]["output_schema"]["required"] == [
+        "application",
+        "opened",
+        "command",
+    ]
     assert by_name["open_url"]["approval_required_by_default"] == "false"
     assert by_name["open_url"]["input_schema"]["required"] == ["url"]
     assert by_name["open_url"]["output_schema"]["required"] == [
@@ -1727,6 +1822,12 @@ def test_default_policy_allows_task_list_tool():
 
 def test_default_policy_allows_open_url_tool():
     decision = RuntimePolicy().authorize("open_url", {"url": "https://github.com"})
+
+    assert decision.status == "allowed"
+
+
+def test_default_policy_allows_open_app_tool():
+    decision = RuntimePolicy().authorize("open_app", {"application": "Google Chrome"})
 
     assert decision.status == "allowed"
 

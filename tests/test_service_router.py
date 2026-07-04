@@ -190,6 +190,7 @@ def test_service_router_runtime_policy_reports_admin_audit_view_without_tokens()
         {"name": "http_request", "allowed": "false", "approval_required": "true"},
         {"name": "list_files", "allowed": "false", "approval_required": "true"},
         {"name": "note", "allowed": "true", "approval_required": "false"},
+        {"name": "open_app", "allowed": "false", "approval_required": "true"},
         {"name": "open_url", "allowed": "false", "approval_required": "true"},
         {"name": "read_file", "allowed": "false", "approval_required": "true"},
         {"name": "rubric_score", "allowed": "false", "approval_required": "true"},
@@ -248,6 +249,7 @@ def test_service_router_runtime_policy_scopes_subject_audit_view():
         {"name": "http_request", "allowed": "false", "approval_required": "true"},
         {"name": "list_files", "allowed": "false", "approval_required": "true"},
         {"name": "note", "allowed": "true", "approval_required": "false"},
+        {"name": "open_app", "allowed": "false", "approval_required": "true"},
         {"name": "open_url", "allowed": "false", "approval_required": "true"},
         {"name": "read_file", "allowed": "false", "approval_required": "true"},
         {"name": "rubric_score", "allowed": "false", "approval_required": "true"},
@@ -522,6 +524,13 @@ def test_service_router_reports_codex_style_runtime_tool_metadata():
     ]
     assert by_name["note"]["input_schema"]["required"] == ["text"]
     assert by_name["note"]["output_schema"]["required"] == ["text"]
+    assert by_name["open_app"]["approval_required_by_default"] == "false"
+    assert by_name["open_app"]["input_schema"]["required"] == ["application"]
+    assert by_name["open_app"]["output_schema"]["required"] == [
+        "application",
+        "opened",
+        "command",
+    ]
     assert by_name["open_url"]["approval_required_by_default"] == "false"
     assert by_name["open_url"]["input_schema"]["required"] == ["url"]
     assert by_name["open_url"]["output_schema"]["required"] == [

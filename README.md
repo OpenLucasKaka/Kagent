@@ -114,6 +114,7 @@ The runtime currently includes tools for:
 - task lists, rubrics, text transforms, and decision matrices;
 - approved HTTP GET requests with SSRF protections;
 - opening URLs in the local browser;
+- opening local macOS applications by app name;
 - approved bounded local shell commands for internal CLI checks, with
   destructive, secret-exposing, and network shell commands rejected;
 - creating, updating, moving, and deleting workspace files through an audited

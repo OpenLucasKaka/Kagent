@@ -82,6 +82,8 @@ _SHELL_NETWORK_COMMAND_PATTERNS = (
 _SHELL_PIPE_TO_SHELL_PATTERN = re.compile(
     r"\|\s*(?:sh|bash|zsh|python[0-9.]*|node|ruby)\b"
 )
+_APP_NAME_MAX_LENGTH = 120
+_APP_NAME_ALLOWED_PATTERN = re.compile(r"^[\w .+()#&-]+$", re.UNICODE)
 
 
 @dataclass(frozen=True)
@@ -310,6 +312,17 @@ _OPEN_URL_OUTPUT_SCHEMA = {
         "url": {"type": "string"},
         "opened": {"type": "boolean"},
         "application": {"type": "string"},
+        "command": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+_OPEN_APP_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["application", "opened", "command"],
+    "properties": {
+        "application": {"type": "string"},
+        "opened": {"type": "boolean"},
         "command": {"type": "string"},
     },
     "additionalProperties": False,
@@ -587,6 +600,29 @@ def default_runtime_tools() -> Dict[str, RuntimeToolSpec]:
                 "additionalProperties": False,
             },
             output_schema=_OPEN_URL_OUTPUT_SCHEMA,
+        ),
+        "open_app": RuntimeToolSpec(
+            name="open_app",
+            description=(
+                "Open a local macOS application by application name. Use this "
+                "when the user asks to open an installed app such as Chrome, "
+                "Cursor, WeChat, Feishu, or Terminal. The input is an app name, "
+                "not a path or shell command."
+            ),
+            handler=_open_app,
+            input_schema={
+                "type": "object",
+                "required": ["application"],
+                "properties": {
+                    "application": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _APP_NAME_MAX_LENGTH,
+                    },
+                },
+                "additionalProperties": False,
+            },
+            output_schema=_OPEN_APP_OUTPUT_SCHEMA,
         ),
         "read_file": RuntimeToolSpec(
             name="read_file",
@@ -1408,6 +1444,41 @@ def _open_url(input_payload: Dict[str, Any]) -> Dict[str, Any]:
             last_error = exc
             continue
     raise ValueError("open url failed") from last_error
+
+
+def _open_app(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    application = input_payload.get("application")
+    if not isinstance(application, str) or not application.strip():
+        raise ValueError("application must be a non-empty string")
+    normalized_application = " ".join(application.strip().split())
+    _validate_open_app_name(normalized_application)
+    try:
+        subprocess.run(
+            ["open", "-a", normalized_application],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("open app failed") from exc
+    return {
+        "application": normalized_application,
+        "opened": True,
+        "command": "open -a",
+    }
+
+
+def _validate_open_app_name(application: str) -> None:
+    if len(application) > _APP_NAME_MAX_LENGTH:
+        raise ValueError("application name is too long")
+    if "\x00" in application or "\n" in application or "\r" in application:
+        raise ValueError("application must be a single line")
+    if application.startswith("-"):
+        raise ValueError("application must not start with -")
+    if "/" in application or "\\" in application:
+        raise ValueError("application must be an app name, not a path")
+    if not _APP_NAME_ALLOWED_PATTERN.match(application):
+        raise ValueError("application contains unsupported characters")
 
 
 def _validate_open_url(url: str) -> None:

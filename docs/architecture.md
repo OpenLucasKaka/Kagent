@@ -57,7 +57,7 @@ approval records.
 
 `runtime/tools.py` owns the generic runtime tool registry. Phase 1 includes
 safe local tools such as `artifact`, `decision_matrix`, `note`,
-`open_url`, `rubric_score`, `task_list`, and `transform_text`, plus the
+`open_app`, `open_url`, `rubric_score`, `task_list`, and `transform_text`, plus the
 policy-gated `http_request` tool for approved HTTP GET fetches and
 `shell_command` for bounded non-interactive local CLI checks; later domain tools
 can register behind the same metadata, input, output, and error-code contract.
@@ -96,9 +96,11 @@ tokens, passwords, or userinfo cannot enter observations or traces through URL
 authority fields. Runtime result redaction also removes secret-like plain-text
 values such as API keys and bearer tokens from plans, observations, progress
 events, shell command output, CLI output, HTTP responses, and persisted traces.
-`open_url` is intentionally separate from `http_request`: it opens `http://`
-and `https://` URLs through Google Chrome automation first, with macOS `open`
-fallbacks, and does not fetch page content into the runtime trace.
+`open_app` opens installed macOS applications by application name only, using
+`open -a` without shell expansion or path inputs. `open_url` is intentionally
+separate from `http_request`: it opens `http://` and `https://` URLs through
+Google Chrome automation first, with macOS `open` fallbacks, and does not fetch
+page content into the runtime trace.
 Workspace file tools keep the same local boundary: `read_file` and
 `apply_patch` resolve paths inside the current workspace and reject symlink
 paths, while `list_files` skips symlink entries so external file metadata

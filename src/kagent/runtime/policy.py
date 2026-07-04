@@ -20,6 +20,7 @@ class RuntimePolicy:
                 "decision_matrix",
                 "list_files",
                 "note",
+                "open_app",
                 "open_url",
                 "read_file",
                 "rubric_score",

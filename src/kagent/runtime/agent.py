@@ -45,6 +45,7 @@ Use only tools that are available to you.
     f"Keep final_answer at most {MAX_PLAN_FINAL_ANSWER_CHARS} characters; "
     "use artifact for long-form deliverables.\n"
     "Use optional depends_on with prior action IDs when one action depends on earlier output.\n"
+    "Use open_app to open a local macOS application by application name. "
     "Use open_url to open a browser page; use http_request only to fetch URL "
     "content as an observation.\n"
     "Use list_files and read_file to observe workspace state before changing "

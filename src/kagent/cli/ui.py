@@ -371,6 +371,14 @@ def _summarize_runtime_output_for_tool(tool: str, output: dict) -> str:
             ],
             " · ",
         )
+    if normalized_tool == "open_app":
+        return join_non_empty(
+            [
+                _short_runtime_value(output.get("application", "")),
+                "opened" if output.get("opened") is True else "",
+            ],
+            " · ",
+        )
     if normalized_tool == "http_request":
         return join_non_empty(
             [

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from os import environ
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
+
+DEFAULT_LLM_MODEL = "qwen3.5-122b-a10b"
+PROVIDER_CONFIG_SCHEMA_VERSION = "1"
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,29 @@ class LLMProviderConfig:
             ),
         )
 
+    @classmethod
+    def from_sources(
+        cls,
+        env: Optional[Mapping[str, str]] = None,
+        config_path: str = "",
+    ) -> "LLMProviderConfig":
+        source = env if env is not None else environ
+        file_config = load_provider_config(config_path)
+        merged = {
+            "KAGENT_LLM_BASE_URL": file_config.base_url,
+            "KAGENT_LLM_API_KEY": file_config.api_key,
+            "KAGENT_LLM_MODEL": file_config.model,
+            "KAGENT_LLM_TIMEOUT_SECONDS": str(file_config.timeout_seconds),
+            "KAGENT_LLM_MAX_RETRIES": str(file_config.max_retries),
+            "KAGENT_LLM_RETRY_BACKOFF_SECONDS": str(
+                file_config.retry_backoff_seconds
+            ),
+        }
+        for key, value in source.items():
+            if key.startswith("KAGENT_LLM_") and value != "":
+                merged[key] = value
+        return cls.from_env(merged)
+
     def redacted_snapshot(self) -> Dict[str, str]:
         provider = "openai_compatible" if self.base_url and self.model else "unconfigured"
         return {
@@ -62,6 +91,99 @@ class LLMProviderConfig:
             raise ValueError("max_retries must be non-negative")
         if self.retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds must be non-negative")
+
+
+def default_provider_config_path(env: Optional[Mapping[str, str]] = None) -> str:
+    source = env if env is not None else environ
+    if source.get("KAGENT_LLM_CONFIG_PATH"):
+        return source["KAGENT_LLM_CONFIG_PATH"]
+    config_home = source.get("XDG_CONFIG_HOME")
+    if config_home:
+        return str(Path(config_home) / "kagent" / "provider.json")
+    return str(Path.home() / ".config" / "kagent" / "provider.json")
+
+
+def load_provider_config(path: str = "") -> LLMProviderConfig:
+    config_path = Path(path or default_provider_config_path())
+    if not config_path.exists():
+        return LLMProviderConfig()
+    _validate_provider_config_path_for_read(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("provider config must be a JSON object")
+    if str(payload.get("schema_version", "")) != PROVIDER_CONFIG_SCHEMA_VERSION:
+        raise ValueError("provider config schema_version is unsupported")
+    provider = str(payload.get("provider", "openai_compatible"))
+    if provider != "openai_compatible":
+        raise ValueError("provider config provider is unsupported")
+    return LLMProviderConfig(
+        base_url=str(payload.get("base_url", "")),
+        api_key=str(payload.get("api_key", "")),
+        model=str(payload.get("model", "")),
+        timeout_seconds=float(
+            payload.get("timeout_seconds", LLMProviderConfig.timeout_seconds)
+        ),
+        max_retries=int(payload.get("max_retries", LLMProviderConfig.max_retries)),
+        retry_backoff_seconds=float(
+            payload.get(
+                "retry_backoff_seconds",
+                LLMProviderConfig.retry_backoff_seconds,
+            )
+        ),
+    )
+
+
+def save_provider_config(config: LLMProviderConfig, path: str = "") -> str:
+    config_path = Path(path or default_provider_config_path())
+    _validate_provider_config_path_for_write(config_path)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(config_path.parent, 0o700)
+    payload = {
+        "schema_version": PROVIDER_CONFIG_SCHEMA_VERSION,
+        "provider": "openai_compatible",
+        "base_url": config.base_url,
+        "api_key": config.api_key,
+        "model": config.model,
+        "timeout_seconds": config.timeout_seconds,
+        "max_retries": config.max_retries,
+        "retry_backoff_seconds": config.retry_backoff_seconds,
+    }
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(config_path, flags, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.chmod(config_path, 0o600)
+    return str(config_path)
+
+
+def _validate_provider_config_path_for_read(path: Path) -> None:
+    _reject_symlink_path(path)
+    mode = stat.S_IMODE(path.stat().st_mode)
+    if mode != 0o600:
+        raise ValueError("provider config file must be owner-only")
+
+
+def _validate_provider_config_path_for_write(path: Path) -> None:
+    _reject_symlink_path(path)
+    if path.parent.exists():
+        _reject_symlink_path(path.parent)
+        os.chmod(path.parent, 0o700)
+    if path.exists():
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode != 0o600:
+            raise ValueError("provider config file must be owner-only")
+
+
+def _reject_symlink_path(path: Path) -> None:
+    current = Path(path.anchor or ".")
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("provider config path must not contain symlinks")
 
 
 class FakeLLMProvider:

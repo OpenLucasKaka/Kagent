@@ -3,8 +3,11 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+export KAGENT_LLM_CONFIG_PATH=/tmp/kagent-run-checks-provider-config.json
+
 cleanup_local_build_artifacts() {
     rm -rf build dist *.egg-info src/*.egg-info
+    rm -f "$KAGENT_LLM_CONFIG_PATH"
 }
 trap cleanup_local_build_artifacts EXIT
 

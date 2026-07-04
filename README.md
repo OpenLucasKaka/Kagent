@@ -23,16 +23,21 @@ kagent
 ```
 
 The first `kagent` run prepares a private Python runtime under your user cache,
-installs Kagent there, and then opens the terminal agent. Set provider
-configuration in your shell or secret manager before using the LLM-backed
-runtime:
+installs Kagent there, and then opens the terminal agent. If no provider is
+configured yet, Kagent starts a first-time setup flow and asks for your
+OpenAI-compatible base URL, model, and API key. The local provider config is
+stored at `${XDG_CONFIG_HOME:-~/.config}/kagent/provider.json` with owner-only
+permissions.
+
+To reconfigure later:
 
 ```sh
-export KAGENT_LLM_BASE_URL='https://your-openai-compatible-endpoint/v1'
-export KAGENT_LLM_API_KEY='your-api-key'
-export KAGENT_LLM_MODEL='qwen3.5-122b-a10b'
-kagent
+kagent --configure
 ```
+
+Environment variables still override the local config for CI or temporary
+operator sessions: `KAGENT_LLM_BASE_URL`, `KAGENT_LLM_API_KEY`, and
+`KAGENT_LLM_MODEL`.
 
 One-shot runs use the same command:
 

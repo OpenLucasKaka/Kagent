@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import getpass
 import io
 import sys
 import warnings
@@ -129,6 +130,11 @@ def main() -> None:
         help="Print the package version as JSON.",
     )
     parser.add_argument(
+        "--configure",
+        action="store_true",
+        help="Configure the local OpenAI-compatible runtime provider.",
+    )
+    parser.add_argument(
         "--inject-wrong-answer",
         action="append",
         default=[],
@@ -180,6 +186,8 @@ def main() -> None:
         parser.error("--plan is not supported with --runtime")
     if args.interactive_json and not args.interactive:
         parser.error("--interactive-json requires --interactive")
+    if args.configure and args.goal is not None:
+        parser.error("--configure cannot be combined with a goal")
     if args.session_memory and not args.interactive:
         parser.error("--session-memory requires --interactive")
     if args.interactive and args.output:
@@ -221,9 +229,12 @@ def main() -> None:
             registered_tool_names,
         )
         from kagent.providers.llm import (
+            DEFAULT_LLM_MODEL,
             FakeLLMProvider,
             LLMProviderConfig,
             OpenAICompatibleProvider,
+            default_provider_config_path,
+            save_provider_config,
         )
         from kagent.runtime import run_runtime_agent
         from kagent.runtime.tools import (
@@ -256,6 +267,15 @@ def main() -> None:
             _emit_json_payload({"version": __version__}, args.output, parser)
             return
 
+        if args.configure:
+            _configure_runtime_provider_interactively(
+                LLMProviderConfig,
+                default_model=DEFAULT_LLM_MODEL,
+                default_config_path=default_provider_config_path,
+                save_config=save_provider_config,
+            )
+            return
+
         if args.interactive:
             try:
                 session_memory_path = _session_memory_path_from_args(
@@ -268,6 +288,10 @@ def main() -> None:
                         FakeLLMProvider,
                         OpenAICompatibleProvider,
                         LLMProviderConfig,
+                        interactive_setup=sys.stdin.isatty(),
+                        default_model=DEFAULT_LLM_MODEL,
+                        default_config_path=default_provider_config_path,
+                        save_config=save_provider_config,
                     )
                 )
                 _run_runtime_interactive(
@@ -303,6 +327,10 @@ def main() -> None:
                         FakeLLMProvider,
                         OpenAICompatibleProvider,
                         LLMProviderConfig,
+                        interactive_setup=sys.stdin.isatty(),
+                        default_model=DEFAULT_LLM_MODEL,
+                        default_config_path=default_provider_config_path,
+                        save_config=save_provider_config,
                     )
                 )
                 result = run_runtime_agent(
@@ -349,16 +377,35 @@ def _runtime_provider_from_args(
     FakeLLMProvider,
     OpenAICompatibleProvider,
     LLMProviderConfig,
+    *,
+    interactive_setup: bool = False,
+    default_model: str = "qwen3.5-122b-a10b",
+    default_config_path=None,
+    save_config=None,
 ):
     if args.runtime_plan:
         return FakeLLMProvider(args.runtime_plan)
-    config = LLMProviderConfig.from_env()
+    config = LLMProviderConfig.from_sources()
     missing = []
     if not config.base_url:
         missing.append("KAGENT_LLM_BASE_URL")
     if not config.model:
         missing.append("KAGENT_LLM_MODEL")
     if missing:
+        if interactive_setup and default_config_path is not None and save_config is not None:
+            config = _configure_runtime_provider_interactively(
+                LLMProviderConfig,
+                default_model=default_model,
+                default_config_path=default_config_path,
+                save_config=save_config,
+            )
+            missing = []
+            if not config.base_url:
+                missing.append("KAGENT_LLM_BASE_URL")
+            if not config.model:
+                missing.append("KAGENT_LLM_MODEL")
+            if not missing:
+                return OpenAICompatibleProvider(config)
         raise RuntimeProviderConfigError(_runtime_provider_config_message(missing))
     return OpenAICompatibleProvider(config)
 
@@ -377,12 +424,40 @@ def _runtime_provider_config_message(missing: list[str]) -> str:
     )
 
 
+def _configure_runtime_provider_interactively(
+    LLMProviderConfig,
+    *,
+    default_model: str,
+    default_config_path,
+    save_config,
+    input_fn=input,
+    secret_input_fn=getpass.getpass,
+) -> object:
+    prompt_stream = sys.__stderr__ or sys.stderr
+    config_path = default_config_path()
+    print("Kagent first-time setup", file=prompt_stream)
+    print(f"Provider config will be saved to: {config_path}", file=prompt_stream)
+    base_url = input_fn("Base URL: ").strip()
+    model = input_fn(f"Model [{default_model}]: ").strip() or default_model
+    api_key = secret_input_fn("API key: ").strip()
+    config = LLMProviderConfig(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+    )
+    saved_path = save_config(config)
+    print(f"Kagent provider config saved to {saved_path}", file=prompt_stream)
+    return config
+
+
 def _exit_runtime_provider_config_error(message: str) -> None:
     print(message, file=sys.__stderr__)
     raise SystemExit(2)
 
 
 def _apply_default_cli_mode(args: argparse.Namespace) -> None:
+    if getattr(args, "configure", False):
+        return
     if _uses_deterministic_graph(args):
         args.deterministic = True
         return
@@ -410,7 +485,13 @@ def _uses_deterministic_graph(args: argparse.Namespace) -> bool:
 
 
 def _is_introspection_command(args: argparse.Namespace) -> bool:
-    return bool(args.list_tools or args.list_faults or args.graph or args.version)
+    return bool(
+        args.list_tools
+        or args.list_faults
+        or args.graph
+        or args.version
+        or getattr(args, "configure", False)
+    )
 
 
 def _session_memory_path_from_args(

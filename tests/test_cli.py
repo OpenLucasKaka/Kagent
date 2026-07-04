@@ -588,11 +588,12 @@ def test_cli_can_run_codex_style_runtime_with_inline_plan():
     assert payload["observations"][0]["output"]["score_percent"] == 100.0
 
 
-def test_cli_missing_runtime_provider_config_prints_actionable_error_without_usage():
+def test_cli_missing_runtime_provider_config_prints_actionable_error_without_usage(tmp_path):
     env = os.environ.copy()
     env.pop("KAGENT_LLM_BASE_URL", None)
     env.pop("KAGENT_LLM_MODEL", None)
     env.pop("KAGENT_LLM_API_KEY", None)
+    env["KAGENT_LLM_CONFIG_PATH"] = str(tmp_path / "missing-provider.json")
 
     completed = subprocess.run(
         [
@@ -615,11 +616,12 @@ def test_cli_missing_runtime_provider_config_prints_actionable_error_without_usa
     assert "Traceback" not in completed.stderr
 
 
-def test_cli_missing_runtime_provider_config_for_goal_avoids_argparse_usage():
+def test_cli_missing_runtime_provider_config_for_goal_avoids_argparse_usage(tmp_path):
     env = os.environ.copy()
     env.pop("KAGENT_LLM_BASE_URL", None)
     env.pop("KAGENT_LLM_MODEL", None)
     env.pop("KAGENT_LLM_API_KEY", None)
+    env["KAGENT_LLM_CONFIG_PATH"] = str(tmp_path / "missing-provider.json")
 
     completed = subprocess.run(
         [
@@ -637,6 +639,50 @@ def test_cli_missing_runtime_provider_config_for_goal_avoids_argparse_usage():
     assert completed.stdout == ""
     assert "Kagent runtime provider is not configured." in completed.stderr
     assert "usage:" not in completed.stderr
+    assert "Traceback" not in completed.stderr
+
+
+def test_cli_provider_setup_collects_values_and_saves_config(tmp_path):
+    from kagent.cli.main import _configure_runtime_provider_interactively
+    from kagent.providers.llm import LLMProviderConfig
+
+    answers = iter(["https://llm.example/v1", ""])
+    saved_configs = []
+
+    def save_config(config):
+        saved_configs.append(config)
+        return str(tmp_path / "provider.json")
+
+    config = _configure_runtime_provider_interactively(
+        LLMProviderConfig,
+        default_model="default-model",
+        default_config_path=lambda: str(tmp_path / "provider.json"),
+        save_config=save_config,
+        input_fn=lambda _prompt: next(answers),
+        secret_input_fn=lambda _prompt: "secret-key",
+    )
+
+    assert config.base_url == "https://llm.example/v1"
+    assert config.model == "default-model"
+    assert config.api_key == "secret-key"
+    assert saved_configs == [config]
+
+
+def test_cli_configure_flag_rejects_goal_without_traceback():
+    completed = subprocess.run(
+        [
+            ".venv/bin/python",
+            "-m",
+            "kagent.cli",
+            "--configure",
+            "draft plan",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "--configure cannot be combined with a goal" in completed.stderr
     assert "Traceback" not in completed.stderr
 
 

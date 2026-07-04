@@ -39,7 +39,7 @@ def doctor_payload(
     llm_config: Optional[LLMProviderConfig] = None,
 ) -> Dict[str, Any]:
     active_config = config or ServiceConfig.from_env()
-    active_llm_config = llm_config or LLMProviderConfig.from_env()
+    active_llm_config = llm_config or LLMProviderConfig.from_sources()
     readiness = readiness_payload(active_config)
     policy = _policy_payload(
         active_config,

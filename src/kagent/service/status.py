@@ -95,7 +95,7 @@ def trace_permission_policy_snapshot() -> Dict[str, str]:
 
 
 def llm_provider_snapshot() -> Dict[str, str]:
-    return LLMProviderConfig.from_env().redacted_snapshot()
+    return LLMProviderConfig.from_sources().redacted_snapshot()
 
 
 def security_response_header_snapshot() -> Dict[str, str]:

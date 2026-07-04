@@ -115,7 +115,7 @@ def execute_runtime_run_request(
         )
     else:
         try:
-            provider = OpenAICompatibleProvider(LLMProviderConfig.from_env())
+            provider = OpenAICompatibleProvider(LLMProviderConfig.from_sources())
         except ValueError as exc:
             return 400, failure_payload(service_errors.INVALID_AGENT_CONFIG, str(exc))
     try:

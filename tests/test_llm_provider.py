@@ -1,11 +1,16 @@
 import io
+import stat
 import urllib.error
 
 from kagent.providers.llm import (
+    DEFAULT_LLM_MODEL,
     FakeLLMProvider,
     LLMProviderConfig,
     OpenAICompatibleProvider,
     SequentialFakeLLMProvider,
+    default_provider_config_path,
+    load_provider_config,
+    save_provider_config,
 )
 
 
@@ -50,6 +55,67 @@ def test_provider_config_defaults_to_unconfigured_runtime():
         "llm_max_retries": "2",
         "llm_retry_backoff_seconds": "0.25",
     }
+
+
+def test_provider_config_can_be_saved_loaded_and_overridden_by_env(tmp_path):
+    config_path = tmp_path / "provider.json"
+
+    saved_path = save_provider_config(
+        LLMProviderConfig(
+            base_url="https://stored.example/v1",
+            api_key="stored-key",
+            model=DEFAULT_LLM_MODEL,
+        ),
+        str(config_path),
+    )
+
+    loaded = load_provider_config(str(config_path))
+    merged = LLMProviderConfig.from_sources(
+        {
+            "KAGENT_LLM_BASE_URL": "https://env.example/v1",
+            "KAGENT_LLM_MODEL": "env-model",
+        },
+        config_path=str(config_path),
+    )
+
+    assert saved_path == str(config_path)
+    assert loaded.base_url == "https://stored.example/v1"
+    assert loaded.api_key == "stored-key"
+    assert loaded.model == DEFAULT_LLM_MODEL
+    assert merged.base_url == "https://env.example/v1"
+    assert merged.api_key == "stored-key"
+    assert merged.model == "env-model"
+    assert stat.S_IMODE(config_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+
+
+def test_default_provider_config_path_respects_xdg_and_explicit_override(tmp_path):
+    explicit = tmp_path / "explicit.json"
+
+    assert default_provider_config_path({"KAGENT_LLM_CONFIG_PATH": str(explicit)}) == str(
+        explicit
+    )
+    assert default_provider_config_path({"XDG_CONFIG_HOME": str(tmp_path)}) == str(
+        tmp_path / "kagent" / "provider.json"
+    )
+
+
+def test_provider_config_rejects_symlink_paths(tmp_path):
+    target = tmp_path / "target.json"
+    link = tmp_path / "provider-link.json"
+    target.write_text("{}", encoding="utf-8")
+    target.chmod(0o600)
+    link.symlink_to(target)
+
+    try:
+        save_provider_config(
+            LLMProviderConfig(base_url="https://llm.example/v1", model="agent"),
+            str(link),
+        )
+    except ValueError as exc:
+        assert "provider config path must not contain symlinks" in str(exc)
+    else:
+        raise AssertionError("provider config was saved through a symlink")
 
 
 def test_fake_llm_provider_returns_configured_text_response():

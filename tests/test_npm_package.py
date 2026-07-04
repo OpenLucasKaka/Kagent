@@ -34,7 +34,8 @@ def test_npm_runner_uses_cache_venv_and_env_forwarding():
 
     assert "KAGENT_NODE_VENV" in runner
     assert "KAGENT_PYTHON" in runner
-    assert "pip\", \"install\", \"-e\", root" in runner
+    assert '"pip", "install", root' in runner
+    assert '"-e", root' not in runner
     assert "env: process.env" in runner
 
 

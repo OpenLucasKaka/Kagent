@@ -128,8 +128,8 @@ function ensureVenv(root, version) {
     runChecked(python, ["-m", "venv", venvDir], { cwd: root });
   }
 
-  process.stderr.write("Kagent: installing Python package dependencies\n");
-  runChecked(pythonPath, ["-m", "pip", "install", "-e", root], { cwd: root });
+  process.stderr.write("Kagent: installing Python runtime package\n");
+  runChecked(pythonPath, ["-m", "pip", "install", root], { cwd: root });
   writeMarker(venvDir, expectedMarker);
   return venvDir;
 }

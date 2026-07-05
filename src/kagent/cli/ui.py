@@ -39,6 +39,8 @@ def runtime_interactive_help() -> str:
             "Kagent command menu",
             "",
             "Session",
+            "  /pwd       show working directory",
+            "  /cd PATH   change working directory",
             "  /status    show shell state",
             "  /tools     show available actions",
             "  /memory    review remembered turns",

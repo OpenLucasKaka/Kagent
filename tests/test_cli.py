@@ -1662,6 +1662,85 @@ def test_cli_interactive_runtime_can_show_registered_tools(monkeypatch, capsys):
     assert "input_schema" not in captured.out
 
 
+def test_cli_interactive_runtime_can_change_working_directory(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = [f"/cd {project_dir}\n", "/pwd\n", "创建文件\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+
+    def fake_run_runtime_agent(goal, **_kwargs):
+        calls.append({"goal": goal, "cwd": os.getcwd()})
+        return {"status": "done", "answer": "ok"}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    captured = capsys.readouterr()
+    assert calls == [{"goal": "创建文件", "cwd": str(project_dir)}]
+    assert f"cwd · {project_dir}" in captured.out
+
+
+def test_cli_interactive_runtime_reports_invalid_cd_without_model_call(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    missing_dir = tmp_path / "missing"
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = [f"/cd {missing_dir}\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=lambda *_args, **_kwargs: calls.append("called"),
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    captured = capsys.readouterr()
+    assert calls == []
+    assert f"Directory not found · {missing_dir}" in captured.out
+    assert "Traceback" not in captured.out
+
+
 def test_cli_interactive_runtime_carries_session_memory_between_turns(
     monkeypatch,
     capsys,

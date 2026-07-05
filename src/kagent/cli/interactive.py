@@ -243,6 +243,12 @@ def _handle_runtime_interactive_command(
     if normalized in {"/help", "/?"}:
         print(runtime_interactive_help())
         return True, full_json_mode
+    if normalized in {"/pwd", "/cwd"}:
+        print(f"cwd · {os.getcwd()}")
+        return True, full_json_mode
+    if normalized == "/cd" or normalized.startswith("/cd "):
+        _change_runtime_interactive_directory(command)
+        return True, full_json_mode
     if normalized in {"/status", "/stat"}:
         print(
             format_runtime_interactive_status(
@@ -280,6 +286,18 @@ def _handle_runtime_interactive_command(
         print("Memory cleared.")
         return True, full_json_mode
     return False, full_json_mode
+
+
+def _change_runtime_interactive_directory(command: str) -> None:
+    raw_path = command.strip()[3:].strip()
+    target = os.path.expanduser(raw_path or "~")
+    if not os.path.isabs(target):
+        target = os.path.abspath(target)
+    if not os.path.isdir(target):
+        print(f"Directory not found · {target}")
+        return
+    os.chdir(target)
+    print(f"cwd · {os.getcwd()}")
 
 
 def _runtime_interactive_goal_with_memory(

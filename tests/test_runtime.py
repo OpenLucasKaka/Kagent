@@ -399,6 +399,43 @@ def test_runtime_agent_executes_http_request_after_explicit_approval(monkeypatch
     assert result["observations"][0]["output"]["body_text"] == "hello-approved-http"
 
 
+def test_runtime_agent_requires_approval_before_opening_url():
+    provider = FakeLLMProvider(
+        '{"actions":[{"id":"open-github","tool":"open_url",'
+        '"input":{"url":"https://github.com"},"reason":"open requested page"}]}'
+    )
+
+    result = run_runtime_agent("帮我打开 github", provider=provider)
+
+    assert result["status"] == "requires_approval"
+    assert result["pending_approval"] == {
+        "id": "open-github",
+        "tool": "open_url",
+        "input": {"url": "https://github.com"},
+        "reason": "open requested page",
+    }
+    assert result["observations"][0]["status"] == "requires_approval"
+    assert result["observations"][0]["error"] == "tool execution requires approval"
+
+
+def test_runtime_agent_requires_approval_before_opening_app():
+    provider = FakeLLMProvider(
+        '{"actions":[{"id":"open-qq","tool":"open_app",'
+        '"input":{"application":"QQ"},"reason":"open requested app"}]}'
+    )
+
+    result = run_runtime_agent("帮我打开 QQ", provider=provider)
+
+    assert result["status"] == "requires_approval"
+    assert result["pending_approval"] == {
+        "id": "open-qq",
+        "tool": "open_app",
+        "input": {"application": "QQ"},
+        "reason": "open requested app",
+    }
+    assert result["observations"][0]["status"] == "requires_approval"
+
+
 def test_runtime_agent_reports_invalid_llm_plan_as_failed():
     provider = FakeLLMProvider("not-json")
 

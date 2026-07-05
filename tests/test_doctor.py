@@ -19,9 +19,10 @@ def test_doctor_payload_reports_readiness_config_version_and_tool_count(tmp_path
     assert int(payload["tool_count"]) > 0
     assert payload["runtime_policy"]["trace_type"] == "codex_runtime"
     assert payload["runtime_policy"]["effective_policy_source"] == "default"
-    assert payload["runtime_policy"]["effective_allowed_tool_count"] == "11"
-    assert "open_app" in payload["runtime_policy"]["effective_allowed_tools"]
-    assert "open_url" in payload["runtime_policy"]["effective_allowed_tools"]
+    assert payload["runtime_policy"]["effective_allowed_tool_count"] == "9"
+    assert payload["runtime_policy"]["approval_required_tool_count"] == "4"
+    assert "open_app" not in payload["runtime_policy"]["effective_allowed_tools"]
+    assert "open_url" not in payload["runtime_policy"]["effective_allowed_tools"]
     assert len(payload["runtime_policy"]["effective_tool_policy_sha256"]) == 64
 
 

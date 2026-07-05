@@ -1481,14 +1481,14 @@ def test_registered_runtime_tool_metadata_includes_input_schemas():
     assert by_name["note"]["approval_required_by_default"] == "false"
     assert by_name["note"]["input_schema"]["required"] == ["text"]
     assert by_name["note"]["output_schema"]["required"] == ["text"]
-    assert by_name["open_app"]["approval_required_by_default"] == "false"
+    assert by_name["open_app"]["approval_required_by_default"] == "true"
     assert by_name["open_app"]["input_schema"]["required"] == ["application"]
     assert by_name["open_app"]["output_schema"]["required"] == [
         "application",
         "opened",
         "command",
     ]
-    assert by_name["open_url"]["approval_required_by_default"] == "false"
+    assert by_name["open_url"]["approval_required_by_default"] == "true"
     assert by_name["open_url"]["input_schema"]["required"] == ["url"]
     assert by_name["open_url"]["output_schema"]["required"] == [
         "url",
@@ -1820,16 +1820,18 @@ def test_default_policy_allows_task_list_tool():
     assert decision.status == "allowed"
 
 
-def test_default_policy_allows_open_url_tool():
+def test_default_policy_requires_approval_for_open_url_tool():
     decision = RuntimePolicy().authorize("open_url", {"url": "https://github.com"})
 
-    assert decision.status == "allowed"
+    assert decision.status == "denied"
+    assert decision.reason == "tool_not_allowed"
 
 
-def test_default_policy_allows_open_app_tool():
+def test_default_policy_requires_approval_for_open_app_tool():
     decision = RuntimePolicy().authorize("open_app", {"application": "Google Chrome"})
 
-    assert decision.status == "allowed"
+    assert decision.status == "denied"
+    assert decision.reason == "tool_not_allowed"
 
 
 def test_default_policy_allows_workspace_read_tools():

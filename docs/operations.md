@@ -578,10 +578,12 @@ schemas document structured observation shapes for generated clients and
 downstream automation. Number
 schemas also support `minimum` and `maximum` for bounded scores and weights,
 and boolean schemas support pass/fail rubric fields.
-The built-in safe local tools are `artifact`, `decision_matrix`, `note`,
-`open_app`, `open_url`, `rubric_score`, `task_list`, and `transform_text`; the policy-gated
-`http_request` tool performs approved HTTP GET fetches with bounded response
-bytes and returns response metadata plus text. `open_app` opens local macOS
+The built-in direct-execution local tools are `artifact`, `decision_matrix`,
+`note`, `rubric_score`, `task_list`, and `transform_text`.
+Tools that affect the local desktop, network, or shell require approval by
+default: `open_app`, `open_url`, `http_request`, and `shell_command`.
+`http_request` performs approved HTTP GET fetches with bounded response bytes
+and returns response metadata plus text. `open_app` opens local macOS
 applications by app name and rejects paths or shell-like input. `open_url` is
 the separate local browser-opening tool for `http://` and `https://` URLs. It
 uses Google Chrome automation first, falls back to macOS `open`, and does not

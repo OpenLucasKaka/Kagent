@@ -240,14 +240,14 @@ def test_service_runtime_tools_endpoint_reports_tool_schemas():
     ]
     assert by_name["note"]["input_schema"]["required"] == ["text"]
     assert by_name["note"]["output_schema"]["required"] == ["text"]
-    assert by_name["open_app"]["approval_required_by_default"] == "false"
+    assert by_name["open_app"]["approval_required_by_default"] == "true"
     assert by_name["open_app"]["input_schema"]["required"] == ["application"]
     assert by_name["open_app"]["output_schema"]["required"] == [
         "application",
         "opened",
         "command",
     ]
-    assert by_name["open_url"]["approval_required_by_default"] == "false"
+    assert by_name["open_url"]["approval_required_by_default"] == "true"
     assert by_name["open_url"]["input_schema"]["required"] == ["url"]
     assert by_name["open_url"]["output_schema"]["required"] == [
         "url",

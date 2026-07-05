@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from typing import Any
 
@@ -14,7 +15,10 @@ from kagent.cli.memory import (
     runtime_prompt_history,
     save_runtime_session_memory,
 )
-from kagent.cli.trace import persist_runtime_cli_trace_or_raise
+from kagent.cli.trace import (
+    persist_runtime_cli_trace_or_raise,
+    save_runtime_trace_snapshot_or_raise,
+)
 from kagent.cli.ui import (
     approval_prompt,
     format_runtime_interactive_doctor,
@@ -337,6 +341,12 @@ def _handle_runtime_interactive_command(
         else:
             _print_runtime_interactive_payload(last_payload, full_json=True)
         return True, full_json_mode
+    if normalized == "/save-trace" or normalized.startswith("/save-trace "):
+        _save_last_runtime_trace(command, last_payload)
+        return True, full_json_mode
+    if normalized == "/export-trace" or normalized.startswith("/export-trace "):
+        _save_last_runtime_trace(command, last_payload)
+        return True, full_json_mode
     if normalized in {"/clear", "/clear-memory"}:
         session_memory.clear()
         save_runtime_session_memory(session_memory_path, session_memory)
@@ -353,6 +363,29 @@ def _handle_runtime_interactive_command(
         print(format_runtime_notice("Reset", "memory and prompt history cleared"))
         return True, full_json_mode
     return False, full_json_mode
+
+
+def _save_last_runtime_trace(command: str, last_payload: Any) -> None:
+    if last_payload is None:
+        print(format_runtime_notice("Last run", "no previous run"))
+        return
+    try:
+        parts = shlex.split(command.strip())
+    except ValueError as exc:
+        print(format_runtime_notice("Save trace failed", str(exc)))
+        return
+    if len(parts) < 2 or not parts[1].strip():
+        print(format_runtime_notice("Save trace", "path required: /save-trace PATH"))
+        return
+    try:
+        saved_path = save_runtime_trace_snapshot_or_raise(
+            last_payload,
+            parts[1].strip(),
+        )
+    except (OSError, ValueError) as exc:
+        print(format_runtime_notice("Save trace failed", str(exc)))
+        return
+    print(format_runtime_notice("Trace saved", saved_path))
 
 
 def _change_runtime_interactive_directory(command: str) -> None:

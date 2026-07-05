@@ -1134,10 +1134,13 @@ def test_cli_runtime_command_registry_feeds_help_and_completion():
     assert "/reset" in help_text
     assert "/config" in help_text
     assert "/doctor" in help_text
+    assert "/save-trace PATH" in help_text
     assert "/status" in completion_words
     assert "/stat" in completion_words
     assert "/doctor" in completion_words
     assert "/diagnostics" in completion_words
+    assert "/save-trace" in completion_words
+    assert "/export-trace" in completion_words
     assert "/reset-session" in completion_words
     assert "exit" in completion_words
 
@@ -2793,12 +2796,85 @@ def test_cli_interactive_runtime_trace_dir_updates_last_trace(
     assert str(trace_path) in captured.out
 
 
+def test_cli_can_save_runtime_trace_snapshot_owner_only(tmp_path):
+    from kagent.cli.trace import save_runtime_trace_snapshot_or_raise
+
+    trace_path = tmp_path / "nested" / "last trace.json"
+
+    saved_path = save_runtime_trace_snapshot_or_raise(
+        {"run_id": "run-123", "status": "done"},
+        str(trace_path),
+    )
+
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert saved_path == str(trace_path)
+    assert payload == {"run_id": "run-123", "status": "done"}
+    assert trace_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_cli_interactive_runtime_can_save_last_trace_to_file(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    trace_path = tmp_path / "exports" / "last trace.json"
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = [
+                "inspect\n",
+                f'/save-trace "{trace_path}"\n',
+                "exit\n",
+            ]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+
+    def fake_run_runtime_agent(_goal, **_kwargs):
+        calls.append(None)
+        return {
+            "status": "done",
+            "run_id": "run-123",
+            "answer": "ready",
+            "observations": [
+                {"action_id": "step-1", "tool": "note", "status": "ok"}
+            ],
+        }
+
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+    assert len(calls) == 1
+    assert payload["run_id"] == "run-123"
+    assert payload["observations"][0]["tool"] == "note"
+    assert trace_path.stat().st_mode & 0o777 == 0o600
+    assert "Trace saved" in captured.out
+    assert str(trace_path.parent) in captured.out
+    assert "trace.json" in captured.out
+
+
 def test_cli_interactive_runtime_reports_when_no_last_trace_exists(monkeypatch, capsys):
     from kagent.cli import _run_runtime_interactive
 
     class FakeTTYInput:
         def __init__(self):
-            self.lines = ["/last\n", "/trace\n", "exit\n"]
+            self.lines = ["/last\n", "/trace\n", "/save-trace /tmp/last.json\n", "exit\n"]
 
         def isatty(self):
             return True
@@ -2817,7 +2893,7 @@ def test_cli_interactive_runtime_reports_when_no_last_trace_exists(monkeypatch, 
     )
 
     captured = capsys.readouterr()
-    assert captured.out.count("Last run\n  no previous run") == 2
+    assert captured.out.count("Last run\n  no previous run") == 3
 
 
 def test_cli_interactive_runtime_can_approve_pending_tool(monkeypatch, capsys):

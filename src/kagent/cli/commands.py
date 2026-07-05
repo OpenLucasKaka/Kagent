@@ -45,6 +45,12 @@ _RUNTIME_INTERACTIVE_COMMANDS: tuple[RuntimeInteractiveCommand, ...] = (
     ),
     RuntimeInteractiveCommand("/trace", "last JSON trace once", "Output", ("/last-json",)),
     RuntimeInteractiveCommand(
+        "/save-trace PATH",
+        "save last JSON trace",
+        "Output",
+        ("/export-trace",),
+    ),
+    RuntimeInteractiveCommand(
         "/doctor",
         "show local diagnostics",
         "Debug",

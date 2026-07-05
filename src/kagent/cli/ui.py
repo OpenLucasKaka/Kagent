@@ -46,6 +46,7 @@ def runtime_interactive_help() -> str:
             "  /tools     show available actions",
             "  /memory    review remembered turns",
             "  /clear     clear remembered turns",
+            "  /reset     clear memory and history",
             "  /last      replay last answer",
             "",
             "Output",

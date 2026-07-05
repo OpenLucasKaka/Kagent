@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 from kagent.cli.memory import (
+    clear_runtime_history,
     default_runtime_history_path,
     load_runtime_session_memory,
     redact_runtime_session_memory_text,
@@ -84,6 +85,7 @@ def run_runtime_interactive(
                 session_memory_path=session_memory_path,
                 trace_dir=trace_dir,
                 provider=provider,
+                line_reader=line_reader,
             )
             if handled:
                 continue
@@ -141,6 +143,9 @@ class _RuntimeLineReader:
     def read(self, *, color: bool) -> str:
         raise NotImplementedError
 
+    def clear_history(self) -> None:
+        return
+
 
 class _InputLineReader(_RuntimeLineReader):
     def read(self, *, color: bool) -> str:
@@ -158,6 +163,12 @@ class _PromptToolkitLineReader(_RuntimeLineReader):
             wrap_lines=True,
             multiline=False,
         )
+
+    def clear_history(self) -> None:
+        history = getattr(self._session, "history", None)
+        loaded_strings = getattr(history, "_loaded_strings", None)
+        if isinstance(loaded_strings, list):
+            loaded_strings.clear()
 
 
 def _runtime_interactive_line_reader(prompt_stream: Any) -> _RuntimeLineReader:
@@ -238,6 +249,7 @@ def _handle_runtime_interactive_command(
     session_memory_path: str = "",
     trace_dir: str = "",
     provider: Any = None,
+    line_reader: Any = None,
 ) -> tuple[bool, bool]:
     normalized = command.strip().lower()
     if normalized in {"/json", "/full", "/debug"}:
@@ -293,6 +305,16 @@ def _handle_runtime_interactive_command(
         session_memory.clear()
         save_runtime_session_memory(session_memory_path, session_memory)
         print("Memory cleared.")
+        return True, full_json_mode
+    if normalized in {"/reset", "/reset-session"}:
+        session_memory.clear()
+        save_runtime_session_memory(session_memory_path, session_memory)
+        clear_runtime_history(default_runtime_history_path())
+        if line_reader is not None:
+            clear_history = getattr(line_reader, "clear_history", None)
+            if callable(clear_history):
+                clear_history()
+        print("Reset complete.")
         return True, full_json_mode
     return False, full_json_mode
 

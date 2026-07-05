@@ -1255,6 +1255,21 @@ def test_cli_history_file_is_owner_only_and_redacted(tmp_path):
     assert "https://[REDACTED_CREDENTIALS]@example.com/v1" in history_text
 
 
+def test_cli_can_clear_runtime_history_file(tmp_path):
+    from kagent.cli.memory import clear_runtime_history
+
+    history_path = tmp_path / "state" / "kagent" / "history"
+    history_path.parent.mkdir(parents=True)
+    history_path.write_text("old prompt\n", encoding="utf-8")
+    history_path.chmod(0o600)
+
+    clear_runtime_history(str(history_path))
+
+    assert history_path.read_text(encoding="utf-8") == ""
+    assert history_path.parent.stat().st_mode & 0o777 == 0o700
+    assert history_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_cli_prompt_toolkit_session_uses_persistent_history(
     monkeypatch,
     tmp_path,
@@ -1673,6 +1688,56 @@ def test_cli_interactive_runtime_can_show_and_clear_session_memory(
     assert "user   我是卡卡" in captured.out
     assert "agent  你好，卡卡。" in captured.out
     assert "Memory cleared." in captured.out
+    assert "Memory is empty." in captured.out
+
+
+def test_cli_interactive_runtime_reset_clears_memory_and_history(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    memory_path = tmp_path / "agent-memory.json"
+    history_path = tmp_path / "state" / "kagent" / "history"
+    history_path.parent.mkdir(parents=True)
+    history_path.write_text("previous prompt\n", encoding="utf-8")
+    history_path.chmod(0o600)
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = ["我是卡卡\n", "/reset\n", "/memory\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+
+    def fake_run_runtime_agent(goal, **_kwargs):
+        calls.append(goal)
+        return {"status": "done", "answer": "你好，卡卡。"}
+
+    monkeypatch.setenv("KAGENT_HISTORY_PATH", str(history_path))
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=1,
+        fail_on_agent_failure=False,
+        session_memory_path=str(memory_path),
+    )
+
+    saved_memory = json.loads(memory_path.read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+    assert calls == ["我是卡卡"]
+    assert saved_memory["turns"] == []
+    assert history_path.read_text(encoding="utf-8") == ""
+    assert "Reset complete." in captured.out
     assert "Memory is empty." in captured.out
 
 

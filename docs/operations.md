@@ -503,7 +503,8 @@ status, and trace persistence, `/config` to inspect redacted provider settings,
 `/tools` to list available actions and their default approval posture, `/pwd`
 to show the current working directory, `/cd PATH` to change where later file
 actions run, `/memory` to inspect the current session memory, `/clear` to clear
-it, and `/help` to list shell commands. The default turn budget is three
+it, `/reset` to clear current memory plus persisted prompt history, and `/help`
+to list shell commands. The default turn budget is three
 planning iterations; add
 `--max-iterations N` only when a workflow needs a
 different budget. TTY sessions persist compact memory across shell restarts by
@@ -527,6 +528,8 @@ directory and file permissions. Set `KAGENT_HISTORY_PATH` to override that
 location, or set it to an empty value to disable persisted prompt history.
 Prompt history is redacted before writes and again while loading, so common API
 keys, bearer tokens, and URL credentials are not replayed through history.
+Use `/reset` before switching sensitive tasks when both remembered turns and
+prompt history should be cleared together.
 
 `/openapi.json` includes named schemas for production integration, including
 `RunRequest`, `RunResponse`, readiness, config, tools, version, metrics, and

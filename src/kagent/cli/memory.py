@@ -72,6 +72,16 @@ def runtime_prompt_history(path: str):
     return _RedactingFileHistory(str(history_path))
 
 
+def clear_runtime_history(path: str) -> None:
+    if not path:
+        return
+    history_path = Path(path)
+    _prepare_owner_only_history_file(history_path)
+    with history_path.open("w", encoding="utf-8") as handle:
+        handle.write("")
+    history_path.chmod(0o600)
+
+
 def _prepare_owner_only_history_file(path: Path) -> None:
     _reject_symlink_memory_file(path)
     _reject_symlink_memory_path_parts(path)

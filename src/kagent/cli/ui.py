@@ -96,7 +96,7 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
     visible_observations = visible_runtime_observations(payload.get("observations"))
     if visible_observations:
         lines.append("")
-        lines.append(_dim("Tools", enabled=color))
+        lines.append(_dim("Actions", enabled=color))
         for observation, repeat_count in visible_observations:
             lines.extend(
                 format_runtime_observation_lines(

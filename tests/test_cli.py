@@ -1180,7 +1180,7 @@ def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, caps
     assert "Done · 0.1200s" in captured.out
     assert "0.1200s" in captured.out
     assert "\n\n已打开 GitHub。" in captured.out
-    assert "\n\nTools\n  ✓ open_url" in captured.out
+    assert "\n\nActions\n  ✓ open_url" in captured.out
     assert "open_url" in captured.out
     assert "0.0300s" in captured.out
     assert "Google Chrome" in captured.out
@@ -1268,7 +1268,7 @@ def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     assert "✓ apply_patch · 0.0100s" in captured.out
     assert "\n\nDone" in captured.out
     assert "\n\n文件已创建。" in captured.out
-    assert "\n\nTools\n  ✓ apply_patch" in captured.out
+    assert "\n\nActions\n  ✓ apply_patch" in captured.out
     assert "add hello.md 13B" in captured.out
 
 
@@ -1473,7 +1473,7 @@ def test_cli_interactive_runtime_tty_keeps_debug_details_out_of_default_output(
     assert "\n\n文件已创建。" in captured.out
     assert "status" not in captured.out
     assert "\nDone · 1.2500s · iter 2/3" in captured.out
-    assert "\n\nTools\n  ✓ apply_patch" in captured.out
+    assert "\n\nActions\n  ✓ apply_patch" in captured.out
     assert "apply_patch" in captured.out
     assert "hello.md" in captured.out
     assert "private-run-id" not in captured.out

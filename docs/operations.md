@@ -308,11 +308,12 @@ planning with:
 Provider config snapshots expose only whether an API key is configured; the key
 value is never returned in snapshots, traces, logs, metrics, or docs examples.
 Keep the runtime identity boundary clear during operator testing: the product
-identity is `Kagent runtime`, running in the current
-CLI or service process. The underlying model provider is only a replaceable
-OpenAI-compatible planner. Identity and deployment questions should describe
-the runtime and its local/service process boundary, not the provider's model
-brand or hosting location. If the runtime corrects a provider-branded identity
+identity is `Kagent`, an automation agent running in the current CLI or service
+process. Provider details stay behind the configuration boundary unless the
+user explicitly asks about provider setup. Identity and deployment questions
+should describe Kagent and its local/service process boundary, not the
+provider's model brand or hosting location. If the runtime corrects a
+provider-branded identity
 or deployment answer, responses include `final_answer_guardrail` with a
 machine-readable reason and `original_answer_omitted=true`, so operators can
 audit the correction without replaying the misleading provider answer.

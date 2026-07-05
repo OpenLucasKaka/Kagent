@@ -121,8 +121,8 @@ def test_runtime_agent_system_prompt_declares_runtime_identity_boundary():
     run_runtime_agent("inspect identity boundary", provider=provider)
 
     system_prompt = provider.calls[0]["system"]
-    assert "Kagent runtime" in system_prompt
-    assert "OpenAI-compatible provider" in system_prompt
+    assert "Kagent" in system_prompt
+    assert "do not expose provider details" in system_prompt
     assert "underlying model provider" in system_prompt
 
 
@@ -796,8 +796,12 @@ def test_runtime_agent_normalizes_model_identity_answer():
     result = run_runtime_agent("你是谁", provider=provider)
 
     assert result["status"] == "done"
-    assert "Kagent runtime" in result["answer"]
-    assert "OpenAI-compatible provider" in result["answer"]
+    assert "我是 Kagent" in result["answer"]
+    assert "自动化助手" in result["answer"]
+    assert "工具" in result["answer"]
+    assert "runtime" not in result["answer"].lower()
+    assert "provider" not in result["answer"].lower()
+    assert "OpenAI-compatible" not in result["answer"]
     assert "Qwen" not in result["answer"]
     assert "通义千问" not in result["answer"]
     assert "阿里云研发" not in result["answer"]
@@ -820,8 +824,9 @@ def test_runtime_agent_normalizes_model_deployment_answer():
     result = run_runtime_agent("你部署在哪", provider=provider)
 
     assert result["status"] == "done"
-    assert "当前 CLI 或服务进程" in result["answer"]
-    assert "底层 LLM provider" in result["answer"]
+    assert "你启动的终端或服务进程" in result["answer"]
+    assert "运行环境" in result["answer"]
+    assert "provider" not in result["answer"].lower()
     assert "阿里云服务器" not in result["answer"]
     assert result["final_answer_guardrail"] == {
         "applied": "true",

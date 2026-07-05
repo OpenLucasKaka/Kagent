@@ -307,8 +307,8 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "llm_api_key_required" in runbook
     assert "runtime_iterations_too_low" in runbook
     assert "runtime identity boundary" in runbook
-    assert "Kagent runtime" in runbook
-    assert "underlying model provider" in runbook
+    assert "identity is `Kagent`" in runbook
+    assert "Provider details stay behind the configuration boundary" in runbook
     assert "final_answer_guardrail" in runbook
     assert "raw API key is never exposed" in runbook
     assert "bind_host" in runbook

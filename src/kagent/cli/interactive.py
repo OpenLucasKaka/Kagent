@@ -9,6 +9,7 @@ from typing import Any
 from kagent.cli.commands import (
     is_runtime_interactive_command,
     runtime_interactive_command_suggestions,
+    runtime_interactive_command_usage,
     runtime_interactive_completion_words,
 )
 from kagent.cli.memory import (
@@ -103,6 +104,8 @@ def run_runtime_interactive(
             )
             if handled:
                 continue
+            _print_invalid_runtime_interactive_command(goal)
+            continue
         runtime_goal = _runtime_interactive_goal_with_memory(goal, session_memory)
         progress_sink = _runtime_interactive_progress_sink(
             enabled=interactive_tty and not full_json_mode
@@ -378,6 +381,12 @@ def _print_unknown_runtime_interactive_command(command: str) -> None:
     if suggestions:
         detail = "try " + ", ".join(suggestions)
     print(format_runtime_notice("Unknown command", detail))
+
+
+def _print_invalid_runtime_interactive_command(command: str) -> None:
+    usage = runtime_interactive_command_usage(command)
+    detail = f"usage: {usage}" if usage else "try /help"
+    print(format_runtime_notice("Invalid command", detail))
 
 
 def _save_last_runtime_trace(command: str, last_payload: Any) -> None:

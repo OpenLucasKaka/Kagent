@@ -508,9 +508,10 @@ default approval posture, `/pwd` to show the current working directory,
 `/cd PATH` to change where later file actions run, `/memory` to inspect the
 current session memory, `/clear` to clear it, `/reset` to clear current memory
 plus persisted prompt history, and `/help` to list shell commands. Unknown
-slash commands are intercepted locally with suggestions and are not sent to the
-model as runtime goals, which keeps command typos out of provider prompts. The
-default turn budget is three planning iterations; add
+slash commands and known commands with invalid arguments are intercepted
+locally with suggestions or usage hints and are not sent to the model as
+runtime goals, which keeps command typos out of provider prompts. The default
+turn budget is three planning iterations; add
 `--max-iterations N` only when a workflow needs a
 different budget. TTY sessions persist compact memory across shell restarts by
 default at `${XDG_STATE_HOME:-~/.local/state}/kagent/session-memory.json`;

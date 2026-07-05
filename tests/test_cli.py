@@ -1127,6 +1127,7 @@ def test_cli_runtime_command_registry_feeds_help_and_completion():
     from kagent.cli.commands import (
         is_runtime_interactive_command,
         runtime_interactive_command_suggestions,
+        runtime_interactive_command_usage,
         runtime_interactive_completion_words,
     )
     from kagent.cli.ui import runtime_interactive_help
@@ -1138,6 +1139,10 @@ def test_cli_runtime_command_registry_feeds_help_and_completion():
     assert is_runtime_interactive_command("/save-trace /tmp/last.json")
     assert not is_runtime_interactive_command("/stats")
     assert "/status" in runtime_interactive_command_suggestions("/stats")
+    assert runtime_interactive_command_usage("/status now") == "/status"
+    assert runtime_interactive_command_usage("/export-trace /tmp/run.json") == (
+        "/save-trace PATH"
+    )
     assert "/status" in help_text
     assert "/reset" in help_text
     assert "/config" in help_text
@@ -1183,6 +1188,38 @@ def test_cli_interactive_runtime_blocks_unknown_slash_command_locally(
     captured = capsys.readouterr()
     assert calls == []
     assert "Unknown command\n  try /status" in captured.out
+
+
+def test_cli_interactive_runtime_blocks_invalid_known_slash_command_locally(
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = ["/status now\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=lambda *_args, **_kwargs: calls.append(None),
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    captured = capsys.readouterr()
+    assert calls == []
+    assert "Invalid command\n  usage: /status" in captured.out
 
 
 def test_cli_runtime_status_formats_empty_shell_state():

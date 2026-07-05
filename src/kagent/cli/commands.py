@@ -94,5 +94,13 @@ def runtime_interactive_command_suggestions(text: str) -> list[str]:
     )
 
 
+def runtime_interactive_command_usage(text: str) -> str:
+    command_name = _runtime_command_name(text)
+    for command in _RUNTIME_INTERACTIVE_COMMANDS:
+        if command_name == command.primary.split()[0] or command_name in command.aliases:
+            return command.primary
+    return ""
+
+
 def _runtime_command_name(text: str) -> str:
     return str(text).strip().split(maxsplit=1)[0].lower()

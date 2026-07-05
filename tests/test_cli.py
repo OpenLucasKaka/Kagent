@@ -1214,6 +1214,75 @@ def test_cli_prompt_toolkit_reader_wraps_long_lines():
     ]
 
 
+def test_cli_defaults_history_to_xdg_state(monkeypatch, tmp_path):
+    from kagent.cli.memory import default_runtime_history_path
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", "/Users/kaka")
+
+    assert default_runtime_history_path() == str(tmp_path / "kagent" / "history")
+
+
+def test_cli_history_can_be_disabled_by_env(monkeypatch):
+    from kagent.cli.memory import default_runtime_history_path
+
+    monkeypatch.setenv("KAGENT_HISTORY_PATH", "")
+
+    assert default_runtime_history_path() == ""
+
+
+def test_cli_history_file_is_owner_only_and_redacted(tmp_path):
+    from kagent.cli.memory import runtime_prompt_history
+
+    history_path = tmp_path / "state" / "kagent" / "history"
+    history = runtime_prompt_history(str(history_path))
+
+    assert history is not None
+    history.store_string(
+        "remember sk-interactive-secret-value "
+        "Authorization: Bearer token-secret-value "
+        "https://user:pass@example.com/v1"
+    )
+
+    history_text = history_path.read_text(encoding="utf-8")
+    assert history_path.parent.stat().st_mode & 0o777 == 0o700
+    assert history_path.stat().st_mode & 0o777 == 0o600
+    assert "sk-interactive-secret-value" not in history_text
+    assert "token-secret-value" not in history_text
+    assert "user:pass@example.com" not in history_text
+    assert "[REDACTED_API_KEY]" in history_text
+    assert "Bearer [REDACTED_TOKEN]" in history_text
+    assert "https://[REDACTED_CREDENTIALS]@example.com/v1" in history_text
+
+
+def test_cli_prompt_toolkit_session_uses_persistent_history(
+    monkeypatch,
+    tmp_path,
+):
+    from kagent.cli.interactive import _prompt_toolkit_session_for_tty
+
+    created_sessions = []
+
+    class FakeTTY:
+        def isatty(self):
+            return True
+
+    class FakePromptSession:
+        def __init__(self, **kwargs):
+            created_sessions.append(kwargs)
+
+    monkeypatch.setattr(sys, "stdin", sys.__stdin__)
+    monkeypatch.setattr(sys.__stdin__, "isatty", lambda: True)
+    monkeypatch.setattr("prompt_toolkit.PromptSession", FakePromptSession)
+    monkeypatch.setenv("KAGENT_HISTORY_PATH", str(tmp_path / "history"))
+
+    session = _prompt_toolkit_session_for_tty(FakeTTY())
+
+    assert isinstance(session, FakePromptSession)
+    assert created_sessions[0]["history"] is not None
+    assert (tmp_path / "history").stat().st_mode & 0o777 == 0o600
+
+
 def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, capsys):
     from kagent.cli import _run_runtime_interactive
 

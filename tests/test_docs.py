@@ -158,6 +158,9 @@ def test_readme_documents_console_script_entrypoints():
     assert "--session-memory PATH" in readme
     assert "KAGENT_SESSION_MEMORY_PATH" in readme
     assert "session-memory.json" in readme
+    assert "KAGENT_HISTORY_PATH" in readme
+    assert "kagent/history" in readme
+    assert "prompt history" in readme
     assert "owner-only on read and write" in readme
     assert "0700" in readme
     assert "rejects symlink memory files" in readme

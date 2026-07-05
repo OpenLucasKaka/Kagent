@@ -101,7 +101,11 @@ defaults to the runtime for both `kagent` and `kagent "goal"`; use
 planning iterations by default. TTY sessions persist memory by default at
 `${XDG_STATE_HOME:-~/.local/state}/kagent/session-memory.json`; set
 `KAGENT_SESSION_MEMORY_PATH` to override that path or to an empty value to
-disable default persistence. Use `--max-iterations` to override the iteration
+disable default persistence. Prompt history is stored owner-only at
+`${XDG_STATE_HOME:-~/.local/state}/kagent/history`; set `KAGENT_HISTORY_PATH`
+to override it or to an empty value to disable persisted prompt history. Both
+memory and prompt history redact common API keys, bearer tokens, and URL
+credentials before writing to disk. Use `--max-iterations` to override the iteration
 budget, `--session-memory PATH` for an explicit memory file, `--runtime-plan`
 for deterministic runtime tests, and `--interactive-json` when you need full
 traces. Runtime and service config values must use JSON integers, not strings

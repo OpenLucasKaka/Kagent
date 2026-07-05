@@ -11,6 +11,7 @@ from kagent.utils.json_output import json_ready
 
 SESSION_MEMORY_SCHEMA_VERSION = "1"
 SESSION_MEMORY_ENV_VAR = "KAGENT_SESSION_MEMORY_PATH"
+HISTORY_ENV_VAR = "KAGENT_HISTORY_PATH"
 _API_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9:_-]{8,}\b")
 _BEARER_TOKEN_PATTERN = re.compile(
     r"\b(Authorization:\s*Bearer\s+|Bearer\s+)([A-Za-z0-9._~+/:-]{8,})",
@@ -32,6 +33,58 @@ def default_runtime_session_memory_path(
     if not home:
         return ""
     return str(Path(home) / ".local" / "state" / "kagent" / "session-memory.json")
+
+
+def default_runtime_history_path(
+    env: Mapping[str, str] | None = None,
+) -> str:
+    source = os.environ if env is None else env
+    if HISTORY_ENV_VAR in source:
+        return source[HISTORY_ENV_VAR]
+    state_home = source.get("XDG_STATE_HOME", "").strip()
+    if state_home:
+        return str(Path(state_home) / "kagent" / "history")
+    home = source.get("HOME", "").strip()
+    if not home:
+        return ""
+    return str(Path(home) / ".local" / "state" / "kagent" / "history")
+
+
+def runtime_prompt_history(path: str):
+    if not path:
+        return None
+    try:
+        from prompt_toolkit.history import FileHistory
+    except ImportError:
+        return None
+
+    history_path = Path(path)
+    _prepare_owner_only_history_file(history_path)
+
+    class _RedactingFileHistory(FileHistory):
+        def store_string(self, string: str) -> None:
+            super().store_string(redact_runtime_session_memory_text(string))
+
+        def load_history_strings(self):
+            for item in super().load_history_strings():
+                yield redact_runtime_session_memory_text(item)
+
+    return _RedactingFileHistory(str(history_path))
+
+
+def _prepare_owner_only_history_file(path: Path) -> None:
+    _reject_symlink_memory_file(path)
+    _reject_symlink_memory_path_parts(path)
+    _ensure_owner_only_memory_dir(path.parent)
+    if path.exists():
+        _require_owner_only_memory_file(path)
+        return
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    os.close(fd)
+    path.chmod(0o600)
 
 
 def load_runtime_session_memory(path: str, *, max_turns: int) -> list[dict[str, str]]:

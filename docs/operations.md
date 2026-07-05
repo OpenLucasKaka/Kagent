@@ -521,6 +521,13 @@ writing it to disk, the CLI redacts common API keys, bearer tokens, and URL
 credentials so accidental provider or service secrets are not sent back to the
 model or preserved in the memory file.
 
+TTY prompt history is persisted separately at
+`${XDG_STATE_HOME:-~/.local/state}/kagent/history`, with the same owner-only
+directory and file permissions. Set `KAGENT_HISTORY_PATH` to override that
+location, or set it to an empty value to disable persisted prompt history.
+Prompt history is redacted before writes and again while loading, so common API
+keys, bearer tokens, and URL credentials are not replayed through history.
+
 `/openapi.json` includes named schemas for production integration, including
 `RunRequest`, `RunResponse`, readiness, config, tools, version, metrics, and
 structured error responses. It also declares common response headers such as

@@ -6,8 +6,10 @@ import sys
 from typing import Any
 
 from kagent.cli.memory import (
+    default_runtime_history_path,
     load_runtime_session_memory,
     redact_runtime_session_memory_text,
+    runtime_prompt_history,
     save_runtime_session_memory,
 )
 from kagent.cli.trace import persist_runtime_cli_trace_or_raise
@@ -181,6 +183,7 @@ def _prompt_toolkit_session_for_tty(prompt_stream: Any) -> Any:
     return PromptSession(
         complete_while_typing=False,
         enable_history_search=True,
+        history=runtime_prompt_history(default_runtime_history_path()),
         style=Style.from_dict({"prompt": "ansicyan"}),
     )
 

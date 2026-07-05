@@ -1031,6 +1031,15 @@ def test_cli_interactive_runtime_prints_prompt_to_real_stderr(monkeypatch, capsy
     assert "/help" in captured.err
 
 
+def test_cli_colored_runtime_prompt_marks_ansi_as_readline_invisible():
+    from kagent.cli.ui import runtime_prompt
+
+    prompt = runtime_prompt(color=True)
+
+    assert prompt == "\001\033[36m\002› \001\033[0m\002"
+    assert runtime_prompt(color=False) == "› "
+
+
 def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, capsys):
     from kagent.cli import _run_runtime_interactive
 

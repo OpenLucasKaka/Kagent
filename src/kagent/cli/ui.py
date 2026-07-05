@@ -23,7 +23,7 @@ def runtime_ready_message(*, color: bool = False) -> str:
 
 
 def runtime_prompt(*, color: bool = False) -> str:
-    return _color("› ", "cyan", enabled=color)
+    return _prompt_color("› ", "cyan", enabled=color)
 
 
 def runtime_interactive_help() -> str:
@@ -504,3 +504,15 @@ def _color(text: str, style: str, *, enabled: bool) -> str:
     if not code:
         return text
     return f"\033[{code}m{text}\033[0m"
+
+
+def _prompt_color(text: str, style: str, *, enabled: bool) -> str:
+    if not enabled:
+        return text
+    codes = {
+        "cyan": "36",
+    }
+    code = codes.get(style)
+    if not code:
+        return text
+    return f"\001\033[{code}m\002{text}\001\033[0m\002"

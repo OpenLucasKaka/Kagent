@@ -1488,9 +1488,9 @@ def test_cli_interactive_runtime_tty_can_toggle_json_output(monkeypatch, capsys)
     )
 
     captured = capsys.readouterr()
-    assert "Mode · full JSON" in captured.out
+    assert "Output mode\n  full JSON traces" in captured.out
     assert '"observations"' in captured.out
-    assert "Mode · compact transcript" in captured.out
+    assert "Output mode\n  compact transcript" in captured.out
     assert "Done" in captured.out
 
 
@@ -1706,7 +1706,7 @@ def test_cli_interactive_runtime_can_show_and_clear_session_memory(
     assert "Memory" in captured.out
     assert "user   我是卡卡" in captured.out
     assert "agent  你好，卡卡。" in captured.out
-    assert "Memory cleared." in captured.out
+    assert "Memory\n  cleared" in captured.out
     assert "Memory is empty." in captured.out
 
 
@@ -1756,7 +1756,7 @@ def test_cli_interactive_runtime_reset_clears_memory_and_history(
     assert calls == ["我是卡卡"]
     assert saved_memory["turns"] == []
     assert history_path.read_text(encoding="utf-8") == ""
-    assert "Reset complete." in captured.out
+    assert "Reset\n  memory and prompt history cleared" in captured.out
     assert "Memory is empty." in captured.out
 
 
@@ -1923,7 +1923,7 @@ def test_cli_interactive_runtime_can_change_working_directory(
 
     captured = capsys.readouterr()
     assert calls == [{"goal": "创建文件", "cwd": str(project_dir)}]
-    assert f"cwd · {project_dir}" in captured.out
+    assert f"Working directory\n  {project_dir}" in captured.out
 
 
 def test_cli_interactive_runtime_reports_invalid_cd_without_model_call(
@@ -1959,7 +1959,7 @@ def test_cli_interactive_runtime_reports_invalid_cd_without_model_call(
 
     captured = capsys.readouterr()
     assert calls == []
-    assert f"Directory not found · {missing_dir}" in captured.out
+    assert f"Directory not found\n  {missing_dir}" in captured.out
     assert "Traceback" not in captured.out
 
 
@@ -2173,7 +2173,7 @@ def test_cli_interactive_runtime_clear_persists_empty_session_memory(
     saved_memory = json.loads(memory_path.read_text(encoding="utf-8"))
     assert saved_memory["turns"] == []
     captured = capsys.readouterr()
-    assert "Memory cleared." in captured.out
+    assert "Memory\n  cleared" in captured.out
 
 
 def test_cli_session_memory_rejects_group_or_world_readable_file(tmp_path):
@@ -2703,7 +2703,7 @@ def test_cli_interactive_runtime_reports_when_no_last_trace_exists(monkeypatch, 
     )
 
     captured = capsys.readouterr()
-    assert captured.out.count("No previous run.") == 2
+    assert captured.out.count("Last run\n  no previous run") == 2
 
 
 def test_cli_interactive_runtime_can_approve_pending_tool(monkeypatch, capsys):
@@ -2802,7 +2802,7 @@ def test_cli_interactive_runtime_reports_declined_approval(monkeypatch, capsys):
     assert "Approval required" in captured.out
     assert "action  open_url" in captured.out
     assert "target  https://github.com" in captured.out
-    assert "Skipped · action not approved" in captured.out
+    assert "Approval skipped\n  action not approved" in captured.out
 
 
 def test_cli_writes_output_file_before_failure_exit(tmp_path):

@@ -19,6 +19,7 @@ from kagent.cli.ui import (
     format_runtime_interactive_status,
     format_runtime_interactive_summary,
     format_runtime_interactive_tools,
+    format_runtime_notice,
     format_runtime_progress_event,
     format_runtime_provider_config,
     format_runtime_session_memory,
@@ -253,16 +254,16 @@ def _handle_runtime_interactive_command(
 ) -> tuple[bool, bool]:
     normalized = command.strip().lower()
     if normalized in {"/json", "/full", "/debug"}:
-        print("Mode · full JSON")
+        print(format_runtime_notice("Output mode", "full JSON traces"))
         return True, True
     if normalized in {"/compact", "/summary"}:
-        print("Mode · compact transcript")
+        print(format_runtime_notice("Output mode", "compact transcript"))
         return True, False
     if normalized in {"/help", "/?"}:
         print(runtime_interactive_help())
         return True, full_json_mode
     if normalized in {"/pwd", "/cwd"}:
-        print(f"cwd · {os.getcwd()}")
+        print(format_runtime_notice("Working directory", os.getcwd()))
         return True, full_json_mode
     if normalized == "/cd" or normalized.startswith("/cd "):
         _change_runtime_interactive_directory(command)
@@ -291,20 +292,20 @@ def _handle_runtime_interactive_command(
         return True, full_json_mode
     if normalized in {"/last", "/last-run"}:
         if last_payload is None:
-            print("No previous run.")
+            print(format_runtime_notice("Last run", "no previous run"))
         else:
             _print_runtime_interactive_payload(last_payload, full_json=False)
         return True, full_json_mode
     if normalized in {"/trace", "/last-json"}:
         if last_payload is None:
-            print("No previous run.")
+            print(format_runtime_notice("Last run", "no previous run"))
         else:
             _print_runtime_interactive_payload(last_payload, full_json=True)
         return True, full_json_mode
     if normalized in {"/clear", "/clear-memory"}:
         session_memory.clear()
         save_runtime_session_memory(session_memory_path, session_memory)
-        print("Memory cleared.")
+        print(format_runtime_notice("Memory", "cleared"))
         return True, full_json_mode
     if normalized in {"/reset", "/reset-session"}:
         session_memory.clear()
@@ -314,7 +315,7 @@ def _handle_runtime_interactive_command(
             clear_history = getattr(line_reader, "clear_history", None)
             if callable(clear_history):
                 clear_history()
-        print("Reset complete.")
+        print(format_runtime_notice("Reset", "memory and prompt history cleared"))
         return True, full_json_mode
     return False, full_json_mode
 
@@ -325,10 +326,10 @@ def _change_runtime_interactive_directory(command: str) -> None:
     if not os.path.isabs(target):
         target = os.path.abspath(target)
     if not os.path.isdir(target):
-        print(f"Directory not found · {target}")
+        print(format_runtime_notice("Directory not found", target))
         return
     os.chdir(target)
-    print(f"cwd · {os.getcwd()}")
+    print(format_runtime_notice("Working directory", os.getcwd()))
 
 
 def _runtime_interactive_goal_with_memory(
@@ -429,7 +430,7 @@ def _maybe_run_approved_runtime_action(
         approval_prompt(action_id, tool, color=runtime_ui_color_enabled())
     ).strip().lower()
     if answer not in {"y", "yes", "approve"}:
-        print("Skipped · action not approved")
+        print(format_runtime_notice("Approval skipped", "action not approved"))
         return None
     return json_ready(
         run_runtime_agent(

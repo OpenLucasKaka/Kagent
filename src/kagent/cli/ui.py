@@ -181,6 +181,14 @@ def format_runtime_session_memory(session_memory: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def format_runtime_notice(title: str, detail: str = "") -> str:
+    lines = [str(title).strip()]
+    detail_text = str(detail).strip()
+    if detail_text:
+        lines.extend(_indented_lines(detail_text, prefix="  "))
+    return "\n".join(lines)
+
+
 def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> str:
     if not isinstance(payload, dict):
         return str(payload)

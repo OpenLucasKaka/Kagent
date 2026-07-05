@@ -174,10 +174,10 @@ def _handle_runtime_interactive_command(
 ) -> tuple[bool, bool]:
     normalized = command.strip().lower()
     if normalized in {"/json", "/full", "/debug"}:
-        print("output mode: full JSON")
+        print("Mode · full JSON")
         return True, True
     if normalized in {"/compact", "/summary"}:
-        print("output mode: compact")
+        print("Mode · compact transcript")
         return True, False
     if normalized in {"/help", "/?"}:
         print(runtime_interactive_help())
@@ -187,20 +187,20 @@ def _handle_runtime_interactive_command(
         return True, full_json_mode
     if normalized in {"/last", "/last-run"}:
         if last_payload is None:
-            print("No previous runtime run.")
+            print("No previous run.")
         else:
             _print_runtime_interactive_payload(last_payload, full_json=False)
         return True, full_json_mode
     if normalized in {"/trace", "/last-json"}:
         if last_payload is None:
-            print("No previous runtime run.")
+            print("No previous run.")
         else:
             _print_runtime_interactive_payload(last_payload, full_json=True)
         return True, full_json_mode
     if normalized in {"/clear", "/clear-memory"}:
         session_memory.clear()
         save_runtime_session_memory(session_memory_path, session_memory)
-        print("memory cleared")
+        print("Memory cleared.")
         return True, full_json_mode
     return False, full_json_mode
 

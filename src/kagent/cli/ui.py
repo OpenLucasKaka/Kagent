@@ -19,7 +19,14 @@ def runtime_ui_color_enabled() -> bool:
 
 
 def runtime_ready_message(*, color: bool = False) -> str:
-    return _dim("Kagent ready · /help for commands · exit to quit", enabled=color)
+    return "\n".join(
+        [
+            _color("Kagent", "bold", enabled=color),
+            "  [K]  K-bot · local automation agent",
+            "  /|\\",
+            _dim("  / \\  ready · /help for commands · exit to quit", enabled=color),
+        ]
+    )
 
 
 def runtime_prompt(*, color: bool = False) -> str:
@@ -29,23 +36,23 @@ def runtime_prompt(*, color: bool = False) -> str:
 def runtime_interactive_help() -> str:
     return "\n".join(
         [
-            "Commands",
-            "  /help      Show commands",
-            "  /json      Stream full JSON traces",
-            "  /compact   Return to transcript output",
-            "  /last      Replay the last transcript",
-            "  /trace     Print the last full JSON trace once",
-            "  /memory    Show session memory",
-            "  /clear     Clear session memory",
-            "  exit       Quit",
+            "Kagent commands",
+            "  /help      show this help",
+            "  /json      show full JSON traces",
+            "  /compact   return to clean transcript",
+            "  /last      replay last answer",
+            "  /trace     print last JSON trace once",
+            "  /memory    show session memory",
+            "  /clear     clear session memory",
+            "  exit       quit",
         ]
     )
 
 
 def format_runtime_session_memory(session_memory: list[dict[str, str]]) -> str:
     if not session_memory:
-        return "memory is empty."
-    lines = ["memory"]
+        return "Memory is empty."
+    lines = ["Memory"]
     for index, turn in enumerate(session_memory, start=1):
         user = turn.get("user", "")
         assistant = turn.get("assistant", "")
@@ -60,7 +67,7 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
         return str(payload)
 
     status = str(payload.get("status", "")).strip()
-    lines = ["  " + _format_run_status(payload, status, color=color)]
+    lines = [_format_run_status(payload, status, color=color)]
 
     answer = str(payload.get("answer", "")).strip()
     if answer:
@@ -71,19 +78,19 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
     error = str(payload.get("error", "")).strip()
     if error_code or error:
         lines.append("")
-        lines.append("  " + _color("Error", "red", enabled=color))
-        lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="    "))
+        lines.append(_color("Error", "red", enabled=color))
+        lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="  "))
 
     pending = payload.get("pending_approval")
     if isinstance(pending, dict):
         lines.append("")
-        lines.append("  " + _color("Approval required", "yellow", enabled=color))
-        lines.extend(_indented_lines(_format_pending_approval(pending), prefix="    "))
+        lines.append(_color("Approval required", "yellow", enabled=color))
+        lines.extend(_indented_lines(_format_pending_approval(pending), prefix="  "))
 
     visible_observations = visible_runtime_observations(payload.get("observations"))
     if visible_observations:
         lines.append("")
-        lines.append("  " + _dim("Tools", enabled=color))
+        lines.append(_dim("Tools", enabled=color))
         for observation, repeat_count in visible_observations:
             lines.extend(
                 format_runtime_observation_lines(
@@ -100,35 +107,35 @@ def format_runtime_progress_event(event: Any, *, color: bool = False) -> str:
     event_type = str(event.get("type", "")).strip()
     if event_type == "planner_started":
         iteration = str(event.get("iteration", "")).strip()
-        suffix = f" iter {iteration}" if iteration else ""
-        return _dim(f"  Thinking{suffix}...", enabled=color)
+        suffix = f" iter {iteration}" if iteration else " planning"
+        return _dim(f"Thinking ·{suffix}", enabled=color)
     if event_type == "planner_completed":
         action_count = str(event.get("action_count", "")).strip()
         duration = _progress_duration(event)
         suffix = f" · {duration}" if duration else ""
         if action_count == "0":
-            return _dim(f"  Finalizing{suffix}", enabled=color)
+            return _dim(f"Finalizing{suffix}", enabled=color)
         action_label = "action" if action_count == "1" else "actions"
-        return _dim(f"  Plan ready · {action_count} {action_label}{suffix}", enabled=color)
+        return _dim(f"Plan ready · {action_count} {action_label}{suffix}", enabled=color)
     if event_type == "tool_started":
         tool = str(event.get("tool", "")).strip() or "tool"
         if _is_internal_progress_tool(tool):
             return ""
-        return _dim(f"  Running {tool}...", enabled=color)
+        return _dim(f"Running {tool}...", enabled=color)
     if event_type == "tool_completed":
         status = str(event.get("status", "")).strip()
         tool = str(event.get("tool", "")).strip() or "tool"
         if _is_internal_progress_tool(tool) and status in {"ok", "done"}:
             return ""
         icon = _status_icon(status, color=color)
-        return join_non_empty([f"  {icon}", tool, _progress_duration(event)], " · ")
+        return join_non_empty([f"{icon} {tool}", _progress_duration(event)], " · ")
     if event_type == "approval_required":
         tool = str(event.get("tool", "")).strip() or "tool"
-        return _color(f"  approval required for {tool}", "yellow", enabled=color)
+        return _color(f"Approval required · {tool}", "yellow", enabled=color)
     if event_type == "planner_failed":
         duration = _progress_duration(event)
         suffix = f" · {duration}" if duration else ""
-        return _color(f"  Planner failed{suffix}", "red", enabled=color)
+        return _color(f"Planner failed{suffix}", "red", enabled=color)
     return ""
 
 
@@ -175,9 +182,9 @@ def format_runtime_observation_lines(
         headline.append(_dim(f"{duration}s", enabled=color))
     if summary:
         headline.append(_dim(summary, enabled=color))
-    lines = ["    " + " · ".join(headline)]
+    lines = ["  " + " · ".join(headline)]
     if error_code or error:
-        lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="    "))
+        lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="  "))
     return lines
 
 
@@ -210,8 +217,7 @@ def summarize_runtime_output(output: Any, *, tool: str = "") -> str:
 
 
 def approval_prompt(action_id: str, tool: str, *, color: bool = False) -> str:
-    subject = join_non_empty([action_id, tool], " ")
-    return _color(f"Approve {subject}? ", "yellow", enabled=color) + "[y/N] "
+    return _color("Approve this action?", "yellow", enabled=color) + " [y/N] "
 
 
 def join_non_empty(values: list[str], separator: str) -> str:
@@ -219,19 +225,16 @@ def join_non_empty(values: list[str], separator: str) -> str:
 
 
 def _format_run_status(payload: dict, status: str, *, color: bool) -> str:
-    parts = [
-        join_non_empty(
-            [_status_icon(status, color=color), _status_label(status, color=color)],
-            " ",
-        )
-    ]
+    parts = [_status_label(status, color=color)]
+    if status.strip() == "requires_approval":
+        parts.append("pending")
     duration = str(payload.get("duration_seconds", "")).strip()
     if duration:
         parts.append(f"{duration}s")
     iteration_label = _runtime_iteration_label(payload)
     if iteration_label:
         parts.append(f"iter {iteration_label}")
-    return "  ".join(parts)
+    return " · ".join(parts)
 
 
 def _format_pending_approval(pending: dict) -> str:
@@ -242,21 +245,21 @@ def _format_pending_approval(pending: dict) -> str:
         ],
         " ",
     )
-    lines = ["required"]
+    lines = []
     if action:
-        lines.append(f"  {action}")
+        lines.append(f"action  {action}")
     reason = str(pending.get("reason", "")).strip()
     if reason:
-        lines.append(f"  reason: {reason}")
+        lines.append(f"reason  {reason}")
     action_input = pending.get("input")
     input_summary = summarize_runtime_output(action_input)
     if input_summary:
-        lines.append(f"  input: {input_summary}")
+        lines.append(f"input   {input_summary}")
     return "\n".join(lines)
 
 
 def _answer_lines(text: str) -> list[str]:
-    return _wrapped_block_lines(text, prefix="  ")
+    return _wrapped_block_lines(text, prefix="")
 
 
 def _indented_lines(text: str, prefix: str = "  ") -> list[str]:
@@ -456,7 +459,14 @@ def _status_label(status: str, *, color: bool = False) -> str:
         "requires_approval": "yellow",
         "cancelled": "yellow",
     }.get(normalized, "cyan")
-    label = "approval" if normalized == "requires_approval" else normalized
+    labels = {
+        "done": "Done",
+        "ok": "Done",
+        "failed": "Failed",
+        "requires_approval": "Approval",
+        "cancelled": "Cancelled",
+    }
+    label = labels.get(normalized, normalized)
     return _color(label, color_name, enabled=color)
 
 

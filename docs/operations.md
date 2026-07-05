@@ -490,9 +490,10 @@ The CLI defaults to the Codex-style runtime for both one-shot goals and TTY
 sessions: run `kagent "goal"` for a single turn, or run `kagent` or
 `.venv/bin/python -m kagent.cli` with no goal to start the runtime shell. Use
 `--deterministic` only for the legacy LangGraph regression path. Sessions start with
-`Kagent ready  /help`, print live progress while the planner and
-tools run, and then use a compact operator transcript by default: status first,
-answer second, and only real external tool observations under `tools`.
+a `Kagent` banner, the `[K]` terminal companion mark, and `/help` guidance.
+They print live progress while the planner and tools run, and then use a
+compact operator transcript by default: status first, answer second, and only
+real external tool observations under `Tools`.
 Internal `note` observations stay hidden in the default view so the shell reads
 like an agent session instead of a debug trace. Use `/json` inside the shell
 for full trace output, `/compact` to return to the operator view, `/last` to

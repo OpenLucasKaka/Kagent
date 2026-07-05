@@ -1061,7 +1061,9 @@ def test_cli_interactive_runtime_prints_prompt_to_real_stderr(monkeypatch, capsy
 
     captured = capsys.readouterr()
     assert "› " in captured.out
-    assert "Kagent ready" in captured.err
+    assert "Kagent" in captured.err
+    assert "[K]" in captured.err
+    assert "ready" in captured.err
     assert "/help" in captured.err
 
 
@@ -1122,11 +1124,11 @@ def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, caps
     captured = capsys.readouterr()
     assert "╭─" not in captured.out
     assert "╰─" not in captured.out
-    assert "\n  ✓ done" in captured.out
-    assert "done" in captured.out
+    assert "\nDone" in captured.out
+    assert "Done · 0.1200s" in captured.out
     assert "0.1200s" in captured.out
-    assert "\n\n  已打开 GitHub。" in captured.out
-    assert "\n\n  Tools\n    ✓ open_url" in captured.out
+    assert "\n\n已打开 GitHub。" in captured.out
+    assert "\n\nTools\n  ✓ open_url" in captured.out
     assert "open_url" in captured.out
     assert "0.0300s" in captured.out
     assert "Google Chrome" in captured.out
@@ -1208,13 +1210,13 @@ def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     )
 
     captured = capsys.readouterr()
-    assert "› \n  Thinking iter 1..." in captured.out
+    assert "› \nThinking · iter 1" in captured.out
     assert "Plan ready · 1 action · 0.2000s" in captured.out
     assert "Running apply_patch..." in captured.out
-    assert "✓ · apply_patch · 0.0100s" in captured.out
-    assert "\n\n  ✓ done" in captured.out
-    assert "\n\n  文件已创建。" in captured.out
-    assert "\n\n  Tools\n    ✓ apply_patch" in captured.out
+    assert "✓ apply_patch · 0.0100s" in captured.out
+    assert "\n\nDone" in captured.out
+    assert "\n\n文件已创建。" in captured.out
+    assert "\n\nTools\n  ✓ apply_patch" in captured.out
     assert "add hello.md 13B" in captured.out
 
 
@@ -1245,10 +1247,10 @@ def test_cli_interactive_runtime_tty_can_toggle_json_output(monkeypatch, capsys)
     )
 
     captured = capsys.readouterr()
-    assert "output mode: full JSON" in captured.out
+    assert "Mode · full JSON" in captured.out
     assert '"observations"' in captured.out
-    assert "output mode: compact" in captured.out
-    assert "✓ done" in captured.out
+    assert "Mode · compact transcript" in captured.out
+    assert "Done" in captured.out
 
 
 def test_cli_interactive_runtime_collapses_repeated_tool_observations(
@@ -1416,10 +1418,10 @@ def test_cli_interactive_runtime_tty_keeps_debug_details_out_of_default_output(
 
     captured = capsys.readouterr()
     assert "╭─" not in captured.out
-    assert "\n\n  文件已创建。" in captured.out
+    assert "\n\n文件已创建。" in captured.out
     assert "status" not in captured.out
-    assert "\n  ✓ done" in captured.out
-    assert "\n\n  Tools\n    ✓ apply_patch" in captured.out
+    assert "\nDone · 1.2500s · iter 2/3" in captured.out
+    assert "\n\nTools\n  ✓ apply_patch" in captured.out
     assert "apply_patch" in captured.out
     assert "hello.md" in captured.out
     assert "private-run-id" not in captured.out
@@ -1460,11 +1462,11 @@ def test_cli_interactive_runtime_can_show_and_clear_session_memory(
     )
 
     captured = capsys.readouterr()
-    assert "memory" in captured.out
+    assert "Memory" in captured.out
     assert "user   我是卡卡" in captured.out
     assert "agent  你好，卡卡。" in captured.out
-    assert "memory cleared" in captured.out
-    assert "memory is empty." in captured.out
+    assert "Memory cleared." in captured.out
+    assert "Memory is empty." in captured.out
 
 
 def test_cli_interactive_runtime_carries_session_memory_between_turns(
@@ -1677,7 +1679,7 @@ def test_cli_interactive_runtime_clear_persists_empty_session_memory(
     saved_memory = json.loads(memory_path.read_text(encoding="utf-8"))
     assert saved_memory["turns"] == []
     captured = capsys.readouterr()
-    assert "memory cleared" in captured.out
+    assert "Memory cleared." in captured.out
 
 
 def test_cli_session_memory_rejects_group_or_world_readable_file(tmp_path):
@@ -2207,7 +2209,7 @@ def test_cli_interactive_runtime_reports_when_no_last_trace_exists(monkeypatch, 
     )
 
     captured = capsys.readouterr()
-    assert captured.out.count("No previous runtime run.") == 2
+    assert captured.out.count("No previous run.") == 2
 
 
 def test_cli_interactive_runtime_can_approve_pending_tool(monkeypatch, capsys):
@@ -2255,9 +2257,11 @@ def test_cli_interactive_runtime_can_approve_pending_tool(monkeypatch, capsys):
     assert len(calls) == 2
     assert calls[1]["goal"] == "打开 github"
     assert calls[1]["approved_action_ids"] == {"step-2"}
-    assert "Approve step-2 http_request" in captured.out
-    assert "! approval" in captured.out
-    assert "✓ done" in captured.out
+    assert "Approval required" in captured.out
+    assert "http_request" in captured.out
+    assert "Approve this action? [y/N]" in captured.out
+    assert "Approval ·" in captured.out
+    assert "Done" in captured.out
 
 
 def test_cli_writes_output_file_before_failure_exit(tmp_path):

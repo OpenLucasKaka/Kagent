@@ -4,6 +4,8 @@ import json
 import os
 import shlex
 import sys
+import threading
+import time
 from typing import Any
 
 from kagent.cli.commands import (
@@ -111,16 +113,19 @@ def run_runtime_interactive(
         progress_sink = _runtime_interactive_progress_sink(
             enabled=interactive_tty and not full_json_mode
         )
-        payload = json_ready(
-            run_runtime_agent(
-                runtime_goal,
-                provider=provider,
-                max_iterations=max_iterations,
-                metadata=metadata,
-                tags=tags,
-                event_sink=progress_sink,
+        try:
+            payload = json_ready(
+                run_runtime_agent(
+                    runtime_goal,
+                    provider=provider,
+                    max_iterations=max_iterations,
+                    metadata=metadata,
+                    tags=tags,
+                    event_sink=progress_sink,
+                )
             )
-        )
+        finally:
+            _close_runtime_progress_sink(progress_sink)
         if trace_dir and persist_trace is not None:
             persist_runtime_cli_trace_or_raise(payload, trace_dir, persist_trace)
         _print_runtime_interactive_payload(
@@ -257,21 +262,103 @@ def _print_runtime_interactive_payload(payload: Any, *, full_json: bool) -> None
 def _runtime_interactive_progress_sink(*, enabled: bool) -> Any:
     if not enabled:
         return None
-    started = False
+    return _RuntimeInteractiveProgress()
 
-    def emit(event: Any) -> None:
-        nonlocal started
-        line = format_runtime_progress_event(
+
+def _close_runtime_progress_sink(progress_sink: Any) -> None:
+    close = getattr(progress_sink, "close", None)
+    if callable(close):
+        close()
+
+
+class _RuntimeInteractiveProgress:
+    _FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def __init__(self) -> None:
+        self._message = ""
+        self._frame_index = 0
+        self._last_width = 0
+        self._started = False
+        self._closed = False
+        self._active = False
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def __call__(self, event: Any) -> None:
+        message = format_runtime_progress_event(
             event,
             color=runtime_ui_color_enabled(),
         )
-        if line:
-            if not started:
-                print()
-                started = True
-            print(line)
+        if not message or not isinstance(event, dict):
+            return
+        event_type = str(event.get("type", "")).strip()
+        if event_type in {"planner_started", "planner_completed", "tool_started"}:
+            self._start_or_update(message)
+            return
+        self._finish_active(clear=True)
+        self._write_line(message)
 
-    return emit
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+        self._finish_active(clear=True)
+
+    def _start_or_update(self, message: str) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._message = message
+            if not self._started:
+                sys.stdout.write("\n")
+                self._started = True
+            self._active = True
+            self._render_locked()
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._spin, daemon=True)
+                self._thread.start()
+
+    def _finish_active(self, *, clear: bool) -> None:
+        thread: threading.Thread | None
+        with self._lock:
+            self._active = False
+            thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=0.25)
+        with self._lock:
+            if clear:
+                self._clear_locked()
+
+    def _write_line(self, message: str) -> None:
+        with self._lock:
+            if not self._started:
+                sys.stdout.write("\n")
+                self._started = True
+            sys.stdout.write(f"{message}\n")
+            sys.stdout.flush()
+            self._last_width = 0
+
+    def _spin(self) -> None:
+        while True:
+            time.sleep(0.12)
+            with self._lock:
+                if self._closed or not self._active:
+                    return
+                self._frame_index += 1
+                self._render_locked()
+
+    def _render_locked(self) -> None:
+        frame = self._FRAMES[self._frame_index % len(self._FRAMES)]
+        line = f"  {frame} {self._message}"
+        padding = " " * max(0, self._last_width - len(line))
+        sys.stdout.write(f"\r{line}{padding}")
+        sys.stdout.flush()
+        self._last_width = len(line)
+
+    def _clear_locked(self) -> None:
+        if self._last_width:
+            sys.stdout.write("\r" + (" " * self._last_width) + "\r")
+            sys.stdout.flush()
+            self._last_width = 0
 
 
 def _handle_runtime_interactive_command(
@@ -530,17 +617,21 @@ def _maybe_run_approved_runtime_action(
     if answer not in {"y", "yes", "approve"}:
         print(format_runtime_notice("Approval skipped", "action not approved"))
         return None
-    return json_ready(
-        run_runtime_agent(
-            goal,
-            provider=_InlineRuntimePlanProvider({"actions": [pending]}),
-            max_iterations=1,
-            approved_action_ids={action_id},
-            metadata=metadata,
-            tags=tags,
-            event_sink=_runtime_interactive_progress_sink(enabled=progress_enabled),
+    progress_sink = _runtime_interactive_progress_sink(enabled=progress_enabled)
+    try:
+        return json_ready(
+            run_runtime_agent(
+                goal,
+                provider=_InlineRuntimePlanProvider({"actions": [pending]}),
+                max_iterations=1,
+                approved_action_ids={action_id},
+                metadata=metadata,
+                tags=tags,
+                event_sink=progress_sink,
+            )
         )
-    )
+    finally:
+        _close_runtime_progress_sink(progress_sink)
 
 
 class _InlineRuntimePlanProvider:

@@ -21,19 +21,16 @@ def runtime_ui_color_enabled() -> bool:
 
 def runtime_ready_message(*, color: bool = False) -> str:
     subtitle = "Codex-style agent runtime for internal work"
+    product_line = "agentic work shell"
     return "\n".join(
         [
             _color("Kagent", "bold", enabled=color),
             _dim(subtitle, enabled=color),
             "",
-            "        .----------------.",
-            "        |   K-bot   [K]  |",
-            "        |     (o_o)      |",
-            "        |   /|_|\\        |",
-            "        '----/---\\-------'",
+            f"  {_color('[K]', 'cyan', enabled=color)} {product_line}",
+            "  ask, approve, automate",
             "",
-            "ask, approve, automate",
-            _dim("ready", enabled=color),
+            _dim("ready for work", enabled=color),
             _dim("/help commands   /config provider   /status session", enabled=color),
         ]
     )
@@ -47,7 +44,7 @@ def runtime_setup_message(*, config_path: str, color: bool = False) -> str:
     return "\n".join(
         [
             _color("Kagent setup", "bold", enabled=color),
-            "  [K] (o_o)  K-bot is getting your provider ready.",
+            f"  {_color('[K]', 'cyan', enabled=color)} Configure your provider once.",
             _dim("Choose a provider once, then Kagent opens directly next time.", enabled=color),
             "",
             f"Config  {config_path}",
@@ -282,9 +279,7 @@ def format_runtime_progress_event(event: Any, *, color: bool = False) -> str:
         return ""
     event_type = str(event.get("type", "")).strip()
     if event_type == "planner_started":
-        iteration = str(event.get("iteration", "")).strip()
-        suffix = f" iter {iteration}" if iteration else " planning"
-        return _dim(f"Thinking ·{suffix}", enabled=color)
+        return _dim("Thinking", enabled=color)
     if event_type == "planner_completed":
         action_count = str(event.get("action_count", "")).strip()
         duration = _progress_duration(event)
@@ -292,12 +287,12 @@ def format_runtime_progress_event(event: Any, *, color: bool = False) -> str:
         if action_count == "0":
             return _dim(f"Finalizing{suffix}", enabled=color)
         action_label = "action" if action_count == "1" else "actions"
-        return _dim(f"Plan ready · {action_count} {action_label}{suffix}", enabled=color)
+        return _dim(f"Planned {action_count} {action_label}{suffix}", enabled=color)
     if event_type == "tool_started":
         tool = str(event.get("tool", "")).strip() or "tool"
         if _is_internal_progress_tool(tool):
             return ""
-        return _dim(f"Running {tool}...", enabled=color)
+        return _dim(f"Running {tool}", enabled=color)
     if event_type == "tool_completed":
         status = str(event.get("status", "")).strip()
         tool = str(event.get("tool", "")).strip() or "tool"

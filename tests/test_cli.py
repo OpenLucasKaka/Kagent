@@ -1063,7 +1063,7 @@ def test_cli_interactive_runtime_prints_prompt_to_real_stderr(monkeypatch, capsy
     assert "› " in captured.out
     assert "Kagent" in captured.err
     assert "[K]" in captured.err
-    assert "ready" in captured.err
+    assert "ready for work" in captured.err
     assert "/help" in captured.err
 
 
@@ -1083,12 +1083,14 @@ def test_cli_runtime_ready_message_feels_like_kagent_product_shell():
 
     assert message.splitlines()[0] == "Kagent"
     assert "Codex-style agent runtime" in message
-    assert "K-bot" in message
     assert "[K]" in message
-    assert "(o_o)" in message
+    assert "agentic work shell" in message
     assert "ask, approve, automate" in message
+    assert "ready for work" in message
     assert "/config provider" in message
     assert "/help" in message
+    assert "K-bot" not in message
+    assert "(o_o)" not in message
     assert ("self" + "-correcting") not in message.lower()
     assert "runtime shell" not in message.lower()
 
@@ -1102,9 +1104,10 @@ def test_cli_runtime_setup_message_keeps_brand_presence():
     )
 
     assert message.splitlines()[0] == "Kagent setup"
-    assert "K-bot" in message
-    assert "(o_o)" in message
-    assert "provider ready" in message
+    assert "[K]" in message
+    assert "Configure your provider once." in message
+    assert "K-bot" not in message
+    assert "(o_o)" not in message
     assert "/Users/kaka/.config/kagent/provider.json" in message
 
 
@@ -1589,9 +1592,11 @@ def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     )
 
     captured = capsys.readouterr()
-    assert "› \nThinking · iter 1" in captured.out
-    assert "Plan ready · 1 action · 0.2000s" in captured.out
-    assert "Running apply_patch..." in captured.out
+    assert "\r  " in captured.out
+    assert "Thinking" in captured.out
+    assert "Planned 1 action · 0.2000s" in captured.out
+    assert "Running apply_patch" in captured.out
+    assert "Thinking · iter" not in captured.out
     assert "✓ apply_patch · 0.0100s" in captured.out
     assert "\n\nDone" in captured.out
     assert "\n\nAnswer\n  文件已创建。" in captured.out

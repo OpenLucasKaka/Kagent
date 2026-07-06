@@ -261,10 +261,10 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
     visible_observations = visible_runtime_observations(payload.get("observations"))
     if visible_observations:
         lines.append("")
-        lines.append(_dim("Actions", enabled=color))
+        lines.append(_dim("Results", enabled=color))
         for observation, repeat_count in visible_observations:
             lines.extend(
-                format_runtime_observation_lines(
+                format_runtime_result_lines(
                     observation, color=color, repeat_count=repeat_count
                 )
             )
@@ -290,14 +290,14 @@ def format_runtime_progress_event(event: Any, *, color: bool = False) -> str:
         tool = str(event.get("tool", "")).strip() or "tool"
         if _is_internal_progress_tool(tool):
             return ""
-        return _dim(f"Running {tool}", enabled=color)
+        return _dim("Working", enabled=color)
     if event_type == "tool_completed":
         status = str(event.get("status", "")).strip()
         tool = str(event.get("tool", "")).strip() or "tool"
         if _is_internal_progress_tool(tool) and status in {"ok", "done"}:
             return ""
         icon = _status_icon(status, color=color)
-        return join_non_empty([f"{icon} {tool}", _progress_duration(event)], " · ")
+        return join_non_empty([f"{icon} Completed", _progress_duration(event)], " · ")
     if event_type == "approval_required":
         return ""
     if event_type == "planner_failed":
@@ -352,6 +352,72 @@ def format_runtime_observation_lines(
     if error_code or error:
         lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="  "))
     return lines
+
+
+def format_runtime_result_lines(
+    observation: dict,
+    *,
+    color: bool = False,
+    repeat_count: int = 1,
+) -> list[str]:
+    status = str(observation.get("status", "")).strip()
+    tool = str(observation.get("tool", "")).strip()
+    summary = summarize_runtime_user_result(observation.get("output"), tool=tool)
+    if not summary:
+        summary = _user_action_label(tool)
+    suffix = f" x{repeat_count}" if repeat_count > 1 else ""
+    headline = join_non_empty([_status_icon(status, color=color), summary + suffix], " ")
+    error = _user_runtime_error(observation)
+    lines = ["  " + headline]
+    if error:
+        lines.extend(_indented_lines(error, prefix="  "))
+    return lines
+
+
+def summarize_runtime_user_result(output: Any, *, tool: str = "") -> str:
+    if not isinstance(output, dict) or not output:
+        return ""
+    normalized_tool = tool.strip()
+    if normalized_tool == "open_url":
+        url = _short_runtime_value(output.get("url", ""))
+        application = _short_runtime_value(output.get("application", ""))
+        return join_non_empty(
+            [
+                f"Opened {url}" if url else "Opened URL",
+                f"in {application}" if application else "",
+            ],
+            " ",
+        )
+    if normalized_tool == "open_app":
+        application = _short_runtime_value(output.get("application", ""))
+        if output.get("opened") is True:
+            return f"Opened {application}" if application else "Opened app"
+        return application
+    if normalized_tool == "apply_patch":
+        changed = _summarize_changed_files(output.get("changed_files"))
+        return f"Updated files {changed}" if changed else "Updated files"
+    if normalized_tool == "read_file":
+        path = _short_runtime_value(output.get("path", ""))
+        return f"Read {path}" if path else "Read file"
+    if normalized_tool == "list_files":
+        root = _short_runtime_value(output.get("root", ""))
+        count = output.get("file_count")
+        count_label = f"{count} files" if count is not None else ""
+        return join_non_empty(
+            [f"Listed {root}" if root else "Listed files", count_label],
+            " · ",
+        )
+    if normalized_tool == "artifact":
+        title = _short_runtime_value(output.get("title", ""))
+        return f"Created artifact {title}" if title else "Created artifact"
+    if normalized_tool == "http_request":
+        url = _short_runtime_value(output.get("url", ""))
+        status_code = str(output.get("status_code", "")).strip()
+        return join_non_empty(
+            [f"Fetched {url}" if url else "Fetched URL", status_code],
+            " · ",
+        )
+    return summarize_runtime_output(output, tool=tool)
 
 
 def summarize_runtime_output(output: Any, *, tool: str = "") -> str:
@@ -433,6 +499,27 @@ def _approval_action_label(tool: str) -> str:
         "shell_command": "Run command",
     }
     return labels.get(tool.strip(), tool.strip() or "Run action")
+
+
+def _user_action_label(tool: str) -> str:
+    labels = {
+        "apply_patch": "Updated files",
+        "http_request": "Fetched URL",
+        "open_app": "Opened app",
+        "open_url": "Opened URL",
+        "shell_command": "Ran command",
+    }
+    return labels.get(tool.strip(), "Completed action")
+
+
+def _user_runtime_error(observation: dict) -> str:
+    status = str(observation.get("status", "")).strip()
+    if status in {"ok", "done"}:
+        return ""
+    error = str(observation.get("error", "")).strip()
+    if error:
+        return error
+    return "Action did not complete."
 
 
 def _summarize_pending_input(action_input: Any, *, tool: str) -> str:

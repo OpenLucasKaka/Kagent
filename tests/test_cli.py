@@ -1510,11 +1510,12 @@ def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, caps
     assert "Done · 0.1200s" in captured.out
     assert "0.1200s" in captured.out
     assert "\n\nAnswer\n  已打开 GitHub。" in captured.out
-    assert "\n\nActions\n  ✓ open_url" in captured.out
-    assert "open_url" in captured.out
-    assert "0.0300s" in captured.out
+    assert "\n\nResults\n  ✓ Opened https://github.com in Google Chrome" in captured.out
+    assert "\n\nActions" not in captured.out
+    assert "open_url" not in captured.out
+    assert "0.0300s" not in captured.out
     assert "Google Chrome" in captured.out
-    assert "opened" in captured.out
+    assert "opened" not in captured.out
     assert "url=" not in captured.out
     assert "opened=True" not in captured.out
     assert "run-123" not in captured.out
@@ -1603,14 +1604,16 @@ def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     assert "\r  " in captured.out
     assert "Thinking" in captured.out
     assert "Planned 1 action · 0.2000s" in captured.out
-    assert "Running apply_patch" in captured.out
+    assert "Working" in captured.out
     assert "Thinking · iter" not in captured.out
     assert "Planner failed" not in captured.out
     assert "Approval required ·" not in captured.out
-    assert "✓ apply_patch · 0.0100s" in captured.out
+    assert "✓ Completed · 0.0100s" in captured.out
     assert "\n\nDone" in captured.out
     assert "\n\nAnswer\n  文件已创建。" in captured.out
-    assert "\n\nActions\n  ✓ apply_patch" in captured.out
+    assert "\n\nResults\n  ✓ Updated files add hello.md 13B" in captured.out
+    assert "\n\nActions" not in captured.out
+    assert "apply_patch" not in captured.out
     assert "add hello.md 13B" in captured.out
 
 
@@ -1714,7 +1717,8 @@ def test_cli_interactive_runtime_collapses_repeated_tool_observations(
     captured = capsys.readouterr()
     assert "note" not in captured.out
     assert "用户询问身份" not in captured.out
-    assert "open_url" in captured.out
+    assert "Opened https://github.com" in captured.out
+    assert "open_url" not in captured.out
 
 
 def test_cli_interactive_runtime_hides_note_only_activity(monkeypatch, capsys):
@@ -1815,8 +1819,9 @@ def test_cli_interactive_runtime_tty_keeps_debug_details_out_of_default_output(
     assert "\n\nAnswer\n  文件已创建。" in captured.out
     assert "status" not in captured.out
     assert "\nDone · 1.2500s · iter 2/3" in captured.out
-    assert "\n\nActions\n  ✓ apply_patch" in captured.out
-    assert "apply_patch" in captured.out
+    assert "\n\nResults\n  ✓ Updated files hello.md" in captured.out
+    assert "\n\nActions" not in captured.out
+    assert "apply_patch" not in captured.out
     assert "hello.md" in captured.out
     assert "private-run-id" not in captured.out
     assert "step-1" not in captured.out
@@ -2794,7 +2799,8 @@ def test_cli_interactive_runtime_can_show_last_compact_result(monkeypatch, capsy
     captured = capsys.readouterr()
     assert len(calls) == 1
     assert captured.out.count("已打开 GitHub。") == 2
-    assert captured.out.count("open_url") == 2
+    assert "open_url" not in captured.out
+    assert "Opened https://github.com" in captured.out
     assert '"observations"' not in captured.out
 
 

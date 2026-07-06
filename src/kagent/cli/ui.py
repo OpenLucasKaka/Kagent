@@ -8,6 +8,7 @@ import textwrap
 from typing import Any
 
 from kagent.cli.commands import runtime_interactive_commands
+from kagent.cli.memory import RuntimeSessionMemory, coerce_runtime_session_memory
 from kagent.utils.json_output import format_and_write_json, json_ready
 
 
@@ -141,12 +142,14 @@ def format_runtime_interactive_status(
     *,
     cwd: str,
     full_json_mode: bool,
-    session_memory: list[dict[str, str]],
+    session_memory: RuntimeSessionMemory | list[dict[str, str]],
     last_payload: Any,
     trace_dir: str = "",
 ) -> str:
-    memory_count = len(session_memory)
+    memory = coerce_runtime_session_memory(session_memory)
+    memory_count = len(memory.turns)
     memory_label = "turn" if memory_count == 1 else "turns"
+    compacted = f", {memory.compacted_turn_count} compacted" if memory.compacted_turn_count else ""
     last_status = "-"
     if isinstance(last_payload, dict):
         last_status = str(last_payload.get("status", "")).strip() or "-"
@@ -155,7 +158,7 @@ def format_runtime_interactive_status(
             "kagent session",
             f"  cwd      {cwd}",
             f"  output   {'full JSON' if full_json_mode else 'compact'}",
-            f"  memory   {memory_count} {memory_label}",
+            f"  memory   {memory_count} recent {memory_label}{compacted}",
             f"  last     {last_status}",
             f"  trace    {trace_dir or 'off'}",
         ]
@@ -204,16 +207,32 @@ def format_runtime_interactive_doctor(
     )
 
 
-def format_runtime_session_memory(session_memory: list[dict[str, str]]) -> str:
-    if not session_memory:
+def format_runtime_session_memory(
+    session_memory: RuntimeSessionMemory | list[dict[str, str]],
+) -> str:
+    memory = coerce_runtime_session_memory(session_memory)
+    if not memory:
         return "Memory is empty."
     lines = ["Memory"]
-    for index, turn in enumerate(session_memory, start=1):
+    if memory.summary:
+        lines.append("  summary")
+        lines.extend(_indented_lines(memory.summary, prefix="    "))
+    if memory.facts:
+        lines.append("  facts")
+        lines.extend(f"    - {fact}" for fact in memory.facts)
+    if memory.open_items:
+        lines.append("  open items")
+        lines.extend(f"    - {item}" for item in memory.open_items)
+    if memory.compacted_turn_count:
+        lines.append(f"  compacted turns  {memory.compacted_turn_count}")
+    if memory.turns:
+        lines.append("  recent turns")
+    for index, turn in enumerate(memory.turns, start=1):
         user = turn.get("user", "")
         assistant = turn.get("assistant", "")
-        lines.append(f"  {index}. user   {user}")
+        lines.append(f"    {index}. user   {user}")
         if assistant:
-            lines.append(f"     agent  {assistant}")
+            lines.append(f"       agent  {assistant}")
     return "\n".join(lines)
 
 

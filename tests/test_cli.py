@@ -1241,7 +1241,7 @@ def test_cli_runtime_status_formats_empty_shell_state():
             "kagent session",
             "  cwd      /workspace",
             "  output   compact",
-            "  memory   0 turns",
+            "  memory   0 recent turns",
             "  last     -",
             "  trace    off",
         ]
@@ -1955,7 +1955,7 @@ def test_cli_interactive_runtime_can_show_session_status(
     assert "kagent session" in captured.out
     assert f"cwd      {tmp_path}" in captured.out
     assert "output   full JSON" in captured.out
-    assert "memory   1 turn" in captured.out
+    assert "memory   1 recent turn" in captured.out
     assert "last     done" in captured.out
     assert f"trace    {tmp_path / 'traces'}" in captured.out
     assert "private-run-id" not in captured.out
@@ -2213,7 +2213,7 @@ def test_cli_interactive_runtime_carries_session_memory_between_turns(
     )
 
     assert calls[0] == "我是卡卡"
-    assert "Conversation memory from this interactive session" in calls[1]
+    assert "Compacted conversation memory from this interactive session" in calls[1]
     assert "User: 我是卡卡" in calls[1]
     assert "Assistant: 你好，卡卡。" in calls[1]
     assert "Current user message:\n我是谁" in calls[1]
@@ -2275,6 +2275,119 @@ def test_cli_interactive_runtime_redacts_secrets_before_memory_reuse(
     capsys.readouterr()
 
 
+def test_cli_interactive_runtime_auto_compacts_long_session_memory(
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = [
+                "我是卡卡\n",
+                "记住我喜欢简洁输出\n",
+                "帮我创建试运行计划\n",
+                "继续优化 UI\n",
+                "接下来处理权限控制\n",
+                "帮我打开 github\n",
+                "继续整理代码结构\n",
+                "需要记住审批要简洁\n",
+                "帮我检查上下文压缩\n",
+                "我是谁\n",
+                "exit\n",
+            ]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+
+    def fake_run_runtime_agent(goal, **_kwargs):
+        calls.append(goal)
+        return {"status": "done", "answer": f"ok {len(calls)}"}
+
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    final_prompt = calls[-1]
+    assert "Compacted conversation memory from this interactive session" in final_prompt
+    assert "Summary:" in final_prompt
+    assert "Durable facts:" in final_prompt
+    assert "User said: 我是卡卡" in final_prompt
+    assert "Open items:" in final_prompt
+    assert "Request: 帮我创建试运行计划" in final_prompt
+    assert "Recent turns:" in final_prompt
+    assert "Current user message:\n我是谁" in final_prompt
+    assert len(final_prompt) < 4500
+    capsys.readouterr()
+
+
+def test_cli_interactive_runtime_can_force_compact_memory(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    memory_path = tmp_path / "memory.json"
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = [
+                "我是卡卡\n",
+                "记住我喜欢简洁输出\n",
+                "帮我创建试运行计划\n",
+                "继续优化 UI\n",
+                "接下来处理权限控制\n",
+                "帮我打开 github\n",
+                "继续整理代码结构\n",
+                "需要记住审批要简洁\n",
+                "帮我检查上下文压缩\n",
+                "/compact-memory\n",
+                "/memory\n",
+                "exit\n",
+            ]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=lambda *_args, **_kwargs: {"status": "done", "answer": "ok"},
+        max_iterations=1,
+        fail_on_agent_failure=False,
+        session_memory_path=str(memory_path),
+    )
+
+    saved_memory = json.loads(memory_path.read_text(encoding="utf-8"))
+    captured = capsys.readouterr()
+    assert saved_memory["schema_version"] == "2"
+    assert saved_memory["compacted_turn_count"] >= 1
+    assert saved_memory["summary"]
+    assert saved_memory["facts"]
+    assert saved_memory["open_items"]
+    assert "Memory compacted" in captured.out
+    assert "summary" in captured.out
+    assert "facts" in captured.out
+    assert "open items" in captured.out
+
+
 def test_cli_interactive_runtime_persists_session_memory_between_shells(
     tmp_path,
     monkeypatch,
@@ -2309,7 +2422,11 @@ def test_cli_interactive_runtime_persists_session_memory_between_shells(
     )
 
     saved_memory = json.loads(memory_path.read_text(encoding="utf-8"))
-    assert saved_memory["schema_version"] == "1"
+    assert saved_memory["schema_version"] == "2"
+    assert saved_memory["summary"] == ""
+    assert saved_memory["facts"] == []
+    assert saved_memory["open_items"] == []
+    assert saved_memory["compacted_turn_count"] == 0
     assert saved_memory["turns"] == [
         {"user": "我是卡卡", "assistant": "你好，卡卡。"}
     ]
@@ -2341,7 +2458,7 @@ def test_cli_interactive_runtime_persists_session_memory_between_shells(
         session_memory_path=str(memory_path),
     )
 
-    assert "Conversation memory from this interactive session" in calls[0]
+    assert "Compacted conversation memory from this interactive session" in calls[0]
     assert "User: 我是卡卡" in calls[0]
     assert "Assistant: 你好，卡卡。" in calls[0]
     assert "Current user message:\n我是谁" in calls[0]

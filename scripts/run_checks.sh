@@ -188,8 +188,11 @@ dir_mode = stat.S_IMODE(memory_dir.stat().st_mode)
 mode = stat.S_IMODE(memory_path.stat().st_mode)
 if output["status"] != "done" or output["answer"] != "你好，卡卡。":
     raise SystemExit(f"unexpected session memory smoke output: {output}")
-if memory["schema_version"] != "1":
+if memory["schema_version"] != "2":
     raise SystemExit(f"unexpected session memory schema: {memory}")
+for key in ("summary", "facts", "open_items", "compacted_turn_count"):
+    if key not in memory:
+        raise SystemExit(f"session memory missing compact field {key}: {memory}")
 if memory["turns"] != [{"user": "我是卡卡", "assistant": "你好，卡卡。"}]:
     raise SystemExit(f"unexpected session memory turns: {memory}")
 if dir_mode != 0o700:

@@ -492,8 +492,8 @@ sessions: run `kagent "goal"` for a single turn, or run `kagent` or
 `--deterministic` only for the legacy LangGraph regression path. Sessions start with
 a `kagent` banner, the `[K]` terminal companion mark, and `/help` guidance.
 They print live progress while the planner and tools run, and then use a
-compact operator transcript by default: status first, answer second, and only
-real external tool observations under `Actions`.
+compact operator transcript by default: status first, answer second, and
+user-facing external effects under `Results`.
 Internal `note` observations stay hidden in the default view so the shell reads
 like an agent session instead of a debug trace. Use `/json` inside the shell
 for full trace output, `/compact` to return to the operator view, `/last` to
@@ -506,8 +506,9 @@ diagnostics without printing secrets or the full Base URL, `/config` to inspect
 redacted provider settings, `/tools` to list available actions and their
 default approval posture, `/pwd` to show the current working directory,
 `/cd PATH` to change where later file actions run, `/memory` to inspect the
-current session memory, `/clear` to clear it, `/reset` to clear current memory
-plus persisted prompt history, and `/help` to list shell commands. Unknown
+current compact session memory, `/compact-memory` to force immediate memory
+compaction, `/clear` to clear it, `/reset` to clear current memory plus
+persisted prompt history, and `/help` to list shell commands. Unknown
 slash commands and known commands with invalid arguments are intercepted
 locally with suggestions or usage hints and are not sent to the model as
 runtime goals, which keeps command typos out of provider prompts. The default
@@ -526,7 +527,9 @@ clears the persisted file. The CLI tightens the parent directory on both memory
 load and save paths. Before reusing session memory in later turns or
 writing it to disk, the CLI redacts common API keys, bearer tokens, and URL
 credentials so accidental provider or service secrets are not sent back to the
-model or preserved in the memory file.
+model or preserved in the memory file. Session memory uses a v2 compact layout:
+older turns are folded into a bounded summary, durable facts, and open items,
+while recent turns remain available verbatim for follow-up resolution.
 
 TTY prompt history is persisted separately at
 `${XDG_STATE_HOME:-~/.local/state}/kagent/history`, with the same owner-only

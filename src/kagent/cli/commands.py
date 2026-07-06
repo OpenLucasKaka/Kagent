@@ -16,7 +16,13 @@ _RUNTIME_INTERACTIVE_COMMANDS: tuple[RuntimeInteractiveCommand, ...] = (
     RuntimeInteractiveCommand("/pwd", "show working directory", "Session", ("/cwd",)),
     RuntimeInteractiveCommand("/cd PATH", "change working directory", "Session", ("/cd",)),
     RuntimeInteractiveCommand("/status", "show shell state", "Session", ("/stat",)),
-    RuntimeInteractiveCommand("/memory", "review remembered turns", "Session", ("/mem",)),
+    RuntimeInteractiveCommand("/memory", "review compact memory", "Session", ("/mem",)),
+    RuntimeInteractiveCommand(
+        "/compact-memory",
+        "compact remembered context now",
+        "Session",
+        ("/compress-memory",),
+    ),
     RuntimeInteractiveCommand("/clear", "clear remembered turns", "Session", ("/clear-memory",)),
     RuntimeInteractiveCommand(
         "/reset",

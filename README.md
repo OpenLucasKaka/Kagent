@@ -92,15 +92,19 @@ kagent
 
 TTY sessions show live progress and a compact operator transcript by default.
 Use `/pwd`, `/cd PATH`, `/status`, `/doctor`, `/config`, `/tools`, `/json`,
-`/compact`, `/last`, `/trace`, `/save-trace PATH`, `/memory`, `/clear`,
-`/reset`, and `/help` inside the shell; prompt-toolkit terminals support
+`/compact`, `/last`, `/trace`, `/save-trace PATH`, `/memory`,
+`/compact-memory`, `/clear`, `/reset`, and `/help` inside the shell; prompt-toolkit terminals support
 slash-command completion with Tab. Unknown slash commands and known commands
 with invalid arguments are handled locally with suggestions or usage hints and
 are not sent to the model as goals.
 Persisted session memory is owner-only on read and write,
 uses `0700` parent directories, rejects symlink memory files or parent
 directories, and redacts common API keys, bearer tokens, and URL credentials
-before reusing memory in later turns or writing it to disk. The CLI
+before reusing memory in later turns or writing it to disk. Memory uses a v2
+compact layout with durable summary, durable facts, open items, and recent
+turns. Long sessions automatically compact older turns before they are reused
+in prompts; `/compact-memory` forces compaction immediately and `/memory`
+shows the current summary/facts/open-items/recent-turns view. The CLI
 defaults to the runtime for both `kagent` and `kagent "goal"`; use
 `--deterministic` only for the legacy regression graph. Runtime turns use three
 planning iterations by default. TTY sessions persist memory by default at

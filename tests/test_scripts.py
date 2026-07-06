@@ -185,6 +185,8 @@ def test_run_checks_smoke_exercises_cli_introspection():
     assert "--deterministic" in run_checks
     assert "--session-memory /tmp/kagent-session-memory-dir/session-memory.json" in run_checks
     assert "/tmp/kagent-session-memory-smoke.json" in run_checks
+    assert 'memory["schema_version"] != "2"' in run_checks
+    assert "session memory missing compact field" in run_checks
     assert "unexpected session memory directory mode" in run_checks
     assert "session memory load did not tighten directory mode" in run_checks
     assert "unexpected session memory file mode" in run_checks

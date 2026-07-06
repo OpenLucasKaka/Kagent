@@ -15,7 +15,9 @@ from kagent.cli.commands import (
     runtime_interactive_completion_words,
 )
 from kagent.cli.memory import (
+    RuntimeSessionMemory,
     clear_runtime_history,
+    compact_runtime_session_memory,
     default_runtime_history_path,
     load_runtime_session_memory,
     redact_runtime_session_memory_text,
@@ -48,6 +50,10 @@ from kagent.utils.json_output import format_and_write_json, json_ready
 
 _INTERACTIVE_MEMORY_MAX_TURNS = 12
 _INTERACTIVE_MEMORY_MAX_CHARS = 4000
+_INTERACTIVE_MEMORY_RECENT_TURNS = 6
+_INTERACTIVE_MEMORY_SUMMARY_CHARS = 2400
+_INTERACTIVE_MEMORY_MAX_FACTS = 16
+_INTERACTIVE_MEMORY_MAX_OPEN_ITEMS = 16
 
 
 def run_runtime_interactive(
@@ -364,7 +370,7 @@ class _RuntimeInteractiveProgress:
 def _handle_runtime_interactive_command(
     command: str,
     full_json_mode: bool,
-    session_memory: list[dict[str, str]],
+    session_memory: RuntimeSessionMemory,
     last_payload: Any,
     *,
     session_memory_path: str = "",
@@ -426,6 +432,24 @@ def _handle_runtime_interactive_command(
         return True, full_json_mode
     if normalized in {"/memory", "/mem"}:
         print(format_runtime_session_memory(session_memory))
+        return True, full_json_mode
+    if normalized in {"/compact-memory", "/compress-memory"}:
+        before_count = session_memory.compacted_turn_count
+        compact_runtime_session_memory(
+            session_memory,
+            max_recent_turns=_INTERACTIVE_MEMORY_RECENT_TURNS,
+            max_summary_chars=_INTERACTIVE_MEMORY_SUMMARY_CHARS,
+            max_facts=_INTERACTIVE_MEMORY_MAX_FACTS,
+            max_open_items=_INTERACTIVE_MEMORY_MAX_OPEN_ITEMS,
+        )
+        save_runtime_session_memory(session_memory_path, session_memory)
+        compacted_now = session_memory.compacted_turn_count - before_count
+        detail = (
+            f"{compacted_now} turn{'s' if compacted_now != 1 else ''} compacted"
+            if compacted_now
+            else "already compact"
+        )
+        print(format_runtime_notice("Memory compacted", detail))
         return True, full_json_mode
     if normalized in {"/last", "/last-run"}:
         if last_payload is None:
@@ -514,23 +538,27 @@ def _change_runtime_interactive_directory(command: str) -> None:
 
 def _runtime_interactive_goal_with_memory(
     goal: str,
-    session_memory: list[dict[str, str]],
+    session_memory: RuntimeSessionMemory,
 ) -> str:
     if not session_memory:
         return goal
-    memory_lines = []
-    for turn in session_memory[-_INTERACTIVE_MEMORY_MAX_TURNS:]:
+    memory_lines = _runtime_compact_memory_lines(session_memory)
+    recent_lines = []
+    for turn in session_memory.turns[-_INTERACTIVE_MEMORY_MAX_TURNS:]:
         user = _compact_runtime_memory_text(turn.get("user", ""))
         assistant = _compact_runtime_memory_text(turn.get("assistant", ""))
         if user:
-            memory_lines.append(f"User: {user}")
+            recent_lines.append(f"User: {user}")
         if assistant:
-            memory_lines.append(f"Assistant: {assistant}")
+            recent_lines.append(f"Assistant: {assistant}")
+    if recent_lines:
+        memory_lines.append("Recent turns:")
+        memory_lines.extend(recent_lines)
     memory_text = "\n".join(memory_lines)
     if len(memory_text) > _INTERACTIVE_MEMORY_MAX_CHARS:
         memory_text = memory_text[-_INTERACTIVE_MEMORY_MAX_CHARS:]
     return (
-        "Conversation memory from this interactive session:\n"
+        "Compacted conversation memory from this interactive session:\n"
         f"{memory_text}\n\n"
         "Use the memory above to resolve references, user identity, prior "
         "requests, and follow-up questions. Answer the current user message; "
@@ -542,7 +570,7 @@ def _runtime_interactive_goal_with_memory(
 
 
 def _remember_runtime_interactive_turn(
-    session_memory: list[dict[str, str]],
+    session_memory: RuntimeSessionMemory,
     goal: str,
     payload: Any,
 ) -> None:
@@ -557,7 +585,27 @@ def _remember_runtime_interactive_turn(
             "assistant": _compact_runtime_memory_text(answer),
         }
     )
-    del session_memory[:-_INTERACTIVE_MEMORY_MAX_TURNS]
+    compact_runtime_session_memory(
+        session_memory,
+        max_recent_turns=_INTERACTIVE_MEMORY_RECENT_TURNS,
+        max_summary_chars=_INTERACTIVE_MEMORY_SUMMARY_CHARS,
+        max_facts=_INTERACTIVE_MEMORY_MAX_FACTS,
+        max_open_items=_INTERACTIVE_MEMORY_MAX_OPEN_ITEMS,
+    )
+
+
+def _runtime_compact_memory_lines(session_memory: RuntimeSessionMemory) -> list[str]:
+    lines = []
+    if session_memory.summary:
+        lines.append("Summary:")
+        lines.extend(f"  {line}" for line in session_memory.summary.splitlines() if line)
+    if session_memory.facts:
+        lines.append("Durable facts:")
+        lines.extend(f"  - {fact}" for fact in session_memory.facts)
+    if session_memory.open_items:
+        lines.append("Open items:")
+        lines.extend(f"  - {item}" for item in session_memory.open_items)
+    return lines
 
 
 def _runtime_memory_answer_from_observations(observations: Any) -> str:

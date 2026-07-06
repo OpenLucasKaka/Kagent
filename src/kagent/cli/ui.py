@@ -8,7 +8,7 @@ import textwrap
 from typing import Any
 
 from kagent.cli.commands import runtime_interactive_commands
-from kagent.utils.json_output import json_ready
+from kagent.utils.json_output import format_and_write_json, json_ready
 
 
 def runtime_ui_color_enabled() -> bool:
@@ -228,6 +228,15 @@ def format_runtime_notice(title: str, detail: str = "") -> str:
     return "\n".join(lines)
 
 
+def format_runtime_pending_approval_detail(pending: dict) -> str:
+    return "\n".join(
+        [
+            "Approval detail",
+            format_and_write_json(json_ready(pending), ""),
+        ]
+    )
+
+
 def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> str:
     if not isinstance(payload, dict):
         return str(payload)
@@ -384,7 +393,7 @@ def summarize_runtime_output(output: Any, *, tool: str = "") -> str:
 
 
 def approval_prompt(action_id: str, tool: str, *, color: bool = False) -> str:
-    return _color("Approve this action?", "yellow", enabled=color) + " [y/N] "
+    return _color("Approve this action?", "yellow", enabled=color) + " [y/N/d] "
 
 
 def join_non_empty(values: list[str], separator: str) -> str:

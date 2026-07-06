@@ -3022,10 +3022,65 @@ def test_cli_interactive_runtime_can_approve_pending_tool(monkeypatch, capsys):
     assert "action  http_request" in captured.out
     assert "target  https://github.com" in captured.out
     assert "http_request" in captured.out
-    assert "Approve this action? [y/N]" in captured.out
+    assert "Approve this action? [y/N/d]" in captured.out
     assert "Approval ·" in captured.out
     assert "Done" in captured.out
     assert "step-2 http_request" not in captured.out
+
+
+def test_cli_interactive_runtime_can_show_approval_detail_before_approve(
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = ["打开 github\n", "d\n", "y\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    calls = []
+
+    def fake_run_runtime_agent(goal, **kwargs):
+        calls.append({"goal": goal, **kwargs})
+        if len(calls) == 1:
+            return {
+                "status": "requires_approval",
+                "pending_approval": {
+                    "id": "step-2",
+                    "tool": "open_url",
+                    "input": {"url": "https://github.com"},
+                    "reason": "open requested site",
+                },
+            }
+        return {
+            "status": "done",
+            "approved_action_ids": sorted(kwargs.get("approved_action_ids", set())),
+        }
+
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=3,
+        fail_on_agent_failure=False,
+    )
+
+    captured = capsys.readouterr()
+    assert len(calls) == 2
+    assert calls[1]["approved_action_ids"] == {"step-2"}
+    assert "Approval detail" in captured.out
+    assert '"id": "step-2"' in captured.out
+    assert '"tool": "open_url"' in captured.out
+    assert '"url": "https://github.com"' in captured.out
+    assert captured.out.count("Approve this action? [y/N/d]") == 2
 
 
 def test_cli_interactive_runtime_reports_declined_approval(monkeypatch, capsys):

@@ -134,6 +134,8 @@ Risky tools are policy-gated. Runs expose structured events, observations,
 approval state, artifacts, and metrics so internal dashboards can inspect what
 happened without reading raw traces by default. Runtime summaries include
 compact fields such as `progress_event_count` for timeline-oriented UIs.
+Interactive approvals accept `d` to inspect the pending action JSON before
+answering `y` or `n`.
 
 ## Service
 

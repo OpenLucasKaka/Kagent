@@ -604,6 +604,8 @@ The built-in direct-execution local tools are `artifact`, `decision_matrix`,
 `note`, `rubric_score`, `task_list`, and `transform_text`.
 Tools that affect the local desktop, network, or shell require approval by
 default: `open_app`, `open_url`, `http_request`, and `shell_command`.
+In the terminal agent, approval prompts accept `d` to print the pending action
+JSON before the operator answers `y` to approve or `n` to skip.
 `http_request` performs approved HTTP GET fetches with bounded response bytes
 and returns response metadata plus text. `open_app` opens local macOS
 applications by app name and rejects paths or shell-like input. `open_url` is

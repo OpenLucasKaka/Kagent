@@ -31,6 +31,7 @@ from kagent.cli.ui import (
     format_runtime_interactive_summary,
     format_runtime_interactive_tools,
     format_runtime_notice,
+    format_runtime_pending_approval_detail,
     format_runtime_progress_event,
     format_runtime_provider_config,
     format_runtime_session_memory,
@@ -518,9 +519,14 @@ def _maybe_run_approved_runtime_action(
     tool = str(pending.get("tool", "")).strip()
     if not action_id or not tool:
         return None
-    answer = input(
-        approval_prompt(action_id, tool, color=runtime_ui_color_enabled())
-    ).strip().lower()
+    while True:
+        answer = input(
+            approval_prompt(action_id, tool, color=runtime_ui_color_enabled())
+        ).strip().lower()
+        if answer in {"d", "detail", "details", "view"}:
+            print(format_runtime_pending_approval_detail(pending))
+            continue
+        break
     if answer not in {"y", "yes", "approve"}:
         print(format_runtime_notice("Approval skipped", "action not approved"))
         return None

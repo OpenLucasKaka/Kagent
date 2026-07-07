@@ -54,16 +54,17 @@ def _planned_actions(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, list):
         return []
     actions: List[Dict[str, Any]] = []
-    seen_action_ids = set()
+    action_indexes_by_id = {}
     for plan in value:
         if not isinstance(plan, dict):
             continue
         for action in _actions_from_plan(plan):
             action_id = str(action.get("id", "")).strip()
-            if action_id and action_id in seen_action_ids:
+            if action_id and action_id in action_indexes_by_id:
+                actions[action_indexes_by_id[action_id]] = action
                 continue
             if action_id:
-                seen_action_ids.add(action_id)
+                action_indexes_by_id[action_id] = len(actions)
             actions.append(action)
     return actions
 

@@ -83,6 +83,54 @@ def test_runtime_steps_keep_completed_actions_when_final_plan_has_no_actions():
     ]
 
 
+def test_runtime_steps_use_latest_action_when_replan_reuses_action_id():
+    provider = SequentialLLMProvider(
+        [
+            json.dumps(
+                {
+                    "actions": [
+                        {
+                            "id": "step-1",
+                            "tool": "transform_text",
+                            "input": {"text": "hello", "mode": "strip"},
+                            "reason": "Normalize text",
+                        }
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "actions": [
+                        {
+                            "id": "step-1",
+                            "tool": "note",
+                            "input": {"text": "fallback"},
+                            "reason": "Record fallback",
+                        }
+                    ]
+                }
+            ),
+            json.dumps({"actions": [], "final_answer": "Recovered."}),
+        ]
+    )
+
+    result = run_runtime_agent(
+        "recover from reused action id",
+        provider=provider,
+        max_iterations=3,
+    )
+
+    assert result["status"] == "done"
+    assert result["answer"] == "Recovered."
+    assert result["steps"] == [
+        {
+            "index": "1",
+            "state": "done",
+            "title": "Record fallback",
+        }
+    ]
+
+
 def test_runtime_steps_project_pending_approval_from_runtime_payload():
     provider = FakeLLMProvider(
         json.dumps(

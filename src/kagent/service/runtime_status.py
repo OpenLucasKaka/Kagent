@@ -356,6 +356,7 @@ def execute_runtime_timeline_request(
     events = _runtime_timeline_events(trace.get("events"))
     observations = _runtime_timeline_observations(trace.get("observations"))
     progress_events = _runtime_timeline_progress_events(trace.get("progress_events"))
+    graph_phases = _runtime_timeline_graph_phases(trace.get("graph_phases"))
     steps = _runtime_compact_steps(trace)
     return 200, json_ready(
         {
@@ -365,10 +366,12 @@ def execute_runtime_timeline_request(
             "event_count": str(len(events)),
             "step_count": str(len(steps)),
             "progress_event_count": str(len(progress_events)),
+            "graph_phase_count": str(len(graph_phases)),
             "observation_count": str(len(observations)),
             "steps": steps,
             "events": events,
             "progress_events": progress_events,
+            "graph_phases": graph_phases,
             "observations": observations,
         }
     )
@@ -1240,6 +1243,32 @@ def _runtime_timeline_progress_events(value: Any) -> list[Dict[str, str]]:
         if event:
             progress_events.append(event)
     return progress_events
+
+
+def _runtime_timeline_graph_phases(value: Any) -> list[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    fields = [
+        "node",
+        "status",
+        "started_at",
+        "completed_at",
+        "duration_seconds",
+    ]
+    phases = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        phase = {}
+        for field in fields:
+            if field not in item:
+                continue
+            field_value = _runtime_timeline_scalar(item[field])
+            if field_value:
+                phase[field] = field_value
+        if phase.get("node") and phase.get("status"):
+            phases.append(phase)
+    return phases
 
 
 def _runtime_compact_steps(trace: Dict[str, Any]) -> list[Dict[str, str]]:

@@ -1175,10 +1175,12 @@ def test_service_contract_documents_named_success_schemas():
         "event_count",
         "step_count",
         "progress_event_count",
+        "graph_phase_count",
         "observation_count",
         "steps",
         "events",
         "progress_events",
+        "graph_phases",
         "observations",
     ]
     assert schemas["RuntimeTimelineResponse"]["properties"]["step_count"] == {
@@ -1195,6 +1197,13 @@ def test_service_contract_documents_named_success_schemas():
     assert schemas["RuntimeTimelineResponse"]["properties"]["progress_events"] == {
         "type": "array",
         "items": {"type": "object"},
+    }
+    assert schemas["RuntimeTimelineResponse"]["properties"]["graph_phase_count"] == {
+        "type": "string"
+    }
+    assert schemas["RuntimeTimelineResponse"]["properties"]["graph_phases"] == {
+        "type": "array",
+        "items": {"$ref": "#/components/schemas/RuntimeGraphPhase"},
     }
 
 

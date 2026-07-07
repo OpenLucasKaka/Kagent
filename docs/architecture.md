@@ -232,6 +232,10 @@ The service intentionally keeps a narrow API:
   queue routing.
   It also skips unreadable trace files so one malformed artifact does not break
   the list endpoint.
+- `GET /runtime/runs/{run_id}/timeline` returns `RuntimeTimelineResponse`, a
+  compact per-run view containing user-facing steps, loop events, progress
+  events, observations, and `graph_phases` with `graph_phase_count` for
+  LangGraph shell timing.
 - `GET /runtime/runs/summary` returns a runtime fleet summary for the same
   persisted `trace_type: "codex_runtime"` records. It applies the same
   subject visibility rules as runtime list/detail routes, accepts the compact

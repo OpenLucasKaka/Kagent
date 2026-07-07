@@ -502,10 +502,12 @@ def service_openapi() -> Dict[str, Any]:
                         "event_count",
                         "step_count",
                         "progress_event_count",
+                        "graph_phase_count",
                         "observation_count",
                         "steps",
                         "events",
                         "progress_events",
+                        "graph_phases",
                         "observations",
                     ],
                     "properties": {
@@ -518,6 +520,7 @@ def service_openapi() -> Dict[str, Any]:
                         "event_count": {"type": "string"},
                         "step_count": {"type": "string"},
                         "progress_event_count": {"type": "string"},
+                        "graph_phase_count": {"type": "string"},
                         "observation_count": {"type": "string"},
                         "steps": {
                             "type": "array",
@@ -530,6 +533,10 @@ def service_openapi() -> Dict[str, Any]:
                         "progress_events": {
                             "type": "array",
                             "items": {"type": "object"},
+                        },
+                        "graph_phases": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/RuntimeGraphPhase"},
                         },
                         "observations": {
                             "type": "array",

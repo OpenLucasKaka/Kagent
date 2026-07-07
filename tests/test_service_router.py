@@ -657,7 +657,14 @@ def test_service_router_runtime_timeline_returns_compact_run_timeline(tmp_path):
     assert payload["event_count"] == "3"
     assert payload["step_count"] == "1"
     assert payload["progress_event_count"] == "6"
+    assert payload["graph_phase_count"] == "3"
     assert payload["observation_count"] == "1"
+    assert [phase["node"] for phase in payload["graph_phases"]] == [
+        "prepare",
+        "runtime_loop",
+        "finalize",
+    ]
+    assert all(phase["status"] == "ok" for phase in payload["graph_phases"])
     assert payload["steps"] == [
         {
             "index": "1",
@@ -770,6 +777,20 @@ def test_service_router_runtime_timeline_filters_non_scalar_metadata(tmp_path):
                     "duration_seconds": {"secret": "progress-duration"},
                 }
             ],
+            "graph_phases": [
+                {
+                    "node": "prepare",
+                    "status": "ok",
+                    "started_at": "2026-07-08T00:00:00+00:00",
+                    "completed_at": "2026-07-08T00:00:01+00:00",
+                    "duration_seconds": "1.0000",
+                },
+                {
+                    "node": {"secret": "phase-node"},
+                    "status": "ok",
+                    "duration_seconds": {"secret": "phase-duration"},
+                },
+            ],
             "steps": [
                 {
                     "index": "1",
@@ -818,6 +839,16 @@ def test_service_router_runtime_timeline_filters_non_scalar_metadata(tmp_path):
             "node": "executor",
             "status": "ok",
             "iteration": "1",
+        }
+    ]
+    assert payload["graph_phase_count"] == "1"
+    assert payload["graph_phases"] == [
+        {
+            "node": "prepare",
+            "status": "ok",
+            "started_at": "2026-07-08T00:00:00+00:00",
+            "completed_at": "2026-07-08T00:00:01+00:00",
+            "duration_seconds": "1.0000",
         }
     ]
     assert payload["step_count"] == "0"

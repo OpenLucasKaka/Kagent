@@ -433,6 +433,9 @@ def runtime_status_summary(
         "event_count": str(_list_count(trace.get("events"))),
         "progress_event_count": str(_list_count(trace.get("progress_events"))),
         "graph_phase_count": str(_list_count(trace.get("graph_phases"))),
+        "graph_phase_node_counts": _runtime_graph_phase_node_counts(
+            trace.get("graph_phases")
+        ),
         "progress_event_sink_failure_count": str(
             _parse_non_negative_int(trace.get("progress_event_sink_failure_count"))
         ),
@@ -603,6 +606,7 @@ def _empty_runtime_summary_aggregate() -> Dict[str, Any]:
         "error_code_counts": {},
         "failed_observation_count": "0",
         "graph_phase_count": "0",
+        "graph_phase_node_counts": {},
         "progress_event_sink_failure_count": "0",
         "approval_required_count": "0",
         "pending_approval_count": "0",
@@ -647,6 +651,14 @@ def _add_runtime_summary_to_aggregate(
         int(aggregate["graph_phase_count"])
         + _parse_non_negative_int(summary.get("graph_phase_count"))
     )
+    graph_phase_node_counts = summary.get("graph_phase_node_counts")
+    if isinstance(graph_phase_node_counts, dict):
+        for node, count in graph_phase_node_counts.items():
+            _increment_count(
+                aggregate["graph_phase_node_counts"],
+                str(node),
+                _parse_non_negative_int(count),
+            )
     aggregate["progress_event_sink_failure_count"] = str(
         int(aggregate["progress_event_sink_failure_count"])
         + _parse_non_negative_int(summary.get("progress_event_sink_failure_count"))
@@ -1274,6 +1286,13 @@ def _runtime_timeline_graph_phases(value: Any) -> list[Dict[str, str]]:
         if phase.get("node") and phase.get("status"):
             phases.append(phase)
     return phases
+
+
+def _runtime_graph_phase_node_counts(value: Any) -> Dict[str, str]:
+    counts: Dict[str, str] = {}
+    for phase in _runtime_timeline_graph_phases(value):
+        _increment_count(counts, phase.get("node", ""))
+    return dict(sorted(counts.items()))
 
 
 def _runtime_compact_steps(trace: Dict[str, Any]) -> list[Dict[str, str]]:

@@ -611,6 +611,7 @@ def service_openapi() -> Dict[str, Any]:
                         "error_code_counts",
                         "failed_observation_count",
                         "graph_phase_count",
+                        "graph_phase_node_counts",
                         "progress_event_sink_failure_count",
                         "approval_required_count",
                         "pending_approval_count",
@@ -649,6 +650,10 @@ def service_openapi() -> Dict[str, Any]:
                         },
                         "failed_observation_count": {"type": "string"},
                         "graph_phase_count": {"type": "string"},
+                        "graph_phase_node_counts": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
                         "progress_event_sink_failure_count": {"type": "string"},
                         "approval_required_count": {"type": "string"},
                         "pending_approval_count": {"type": "string"},

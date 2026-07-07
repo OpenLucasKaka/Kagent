@@ -583,6 +583,9 @@ the full trace for graph startup/finalization failures before debugging planner
 or tool behavior. The `/runtime/runs/summary` endpoint aggregates
 `graph_phase_count` across the filtered fleet, which is useful for checking
 whether new graph-phase instrumentation is present across recent internal runs.
+It also returns `graph_phase_node_counts` so operators can compare
+`prepare`, `runtime_loop`, and `finalize` coverage directly and identify which
+phase is missing from incomplete traces.
 Set `KAGENT_SERVICE_RUNTIME_ALLOWED_TOOLS` to a comma-separated
 allowlist when a deployment should execute only selected runtime tools without
 human approval. Leave it empty for the default policy. Unknown tool names fail

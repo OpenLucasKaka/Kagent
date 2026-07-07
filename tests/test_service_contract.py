@@ -943,6 +943,7 @@ def test_service_contract_documents_named_success_schemas():
         "error_code_counts",
         "failed_observation_count",
         "graph_phase_count",
+        "graph_phase_node_counts",
         "progress_event_sink_failure_count",
         "approval_required_count",
         "pending_approval_count",
@@ -968,6 +969,12 @@ def test_service_contract_documents_named_success_schemas():
     ] == {"type": "string"}
     assert schemas["RuntimeRunSummaryResponse"]["properties"]["graph_phase_count"] == {
         "type": "string"
+    }
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "graph_phase_node_counts"
+    ] == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
     }
     assert schemas["RuntimeRunSummaryResponse"]["properties"]["auth_subject_counts"] == {
         "type": "object",

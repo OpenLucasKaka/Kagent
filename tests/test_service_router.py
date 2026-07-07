@@ -3075,6 +3075,11 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
         "error_code_counts": {"tool_execution_timeout": "1"},
         "failed_observation_count": "1",
         "graph_phase_count": "5",
+        "graph_phase_node_counts": {
+            "finalize": "1",
+            "prepare": "2",
+            "runtime_loop": "2",
+        },
         "progress_event_sink_failure_count": "5",
         "approval_required_count": "1",
         "pending_approval_count": "1",

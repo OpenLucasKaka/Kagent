@@ -196,6 +196,7 @@ def test_architecture_document_tracks_production_service_contract():
     assert "graph_phases" in architecture
     assert "RuntimeTimelineResponse" in architecture
     assert "graph_phase_count" in architecture
+    assert "graph_phase_node_counts" in architecture
     assert "GET /runtime/policy" in architecture
     assert "GET /runtime/approvals" in architecture
     assert "GET /runtime/approvals/summary" in architecture

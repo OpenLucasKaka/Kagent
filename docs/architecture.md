@@ -241,7 +241,8 @@ The service intentionally keeps a narrow API:
   subject visibility rules as runtime list/detail routes, accepts the compact
   list filters, and returns aggregate `run_count`, `status_counts`,
   `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
-  `failed_observation_count`, `graph_phase_count`, `approval_required_count`,
+  `failed_observation_count`, `graph_phase_count`, `graph_phase_node_counts`,
+  `approval_required_count`,
   `pending_approval_count`, `final_answer_guardrail_applied_count`,
   `final_answer_guardrail_reason_counts`, `artifact_count`, `artifact_total_bytes`,
   `tag_counts`, and `metadata_key_counts`

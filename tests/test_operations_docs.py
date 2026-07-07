@@ -100,6 +100,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "GET /runtime/tools" in runbook
     assert "GET /runtime/graph" in runbook
     assert "graph_phase_count" in runbook
+    assert "graph_phase_node_counts" in runbook
     assert "/runtime/runs/summary" in runbook
     assert "GET /runtime/runs/{run_id}/timeline" in runbook
     assert "output_schema" in runbook

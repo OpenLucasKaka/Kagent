@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shlex
 import sys
 import threading
@@ -374,6 +375,7 @@ def _prompt_toolkit_session_for_tty(prompt_stream: Any) -> Any:
         style=Style.from_dict(
             {
                 "": "bg:#303030 #ffffff",
+                "bottom-toolbar": "bg:#303030 #888888",
                 "input-bar": "bg:#303030 #ffffff",
                 "input-bar.blank": "bg:#303030 #ffffff",
                 "input-bar.prompt": "bg:#303030 ansicyan bold",
@@ -501,7 +503,7 @@ class _RuntimePromptStatus:
 
     def set(self, message: str) -> None:
         with self._lock:
-            self._message = message
+            self._message = _strip_ansi(message)
             self._frame_index += 1
 
     def clear(self) -> None:
@@ -515,6 +517,13 @@ class _RuntimePromptStatus:
             self._frame_index += 1
             frame = self._FRAMES[self._frame_index % len(self._FRAMES)]
             return [("class:input-bar.progress", f" {frame} {self._message}")]
+
+
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_PATTERN.sub("", str(text))
 
 
 class _RuntimeInteractiveProgress:
@@ -546,7 +555,7 @@ class _RuntimeInteractiveProgress:
                 return
         message = format_runtime_progress_event(
             event,
-            color=runtime_ui_color_enabled(),
+            color=runtime_ui_color_enabled() and self._prompt_status is None,
         )
         if not message or not isinstance(event, dict):
             return

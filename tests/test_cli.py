@@ -1480,13 +1480,15 @@ def test_cli_prompt_status_renders_dynamic_thinking_frames():
     from kagent.cli.interactive import _RuntimePromptStatus
 
     status = _RuntimePromptStatus()
-    status.set("Thinking")
+    status.set("\033[2mThinking\033[0m")
 
     first = status.render()
     second = status.render()
 
     assert "Thinking" in first[0][1]
     assert "Thinking" in second[0][1]
+    assert "\033" not in first[0][1]
+    assert "\033" not in second[0][1]
     assert first != second
 
 
@@ -1576,6 +1578,7 @@ def test_cli_prompt_toolkit_session_uses_persistent_history(
     assert created_sessions[0]["completer"] is not None
     assert created_sessions[0]["style"] is not None
     assert "('', 'bg:#303030 #ffffff')" in str(created_sessions[0]["style"].style_rules)
+    assert "bottom-toolbar" in str(created_sessions[0]["style"].style_rules)
     assert "input-bar.blank" in str(created_sessions[0]["style"].style_rules)
     assert "input-bar.prompt" in str(created_sessions[0]["style"].style_rules)
     assert "input-bar.progress" in str(created_sessions[0]["style"].style_rules)

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from kagent.runtime.steps import derive_runtime_steps
 from kagent.utils.json_output import format_and_write_json
 
 
@@ -20,6 +21,7 @@ def summarize_runtime_trace(trace: Dict[str, Any], *, trace_path: str = "") -> D
     progress_events = trace.get("progress_events")
     if not isinstance(progress_events, list):
         progress_events = []
+    steps = _steps(trace)
     return {
         "trace_path": trace_path,
         "trace_type": str(trace.get("trace_type", "")),
@@ -33,8 +35,10 @@ def summarize_runtime_trace(trace: Dict[str, Any], *, trace_path: str = "") -> D
         "event_count": str(len(events)),
         "progress_event_count": str(len(progress_events)),
         "observation_count": str(len(observations)),
+        "step_count": str(len(steps)),
         "approved_action_count": str(trace.get("approved_action_count", "0")),
         "pending_approval": _pending_approval_summary(trace.get("pending_approval")),
+        "steps": steps,
         "tool_counts": _count_by_key(observations, "tool"),
         "observation_status_counts": _count_by_key(observations, "status"),
         "failed_observations": _failed_observations(observations),
@@ -89,6 +93,65 @@ def _pending_approval_summary(value: Any) -> Dict[str, str]:
         "tool": str(value.get("tool", "")),
         "reason": str(value.get("reason", "")),
     }
+
+
+def _steps(trace: Dict[str, Any]) -> List[Dict[str, str]]:
+    raw_steps = trace.get("steps")
+    if isinstance(raw_steps, list):
+        steps = _sanitize_steps(raw_steps)
+        if steps:
+            return steps
+    return _sanitize_steps(derive_runtime_steps(_trace_with_latest_plan(trace)))
+
+
+def _trace_with_latest_plan(trace: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(trace.get("plan"), dict):
+        return trace
+    plans = trace.get("plans")
+    if not isinstance(plans, list):
+        return trace
+    for item in reversed(plans):
+        if isinstance(item, dict):
+            return {**trace, "plan": item}
+    return trace
+
+
+def _sanitize_steps(value: Any) -> List[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    steps = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        index = _scalar(item.get("index"))
+        state = _scalar(item.get("state"))
+        title = _scalar(item.get("title"))
+        if state not in {"done", "failed", "pending", "waiting_approval"}:
+            continue
+        if not index or not title:
+            continue
+        step = {
+            "index": index,
+            "state": state,
+            "title": title,
+        }
+        detail = _scalar(item.get("detail"))
+        if detail:
+            step["detail"] = detail
+        steps.append(step)
+    return steps
+
+
+def _scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return str(value)
+    return ""
 
 
 def _count_by_key(observations: List[Any], key: str) -> Dict[str, str]:

@@ -92,8 +92,16 @@ def test_summarize_runtime_trace_builds_redacted_replay_summary():
         "event_count": "3",
         "progress_event_count": "4",
         "observation_count": "2",
+        "step_count": "1",
         "approved_action_count": "0",
         "pending_approval": {},
+        "steps": [
+            {
+                "index": "1",
+                "state": "done",
+                "title": "Updated files docs/final-plan.md",
+            }
+        ],
         "tool_counts": {"apply_patch": "1", "read_file": "1"},
         "observation_status_counts": {"ok": "2"},
         "failed_observations": [],
@@ -136,6 +144,8 @@ def test_summarize_runtime_trace_builds_redacted_replay_summary():
         ],
     }
     assert "secret" not in json.dumps(summary)
+    assert "step-2" not in json.dumps(summary["steps"])
+    assert "apply_patch" not in json.dumps(summary["steps"])
 
 
 def test_trace_replay_module_prints_json_summary(tmp_path):
@@ -158,6 +168,8 @@ def test_trace_replay_module_prints_json_summary(tmp_path):
 
     assert completed.stderr == ""
     assert payload["trace_path"] == str(trace_path)
+    assert payload["step_count"] == "1"
+    assert payload["steps"][0]["title"] == "Updated files docs/final-plan.md"
     assert payload["tool_counts"] == {"apply_patch": "1", "read_file": "1"}
     assert payload["progress_event_count"] == "4"
     assert "secret" not in completed.stdout

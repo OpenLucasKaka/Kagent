@@ -201,11 +201,25 @@ function writeSelfUpdateState(state) {
   });
 }
 
+function latestSelfUpdateState(latest, extra) {
+  return Object.assign({
+    remoteHeadSha: latest.headSha,
+    remoteVersion: latest.version,
+    checkedAt: new Date().toISOString()
+  }, extra || {});
+}
+
 function hasSelfUpdate(latest, currentVersion, state) {
   if (isNewerVersion(latest.version, currentVersion)) {
     return true;
   }
-  if (latest.headSha && state.remoteHeadSha && latest.headSha !== state.remoteHeadSha) {
+  if (
+    latest.version === currentVersion &&
+    state.remoteVersion === currentVersion &&
+    latest.headSha &&
+    state.remoteHeadSha &&
+    latest.headSha !== state.remoteHeadSha
+  ) {
     return true;
   }
   return false;
@@ -257,21 +271,18 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
   }
 
   if (!hasSelfUpdate(latest, currentVersion, state)) {
-    writeSelfUpdateState({
-      remoteHeadSha: latest.headSha,
-      remoteVersion: latest.version,
-      checkedAt: new Date().toISOString()
-    });
+    writeSelfUpdateState(latestSelfUpdateState(latest));
     return false;
   }
 
+  writeSelfUpdateState(latestSelfUpdateState(latest, {
+    prompted: "true"
+  }));
+
   if (!(await promptForSelfUpdate(currentVersion, latest))) {
-    writeSelfUpdateState({
-      remoteHeadSha: latest.headSha,
-      remoteVersion: latest.version,
-      checkedAt: new Date().toISOString(),
+    writeSelfUpdateState(latestSelfUpdateState(latest, {
       skipped: "true"
-    });
+    }));
     return false;
   }
 
@@ -279,15 +290,15 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
   try {
     runChecked("npm", ["install", "-g", "github:OpenLucasKaka/kagent"], { cwd: root });
   } catch (error) {
+    writeSelfUpdateState(latestSelfUpdateState(latest, {
+      failed: "true"
+    }));
     process.stderr.write(`kagent: update failed: ${error.message}; continuing with ${currentVersion}\n`);
     return false;
   }
-  writeSelfUpdateState({
-    remoteHeadSha: latest.headSha,
-    remoteVersion: latest.version,
-    checkedAt: new Date().toISOString(),
+  writeSelfUpdateState(latestSelfUpdateState(latest, {
     installed: "true"
-  });
+  }));
   process.stderr.write("kagent: update installed; restarting\n");
   restartEntrypoint(commandName, args);
   return true;

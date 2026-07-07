@@ -62,6 +62,10 @@ def test_npm_runner_checks_github_for_interactive_self_update():
     assert '"npm", ["install", "-g", "github:OpenLucasKaka/kagent"]' in runner
     assert "selfUpdateStatePath" in runner
     assert "latest.headSha !== state.remoteHeadSha" in runner
+    assert 'prompted: "true"' in runner
+    assert runner.index('prompted: "true"') < runner.index(
+        "if (!(await promptForSelfUpdate"
+    )
 
 
 def test_npm_runner_semver_comparison_handles_multi_digit_segments():
@@ -91,7 +95,7 @@ def test_npm_runner_detects_same_version_github_commit_updates():
 
     script = """
 const { _internals } = require("./npm/lib/python-runner");
-if (!_internals.hasSelfUpdate({version: "0.1.1", headSha: "new"}, "0.1.1", {remoteHeadSha: "old"})) {
+if (!_internals.hasSelfUpdate({version: "0.1.1", headSha: "new"}, "0.1.1", {remoteHeadSha: "old", remoteVersion: "0.1.1"})) {
   throw new Error("new GitHub head should prompt even when version is unchanged");
 }
 if (_internals.hasSelfUpdate({version: "0.1.1", headSha: "same"}, "0.1.1", {remoteHeadSha: "same"})) {
@@ -102,6 +106,9 @@ if (_internals.hasSelfUpdate({version: "0.1.1", headSha: "latest"}, "0.1.1", {})
 }
 if (!_internals.hasSelfUpdate({version: "0.1.2", headSha: "same"}, "0.1.1", {remoteHeadSha: "same"})) {
   throw new Error("newer package version should prompt");
+}
+if (_internals.hasSelfUpdate({version: "0.1.2", headSha: "new"}, "0.1.2", {remoteHeadSha: "old", remoteVersion: "0.1.1"})) {
+  throw new Error("old version state should not force a same-version prompt after package update");
 }
 """
     subprocess.run([node, "-e", script], check=True)

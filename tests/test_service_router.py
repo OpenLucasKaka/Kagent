@@ -1564,6 +1564,40 @@ def test_service_router_runtime_run_rejects_live_provider_preapproved_action_ids
     assert "approved_action_ids require plan or plan_sequence" in payload["error"]
 
 
+def test_service_router_runtime_run_rejects_approved_action_ids_missing_from_plan():
+    status_code, payload = service_router.handle_request(
+        "POST",
+        "/runtime/run",
+        (
+            b'{"goal":"fetch site","approved_action_ids":["missing-step"],'
+            b'"plan":{"actions":[{"id":"step-1","tool":"note",'
+            b'"input":{"text":"ok"}}]}}'
+        ),
+    )
+
+    assert status_code == 400
+    assert payload["error_code"] == "invalid_request_body"
+    assert "approved_action_ids must reference planned action ids" in payload["error"]
+    assert "missing-step" in payload["error"]
+
+
+def test_service_router_runtime_run_rejects_approved_action_ids_missing_from_plan_sequence():
+    status_code, payload = service_router.handle_request(
+        "POST",
+        "/runtime/run",
+        (
+            b'{"goal":"fetch site","approved_action_ids":["missing-step"],'
+            b'"plan_sequence":[{"actions":[{"id":"step-1","tool":"note",'
+            b'"input":{"text":"ok"}}]}]}'
+        ),
+    )
+
+    assert status_code == 400
+    assert payload["error_code"] == "invalid_request_body"
+    assert "approved_action_ids must reference planned action ids" in payload["error"]
+    assert "missing-step" in payload["error"]
+
+
 def test_service_router_runtime_run_rejects_invalid_approved_action_ids():
     status_code, payload = service_router.handle_request(
         "POST",

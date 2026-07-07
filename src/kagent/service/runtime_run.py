@@ -98,6 +98,19 @@ def execute_runtime_run_request(
             "approved_action_ids require plan or plan_sequence; use /runtime/resume "
             "to approve live provider actions",
         )
+    planned_action_ids = _planned_action_ids(plan_payload, plan_sequence_payload)
+    if approved_action_ids and planned_action_ids is not None:
+        missing_approved_ids = [
+            action_id
+            for action_id in approved_action_ids
+            if action_id not in planned_action_ids
+        ]
+        if missing_approved_ids:
+            return 400, failure_payload(
+                service_errors.INVALID_REQUEST_BODY,
+                "approved_action_ids must reference planned action ids: "
+                + ", ".join(missing_approved_ids),
+            )
     if plan_payload is not None:
         if not isinstance(plan_payload, dict):
             return 400, failure_payload(
@@ -159,3 +172,34 @@ def execute_runtime_run_request(
                 f"could not persist trace: {exc}",
             )
     return 200, json_ready(result)
+
+
+def _planned_action_ids(
+    plan_payload: Any,
+    plan_sequence_payload: Any,
+) -> set[str] | None:
+    plan_payloads = []
+    if isinstance(plan_payload, dict):
+        plan_payloads.append(plan_payload)
+    if isinstance(plan_sequence_payload, list):
+        plan_payloads.extend(
+            item for item in plan_sequence_payload if isinstance(item, dict)
+        )
+    if not plan_payloads:
+        return None
+    action_ids = set()
+    inspected_actions = False
+    for item in plan_payloads:
+        actions = item.get("actions")
+        if not isinstance(actions, list):
+            continue
+        inspected_actions = True
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_id = action.get("id")
+            if isinstance(action_id, str) and action_id.strip() == action_id:
+                action_ids.add(action_id)
+    if not inspected_actions:
+        return None
+    return action_ids

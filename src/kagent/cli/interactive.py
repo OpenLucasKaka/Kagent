@@ -46,6 +46,7 @@ from kagent.cli.ui import (
     runtime_prompt_reset,
     runtime_ready_message,
     runtime_ui_color_enabled,
+    runtime_user_message_block,
     summarize_runtime_output,
 )
 from kagent.utils.json_output import format_and_write_json, json_ready
@@ -217,6 +218,7 @@ def run_runtime_interactive(
                     continue
                 _print_invalid_runtime_interactive_command(goal)
                 continue
+            _replace_runtime_prompt_with_user_message(goal)
             with state_lock:
                 queued_full_json_mode = full_json_mode
             work_queue.put((goal, queued_full_json_mode))
@@ -427,6 +429,20 @@ def _is_runtime_approval_reply(goal: str) -> bool:
 
 def _erase_empty_runtime_prompt_line() -> None:
     sys.stdout.write("\x1b[1A\r\x1b[2K")
+    sys.stdout.flush()
+
+
+def _replace_runtime_prompt_with_user_message(goal: str) -> None:
+    if not runtime_ui_color_enabled():
+        return
+    sys.stdout.write("\x1b[1A\r\x1b[2K")
+    sys.stdout.write(
+        runtime_user_message_block(
+            goal,
+            color=True,
+        )
+    )
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 

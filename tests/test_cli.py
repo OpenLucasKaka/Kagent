@@ -1156,6 +1156,24 @@ def test_cli_colored_runtime_prompt_marks_ansi_as_readline_invisible():
     assert runtime_prompt_reset(color=False) == ""
 
 
+def test_cli_runtime_user_message_block_is_wide_and_not_arrow_prefixed():
+    from kagent.cli.ui import runtime_user_message_block
+
+    block = runtime_user_message_block("测试", color=True, width=12)
+
+    assert block.startswith("\033[48;5;236m")
+    assert "›" not in block
+    assert "测试" in block
+    assert block.endswith("\033[0m")
+    visible = (
+        block.replace("\033[48;5;236m", "")
+        .replace("\033[97m", "")
+        .replace("\033[0m", "")
+    )
+    assert visible == "测试        "
+    assert runtime_user_message_block("测试", color=False, width=12) == "测试"
+
+
 def test_cli_runtime_ready_message_feels_like_kagent_product_shell():
     from kagent.cli.ui import runtime_ready_message
 

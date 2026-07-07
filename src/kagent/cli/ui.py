@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import textwrap
+import unicodedata
 from typing import Any
 
 from kagent.cli.commands import runtime_interactive_commands
@@ -21,18 +22,14 @@ def runtime_ui_color_enabled() -> bool:
 
 
 def runtime_ready_message(*, color: bool = False) -> str:
-    subtitle = "Codex-style agent runtime for internal work"
-    product_line = "agentic work shell"
+    subtitle = "local agent for your terminal"
+    product_line = "ask · approve · automate"
     return "\n".join(
         [
             _color("kagent", "bold", enabled=color),
             _dim(subtitle, enabled=color),
             "",
-            f"  {_color('[K]', 'cyan', enabled=color)} {product_line}",
-            "  ask, approve, automate",
-            "",
-            _dim("ready for work", enabled=color),
-            _dim("/help commands   /config provider   /status session", enabled=color),
+            f"{_color('[K]', 'cyan', enabled=color)} {product_line}",
         ]
     )
 
@@ -264,7 +261,11 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
 
     lines = [_format_run_status(payload, status, color=color)]
 
-    answer = str(payload.get("answer", "")).strip()
+    answer = (
+        ""
+        if payload.get("answer_streamed") == "true"
+        else str(payload.get("answer", "")).strip()
+    )
     if answer:
         lines.append("")
         lines.append(_dim("Answer", enabled=color))
@@ -277,7 +278,10 @@ def format_runtime_interactive_summary(payload: Any, *, color: bool = False) -> 
         lines.append(_color("Error", "red", enabled=color))
         lines.extend(_indented_lines(join_non_empty([error_code, error], " "), prefix="  "))
 
-    visible_observations = visible_runtime_observations(payload.get("observations"))
+    visible_observations = visible_runtime_observations(
+        payload.get("observations"),
+        successful_only=bool(answer),
+    )
     if visible_observations:
         lines.append("")
         lines.append(_dim("Results", enabled=color))
@@ -324,12 +328,18 @@ def format_runtime_progress_event(event: Any, *, color: bool = False) -> str:
     return ""
 
 
-def visible_runtime_observations(observations: Any) -> list[tuple[dict, int]]:
+def visible_runtime_observations(
+    observations: Any,
+    *,
+    successful_only: bool = False,
+) -> list[tuple[dict, int]]:
     if not isinstance(observations, list):
         return []
     visible = []
     for observation, repeat_count in _collapse_runtime_observations(observations):
         if _is_internal_note_observation(observation):
+            continue
+        if successful_only and not _is_successful_observation(observation):
             continue
         visible.append((observation, repeat_count))
     return visible
@@ -387,7 +397,7 @@ def format_runtime_result_lines(
     suffix = f" x{repeat_count}" if repeat_count > 1 else ""
     headline = join_non_empty([_status_icon(status, color=color), summary + suffix], " ")
     error = _user_runtime_error(observation)
-    lines = ["  " + headline]
+    lines = _wrapped_block_lines(headline, prefix="  ")
     if error:
         lines.extend(_indented_lines(error, prefix="  "))
     return lines
@@ -482,9 +492,6 @@ def _format_run_status(payload: dict, status: str, *, color: bool) -> str:
     duration = str(payload.get("duration_seconds", "")).strip()
     if duration:
         parts.append(f"{duration}s")
-    iteration_label = _runtime_iteration_label(payload)
-    if iteration_label:
-        parts.append(f"iter {iteration_label}")
     return " · ".join(parts)
 
 
@@ -578,12 +585,7 @@ def _wrapped_block_lines(text: str, *, prefix: str) -> list[str]:
         leading = line[: len(line) - len(line.lstrip())]
         content = line.lstrip()
         bullet_prefix = _markdown_continuation_prefix(content)
-        wrapped = textwrap.wrap(
-            content,
-            width=max(20, wrap_width - len(leading)),
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
+        wrapped = _wrap_display_text(content, width=max(20, wrap_width - len(leading)))
         if not wrapped:
             lines.append(prefix + line)
             continue
@@ -602,17 +604,68 @@ def _markdown_continuation_prefix(text: str) -> str:
     return ""
 
 
+def _wrap_display_text(text: str, *, width: int) -> list[str]:
+    if _contains_wide_text(text):
+        return _hard_wrap_display_text(text, width=width)
+    wrapped = textwrap.wrap(
+        text,
+        width=width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    if not wrapped:
+        return []
+    lines: list[str] = []
+    for line in wrapped:
+        lines.append(line)
+    return lines
+
+
+def _hard_wrap_display_text(text: str, *, width: int) -> list[str]:
+    lines: list[str] = []
+    current = ""
+    current_width = 0
+    for char in text:
+        char_width = _display_width(char)
+        if current and current_width + char_width > width:
+            if _is_leading_punctuation(char):
+                previous = current[-1]
+                current = current[:-1].rstrip()
+                if current:
+                    lines.append(current)
+                current = previous + char
+                current_width = _display_width(current)
+                continue
+            lines.append(current.rstrip())
+            current = ""
+            current_width = 0
+        current += char
+        current_width += char_width
+    if current:
+        lines.append(current.rstrip())
+    return lines
+
+
+def _display_width(text: str) -> int:
+    width = 0
+    for char in text:
+        if unicodedata.combining(char):
+            continue
+        width += 2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
+    return width
+
+
+def _contains_wide_text(text: str) -> bool:
+    return any(unicodedata.east_asian_width(char) in {"F", "W"} for char in text)
+
+
+def _is_leading_punctuation(char: str) -> bool:
+    return char in "、。，！？；：,.!?;:)]}）】》"
+
+
 def _progress_duration(event: dict) -> str:
     duration = str(event.get("duration_seconds", "")).strip()
     return f"{duration}s" if duration else ""
-
-
-def _runtime_iteration_label(payload: dict) -> str:
-    iteration_count = str(payload.get("iteration_count", "")).strip()
-    max_iterations = str(payload.get("max_iterations", "")).strip()
-    if iteration_count and max_iterations:
-        return f"{iteration_count}/{max_iterations}"
-    return iteration_count
 
 
 def _collapse_runtime_observations(observations: list) -> list[tuple[dict, int]]:
@@ -650,6 +703,10 @@ def _is_internal_note_observation(observation: dict) -> bool:
         and not str(observation.get("error_code", "")).strip()
         and not str(observation.get("error", "")).strip()
     )
+
+
+def _is_successful_observation(observation: dict) -> bool:
+    return str(observation.get("status", "")).strip() in {"ok", "done"}
 
 
 def _is_internal_progress_tool(tool: str) -> bool:

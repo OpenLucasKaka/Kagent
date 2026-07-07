@@ -124,6 +124,7 @@ def test_runtime_agent_system_prompt_declares_runtime_identity_boundary():
     assert "kagent" in system_prompt
     assert "do not expose provider details" in system_prompt
     assert "underlying model provider" in system_prompt
+    assert "Do not compare kagent to another assistant" in system_prompt
 
 
 def test_runtime_agent_executor_event_includes_tool_timing_metadata():
@@ -911,6 +912,45 @@ def test_runtime_agent_emits_redacted_progress_events():
     assert progress_events[-1]["duration_seconds"] == result["duration_seconds"]
     assert {event["run_id"] for event in progress_events} == {result["run_id"]}
     assert "secret progress body" not in json.dumps(progress_events)
+
+
+def test_runtime_agent_streams_direct_final_answer_progress_events():
+    provider = FakeLLMProvider(
+        '{"actions":[],"final_answer":"你好卡卡"}',
+        stream_chunks=[
+            '{"actions":[],',
+            '"final_answer":"你',
+            "好",
+            '卡卡"}',
+        ],
+    )
+    progress_events = []
+
+    result = run_runtime_agent(
+        "打个招呼",
+        provider=provider,
+        event_sink=progress_events.append,
+        stream_answers=True,
+    )
+
+    event_types = [event["type"] for event in progress_events]
+    assert result["answer"] == "你好卡卡"
+    assert result["answer_streamed"] == "true"
+    assert event_types == [
+        "planner_started",
+        "answer_started",
+        "answer_delta",
+        "answer_delta",
+        "answer_delta",
+        "answer_completed",
+        "planner_completed",
+        "run_completed",
+    ]
+    assert [event.get("delta") for event in progress_events if event["type"] == "answer_delta"] == [
+        "你",
+        "好",
+        "卡卡",
+    ]
 
 
 def test_runtime_agent_does_not_fail_when_progress_event_sink_fails():

@@ -3,8 +3,13 @@
 const childProcess = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
+const https = require("https");
 const os = require("os");
 const path = require("path");
+
+const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka/kagent/main/package.json";
+const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/kagent";
+const SELF_UPDATE_TIMEOUT_MS = 3000;
 
 function packageRoot() {
   return path.resolve(__dirname, "..", "..");
@@ -58,6 +63,149 @@ function runChecked(command, args, options) {
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
   }
+}
+
+function envFlagEnabled(value) {
+  if (value === undefined || value === null || value === "") {
+    return false;
+  }
+  return !["0", "false", "no"].includes(String(value).toLowerCase());
+}
+
+function shouldCheckSelfUpdate(env, stdin) {
+  return !envFlagEnabled(env.KAGENT_NO_SELF_UPDATE) && Boolean(stdin.isTTY);
+}
+
+function parseVersion(version) {
+  const [mainPart, prerelease = ""] = String(version).replace(/^v/, "").split("-", 2);
+  const parts = mainPart.split(".").map((part) => {
+    const value = Number(part);
+    return Number.isInteger(value) && value >= 0 ? value : 0;
+  });
+  while (parts.length < 3) {
+    parts.push(0);
+  }
+  return {
+    parts: parts.slice(0, 3),
+    prerelease
+  };
+}
+
+function isNewerVersion(candidate, current) {
+  const candidateVersion = parseVersion(candidate);
+  const currentVersion = parseVersion(current);
+  for (let index = 0; index < 3; index += 1) {
+    if (candidateVersion.parts[index] > currentVersion.parts[index]) {
+      return true;
+    }
+    if (candidateVersion.parts[index] < currentVersion.parts[index]) {
+      return false;
+    }
+  }
+  if (candidateVersion.prerelease === currentVersion.prerelease) {
+    return false;
+  }
+  if (candidateVersion.prerelease === "") {
+    return currentVersion.prerelease !== "";
+  }
+  if (currentVersion.prerelease === "") {
+    return false;
+  }
+  return candidateVersion.prerelease > currentVersion.prerelease;
+}
+
+function fetchText(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { headers: { "User-Agent": "kagent-self-update" } }, (response) => {
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        response.resume();
+        fetchText(response.headers.location, timeoutMs).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`GitHub returned HTTP ${response.statusCode}`));
+        return;
+      }
+      response.setEncoding("utf8");
+      let body = "";
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        resolve(body);
+      });
+    });
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error("GitHub update check timed out"));
+    });
+    request.on("error", reject);
+  });
+}
+
+async function fetchLatestGitHubVersion() {
+  const body = await fetchText(GITHUB_PACKAGE_JSON_URL, SELF_UPDATE_TIMEOUT_MS);
+  const packageJson = JSON.parse(body);
+  if (typeof packageJson.version !== "string" || packageJson.version.trim() === "") {
+    throw new Error("GitHub package.json does not declare a version");
+  }
+  return packageJson.version;
+}
+
+function promptForSelfUpdate(currentVersion, latestVersion) {
+  process.stderr.write(
+    `kagent ${latestVersion} is available. Current version: ${currentVersion}.\n` +
+      "Update now? [Y/n] "
+  );
+  const buffer = Buffer.alloc(1024);
+  const bytesRead = fs.readSync(0, buffer, 0, buffer.length, null);
+  const answer = buffer.subarray(0, bytesRead).toString("utf8").trim().toLowerCase();
+  return answer === "" || answer === "y" || answer === "yes";
+}
+
+function restartEntrypoint(commandName, args) {
+  const result = childProcess.spawnSync(commandName, args, {
+    env: process.env,
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  process.exit(result.status === null ? 1 : result.status);
+}
+
+async function maybeSelfUpdate(root, currentVersion, commandName, args) {
+  if (envFlagEnabled(process.env.KAGENT_NO_SELF_UPDATE) || !process.stdin.isTTY) {
+    return false;
+  }
+
+  let latestVersion;
+  try {
+    latestVersion = await fetchLatestGitHubVersion();
+  } catch (error) {
+    process.stderr.write(`kagent: update check skipped: ${error.message}\n`);
+    return false;
+  }
+
+  if (!isNewerVersion(latestVersion, currentVersion)) {
+    return false;
+  }
+
+  if (!promptForSelfUpdate(currentVersion, latestVersion)) {
+    return false;
+  }
+
+  process.stderr.write(`kagent: installing ${GITHUB_INSTALL_SPEC}\n`);
+  try {
+    runChecked("npm", ["install", "-g", "github:OpenLucasKaka/kagent"], { cwd: root });
+  } catch (error) {
+    process.stderr.write(`kagent: update failed: ${error.message}; continuing with ${currentVersion}\n`);
+    return false;
+  }
+  process.stderr.write("kagent: update installed; restarting\n");
+  restartEntrypoint(commandName, args);
+  return true;
 }
 
 function executablePath(venvDir, name) {
@@ -180,10 +328,13 @@ function spawnEntrypoint(venvDir, commandName, args) {
   process.exit(result.status === null ? 1 : result.status);
 }
 
-function runPythonEntrypoint(commandName, args) {
+async function runPythonEntrypoint(commandName, args) {
   try {
     const root = packageRoot();
     const version = readPackageVersion(root);
+    if (await maybeSelfUpdate(root, version, commandName, args)) {
+      return;
+    }
     const venvDir = ensureVenv(root, version);
     spawnEntrypoint(venvDir, commandName, args);
   } catch (error) {
@@ -193,5 +344,9 @@ function runPythonEntrypoint(commandName, args) {
 }
 
 module.exports = {
-  runPythonEntrypoint
+  runPythonEntrypoint,
+  _internals: {
+    isNewerVersion,
+    shouldCheckSelfUpdate
+  }
 };

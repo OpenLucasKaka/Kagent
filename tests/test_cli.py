@@ -1063,8 +1063,12 @@ def test_cli_interactive_runtime_prints_prompt_to_real_stderr(monkeypatch, capsy
     assert "› " in captured.out
     assert "kagent" in captured.err
     assert "[K]" in captured.err
-    assert "ready for work" in captured.err
-    assert "/help" in captured.err
+    assert "local agent for your terminal" in captured.err
+    assert "ask · approve · automate" in captured.err
+    assert "ready for work" not in captured.err
+    assert "/help" not in captured.err
+    assert "/config" not in captured.err
+    assert "/status" not in captured.err
 
 
 def test_cli_colored_runtime_prompt_marks_ansi_as_readline_invisible():
@@ -1082,13 +1086,13 @@ def test_cli_runtime_ready_message_feels_like_kagent_product_shell():
     message = runtime_ready_message(color=False)
 
     assert message.splitlines()[0] == "kagent"
-    assert "Codex-style agent runtime" in message
     assert "[K]" in message
-    assert "agentic work shell" in message
-    assert "ask, approve, automate" in message
-    assert "ready for work" in message
-    assert "/config provider" in message
-    assert "/help" in message
+    assert "local agent for your terminal" in message
+    assert "ask · approve · automate" in message
+    assert "/config" not in message
+    assert "/help" not in message
+    assert "/status" not in message
+    assert len(message.splitlines()) <= 4
     assert "K-bot" not in message
     assert "(o_o)" not in message
     assert ("self" + "-correcting") not in message.lower()
@@ -1527,6 +1531,63 @@ def test_cli_interactive_runtime_tty_prints_production_summary(monkeypatch, caps
     assert '"observations"' not in captured.out
 
 
+def test_cli_compact_summary_wraps_cjk_answer_in_narrow_terminal(monkeypatch):
+    from kagent.cli import ui
+
+    monkeypatch.setattr(
+        "kagent.cli.ui.shutil.get_terminal_size",
+        lambda _fallback: os.terminal_size((40, 24)),
+    )
+
+    message = ui.format_runtime_interactive_summary(
+        {
+            "status": "done",
+            "answer": "我是kagent，可以帮你处理本地任务、打开应用、整理文件和执行需要确认的操作。",
+            "observations": [
+                {
+                    "tool": "open_url",
+                    "status": "ok",
+                    "output": {
+                        "url": "https://kagent.local",
+                        "application": "Google Chrome",
+                    },
+                }
+            ],
+        },
+        color=False,
+    )
+
+    lines = message.splitlines()
+    assert "Answer" in lines
+    assert any(line.startswith("  我是kagent") for line in lines)
+    assert any(line.startswith("  应用、整理文件") for line in lines)
+    assert max(ui._display_width(line) for line in lines) <= 40
+
+
+def test_cli_compact_summary_hides_failed_observations_when_answer_is_done():
+    from kagent.cli.ui import format_runtime_interactive_summary
+
+    message = format_runtime_interactive_summary(
+        {
+            "status": "done",
+            "answer": "你好卡卡，我可以帮你处理本地任务。",
+            "observations": [
+                {
+                    "tool": "read_file",
+                    "status": "failed",
+                    "error": "The read operation timed out",
+                }
+            ],
+        },
+        color=False,
+    )
+
+    assert "\n\nAnswer\n  你好卡卡" in message
+    assert "\n\nResults" not in message
+    assert "Completed action" not in message
+    assert "The read operation timed out" not in message
+
+
 def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     from kagent.cli import _run_runtime_interactive
 
@@ -1615,6 +1676,52 @@ def test_cli_interactive_runtime_tty_prints_live_progress(monkeypatch, capsys):
     assert "\n\nActions" not in captured.out
     assert "apply_patch" not in captured.out
     assert "add hello.md 13B" in captured.out
+
+
+def test_cli_interactive_runtime_streams_answer_deltas_without_duplicate_summary(
+    monkeypatch,
+    capsys,
+):
+    from kagent.cli import _run_runtime_interactive
+
+    class FakeTTYInput:
+        def __init__(self):
+            self.lines = ["打个招呼\n", "exit\n"]
+
+        def isatty(self):
+            return True
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    def fake_run_runtime_agent(_goal, **kwargs):
+        event_sink = kwargs["event_sink"]
+        assert kwargs["stream_answers"] is True
+        event_sink({"type": "planner_started"})
+        event_sink({"type": "answer_started"})
+        event_sink({"type": "answer_delta", "delta": "你好"})
+        event_sink({"type": "answer_delta", "delta": "，卡卡"})
+        event_sink({"type": "answer_completed"})
+        return {
+            "status": "done",
+            "answer": "你好，卡卡",
+            "answer_streamed": "true",
+        }
+
+    monkeypatch.setattr(sys, "stdin", FakeTTYInput())
+    monkeypatch.setattr(sys, "__stderr__", sys.stderr)
+
+    _run_runtime_interactive(
+        provider=object(),
+        run_runtime_agent=fake_run_runtime_agent,
+        max_iterations=1,
+        fail_on_agent_failure=False,
+    )
+
+    captured = capsys.readouterr()
+    assert "Answer\n  你好，卡卡\n" in captured.out
+    assert captured.out.count("Answer") == 1
+    assert "\nDone" in captured.out
 
 
 def test_cli_interactive_runtime_tty_can_toggle_json_output(monkeypatch, capsys):
@@ -1818,7 +1925,8 @@ def test_cli_interactive_runtime_tty_keeps_debug_details_out_of_default_output(
     assert "╭─" not in captured.out
     assert "\n\nAnswer\n  文件已创建。" in captured.out
     assert "status" not in captured.out
-    assert "\nDone · 1.2500s · iter 2/3" in captured.out
+    assert "\nDone · 1.2500s" in captured.out
+    assert "iter 2/3" not in captured.out
     assert "\n\nResults\n  ✓ Updated files hello.md" in captured.out
     assert "\n\nActions" not in captured.out
     assert "apply_patch" not in captured.out

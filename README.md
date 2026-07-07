@@ -5,7 +5,7 @@ Production-shaped LangGraph agent runtime for internal, non-coding workflows.
 It provides two execution paths:
 
 - deterministic graph runs for local tests, demos, and regression checks;
-- a Codex-style runtime that plans with a configured LLM provider,
+- an agent runtime that plans with a configured LLM provider,
   executes policy-gated tools, records structured observations, and can replan
   after failures.
 
@@ -15,7 +15,7 @@ operator output, and redacted production evidence.
 
 ## Quick Start
 
-Codex-style npm install:
+npm install:
 
 ```sh
 npm install -g github:OpenLucasKaka/kagent
@@ -29,6 +29,11 @@ to choose Qwen, DeepSeek, Ollama, or OpenAI-compatible/custom from a provider
 menu, then asks for that provider's Base URL, model, and API key. The local
 provider config is stored at `${XDG_CONFIG_HOME:-~/.config}/kagent/provider.json`
 with owner-only permissions.
+
+Interactive `kagent` launches check GitHub for a newer package version. When an
+update is available, kagent asks before running
+`npm install -g github:OpenLucasKaka/kagent` and restarting the same command.
+Set `KAGENT_NO_SELF_UPDATE=1` to skip this check.
 
 To reconfigure later:
 

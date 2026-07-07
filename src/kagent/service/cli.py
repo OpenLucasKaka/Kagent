@@ -146,7 +146,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--runtime-max-iterations",
         type=int,
         default=defaults.runtime_max_iterations,
-        help="Maximum Codex-style runtime planner iterations per request.",
+        help="Maximum runtime planner iterations per request.",
     )
     parser.add_argument(
         "--runtime-pending-approval-stale-seconds",

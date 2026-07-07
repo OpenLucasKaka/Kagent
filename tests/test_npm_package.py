@@ -49,6 +49,36 @@ def test_npm_runner_reinstalls_cached_python_runtime_when_sources_change():
     assert "actual.sourceHash === expected.sourceHash" in runner
 
 
+def test_npm_runner_checks_github_for_interactive_self_update():
+    runner = Path("npm/lib/python-runner.js").read_text(encoding="utf-8")
+
+    assert "https://raw.githubusercontent.com/OpenLucasKaka/kagent/main/package.json" in runner
+    assert "KAGENT_NO_SELF_UPDATE" in runner
+    assert "process.stdin.isTTY" in runner
+    assert "Update now? [Y/n]" in runner
+    assert '"npm", ["install", "-g", "github:OpenLucasKaka/kagent"]' in runner
+
+
+def test_npm_runner_semver_comparison_handles_multi_digit_segments():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = """
+const { _internals } = require("./npm/lib/python-runner");
+if (!_internals.isNewerVersion("0.1.10", "0.1.9")) {
+  throw new Error("0.1.10 should be newer than 0.1.9");
+}
+if (_internals.isNewerVersion("0.1.9", "0.1.10")) {
+  throw new Error("0.1.9 should not be newer than 0.1.10");
+}
+if (_internals.isNewerVersion("0.1.0", "0.1.0")) {
+  throw new Error("equal versions should not be newer");
+}
+"""
+    subprocess.run([node, "-e", script], check=True)
+
+
 def test_npm_wrapper_javascript_syntax_is_valid_when_node_is_available():
     node = shutil.which("node")
     if node is None:

@@ -128,6 +128,7 @@ def run_runtime_interactive(
                     metadata=metadata,
                     tags=tags,
                     event_sink=progress_sink,
+                    stream_answers=interactive_tty and not full_json_mode,
                 )
             )
         finally:
@@ -287,10 +288,22 @@ class _RuntimeInteractiveProgress:
         self._started = False
         self._closed = False
         self._active = False
+        self._streaming_answer = False
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
     def __call__(self, event: Any) -> None:
+        if isinstance(event, dict):
+            event_type = str(event.get("type", "")).strip()
+            if event_type == "answer_started":
+                self._start_answer_stream()
+                return
+            if event_type == "answer_delta":
+                self._write_answer_delta(str(event.get("delta", "")))
+                return
+            if event_type == "answer_completed":
+                self._finish_answer_stream()
+                return
         message = format_runtime_progress_event(
             event,
             color=runtime_ui_color_enabled(),
@@ -342,6 +355,39 @@ class _RuntimeInteractiveProgress:
             sys.stdout.write(f"{message}\n")
             sys.stdout.flush()
             self._last_width = 0
+
+    def _start_answer_stream(self) -> None:
+        self._finish_active(clear=True)
+        with self._lock:
+            if not self._started:
+                sys.stdout.write("\n")
+                self._started = True
+            if not self._streaming_answer:
+                sys.stdout.write("Answer\n  ")
+                self._streaming_answer = True
+                self._last_width = 0
+                sys.stdout.flush()
+
+    def _write_answer_delta(self, delta: str) -> None:
+        if not delta:
+            return
+        with self._lock:
+            if not self._streaming_answer:
+                if not self._started:
+                    sys.stdout.write("\n")
+                    self._started = True
+                sys.stdout.write("Answer\n  ")
+                self._streaming_answer = True
+            sys.stdout.write(delta)
+            sys.stdout.flush()
+
+    def _finish_answer_stream(self) -> None:
+        with self._lock:
+            if self._streaming_answer:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                self._streaming_answer = False
+                self._last_width = 0
 
     def _spin(self) -> None:
         while True:

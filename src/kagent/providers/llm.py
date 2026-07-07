@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from os import environ
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional
 
 DEFAULT_LLM_MODEL = "qwen3.5-122b-a10b"
 PROVIDER_CONFIG_SCHEMA_VERSION = "1"
@@ -277,13 +277,19 @@ def _reject_symlink_path(path: Path) -> None:
 
 
 class FakeLLMProvider:
-    def __init__(self, response_text: str) -> None:
+    def __init__(self, response_text: str, stream_chunks: Optional[List[str]] = None) -> None:
         self.response_text = response_text
+        self.stream_chunks = list(stream_chunks) if stream_chunks is not None else [response_text]
         self.calls: List[Dict[str, str]] = []
+        self.stream_calls: List[Dict[str, str]] = []
 
     def complete(self, system: str, user: str) -> str:
         self.calls.append({"system": system, "user": user})
         return self.response_text
+
+    def stream_complete(self, system: str, user: str) -> Iterator[str]:
+        self.stream_calls.append({"system": system, "user": user})
+        yield from self.stream_chunks
 
 
 class SequentialFakeLLMProvider:
@@ -317,6 +323,24 @@ class OpenAICompatibleProvider:
         self._sleep = sleep
 
     def complete(self, system: str, user: str) -> str:
+        request = self._chat_completion_request(system, user, stream=False)
+        body = self._request_json_with_retries(request)
+        try:
+            return str(body["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("llm provider response missing message content") from exc
+
+    def stream_complete(self, system: str, user: str) -> Iterator[str]:
+        request = self._chat_completion_request(system, user, stream=True)
+        yield from self._request_stream_with_retries(request)
+
+    def _chat_completion_request(
+        self,
+        system: str,
+        user: str,
+        *,
+        stream: bool,
+    ) -> urllib.request.Request:
         endpoint = self.config.base_url.rstrip("/") + "/chat/completions"
         payload = {
             "model": self.config.model,
@@ -326,22 +350,19 @@ class OpenAICompatibleProvider:
             ],
             "temperature": 0,
         }
+        if stream:
+            payload["stream"] = True
         headers = {
             "Content-Type": "application/json",
         }
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
-        request = urllib.request.Request(
+        return urllib.request.Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
             headers=headers,
             method="POST",
         )
-        body = self._request_json_with_retries(request)
-        try:
-            return str(body["choices"][0]["message"]["content"])
-        except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("llm provider response missing message content") from exc
 
     def _request_json_with_retries(self, request: urllib.request.Request) -> Dict[str, Any]:
         max_attempts = self.config.max_retries + 1
@@ -352,6 +373,40 @@ class OpenAICompatibleProvider:
                     timeout=self.config.timeout_seconds,
                 ) as response:
                     return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                body = _read_http_error_body(exc)
+                if attempt >= max_attempts - 1 or not _is_retryable_provider_error(
+                    exc,
+                    body,
+                ):
+                    raise RuntimeError(
+                        _provider_failure_message(exc, self.config.api_key, body)
+                    ) from exc
+                retry_delay = _provider_retry_delay_seconds(exc, self.config)
+                if retry_delay:
+                    self._sleep(retry_delay)
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if attempt >= max_attempts - 1 or not _is_retryable_provider_error(exc):
+                    raise RuntimeError(
+                        _provider_failure_message(exc, self.config.api_key)
+                    ) from exc
+                if self.config.retry_backoff_seconds:
+                    self._sleep(self.config.retry_backoff_seconds)
+        raise RuntimeError("llm provider request failed")
+
+    def _request_stream_with_retries(
+        self,
+        request: urllib.request.Request,
+    ) -> Iterator[str]:
+        max_attempts = self.config.max_retries + 1
+        for attempt in range(max_attempts):
+            try:
+                with self._urlopen(
+                    request,
+                    timeout=self.config.timeout_seconds,
+                ) as response:
+                    yield from _stream_openai_chat_completion_chunks(response)
+                    return
             except urllib.error.HTTPError as exc:
                 body = _read_http_error_body(exc)
                 if attempt >= max_attempts - 1 or not _is_retryable_provider_error(
@@ -384,6 +439,27 @@ def build_llm_provider(
     # /v1/chat/completions contract. Native protocol adapters can branch here.
     normalize_provider_kind(config.provider)
     return OpenAICompatibleProvider(config, urlopen=urlopen, sleep=sleep)
+
+
+def _stream_openai_chat_completion_chunks(response: Any) -> Iterator[str]:
+    while True:
+        raw_line = response.readline()
+        if raw_line == b"" or raw_line == "":
+            return
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else str(raw_line)
+        line = line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+        data = line.removeprefix("data:").strip()
+        if data == "[DONE]":
+            return
+        try:
+            payload = json.loads(data)
+            content = payload["choices"][0]["delta"].get("content", "")
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise RuntimeError("llm provider stream chunk missing delta content") from exc
+        if content:
+            yield str(content)
 
 
 def _env_float(env: Mapping[str, str], name: str, default: float) -> float:

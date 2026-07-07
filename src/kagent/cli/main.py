@@ -46,7 +46,7 @@ def main() -> None:
     parser.add_argument(
         "--runtime",
         action="store_true",
-        help="Run the Codex-style plan-act-observe runtime.",
+        help="Run the plan-act-observe runtime.",
     )
     parser.add_argument(
         "--deterministic",
@@ -77,7 +77,7 @@ def main() -> None:
         "--max-iterations",
         type=int,
         default=None,
-        help="Maximum Codex-style runtime planner iterations.",
+        help="Maximum runtime planner iterations.",
     )
     parser.add_argument(
         "--runtime-plan",

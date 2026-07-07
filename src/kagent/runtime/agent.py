@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -35,6 +36,8 @@ you are the underlying model provider. Do not claim to be Qwen, ChatGPT,
 Claude, or any other model brand unless the user explicitly asks about the
 configured provider. In user-facing answers, do not expose provider details
 unless the user explicitly asks about provider configuration.
+Do not compare kagent to another assistant, coding tool, or runtime brand in
+user-facing answers. Describe kagent directly.
 Return strict JSON only with this shape:
 {"actions":[{"id":"step-1","tool":"note","input":{"text":"..."},"reason":"..."}],
 "final_answer":"..."}
@@ -71,6 +74,7 @@ def run_runtime_agent(
     metadata: Optional[Dict[str, str]] = None,
     tags: Optional[List[str]] = None,
     event_sink: Optional[RuntimeEventSink] = None,
+    stream_answers: bool = False,
 ) -> Dict[str, Any]:
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least 1")
@@ -98,6 +102,7 @@ def run_runtime_agent(
     iteration_count = 0
     progress_events: List[Dict[str, Any]] = []
     progress_event_sink_failure_count = 0
+    answer_streamed = False
 
     def emit_progress(event: Dict[str, Any]) -> None:
         nonlocal progress_event_sink_failure_count
@@ -131,7 +136,19 @@ def run_runtime_agent(
             status="started",
         )
         try:
-            plan_text = provider.complete(_SYSTEM_PROMPT, user_prompt)
+            plan_text, streamed_this_plan = _complete_plan_text(
+                provider,
+                _SYSTEM_PROMPT,
+                user_prompt,
+                emit_progress=emit_progress,
+                stream_answer=(
+                    stream_answers
+                    and not observations
+                    and not _is_runtime_identity_question(goal.lower())
+                    and not _is_runtime_deployment_question(goal.lower())
+                ),
+            )
+            answer_streamed = answer_streamed or streamed_this_plan
             plan = parse_agent_plan(plan_text)
         except Exception as exc:
             timing = _timing_fields(planner_started_at, planner_timer)
@@ -340,6 +357,8 @@ def run_runtime_agent(
     }
     if answer:
         result["answer"] = answer
+    if answer_streamed and answer:
+        result["answer_streamed"] = "true"
     if normalized_metadata:
         result["metadata"] = normalized_metadata
     if normalized_tags:
@@ -365,6 +384,129 @@ def run_runtime_agent(
             progress_event_sink_failure_count
         )
     return redact_runtime_payload(result)
+
+
+def _complete_plan_text(
+    provider: Any,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    emit_progress: Callable[..., None],
+    stream_answer: bool,
+) -> tuple[str, bool]:
+    stream_complete = getattr(provider, "stream_complete", None)
+    if not stream_answer or not callable(stream_complete):
+        return str(provider.complete(system_prompt, user_prompt)), False
+
+    chunks: List[str] = []
+    streamer = _DirectFinalAnswerStreamer(emit_progress)
+    for chunk in stream_complete(system_prompt, user_prompt):
+        text = str(chunk)
+        chunks.append(text)
+        streamer.feed(text)
+    plan_text = "".join(chunks)
+    return plan_text, streamer.finish()
+
+
+class _DirectFinalAnswerStreamer:
+    _EMPTY_ACTIONS_RE = re.compile(r'"actions"\s*:\s*\[\s*\]')
+    _FINAL_ANSWER_RE = re.compile(r'"final_answer"\s*:\s*"')
+
+    def __init__(self, emit_progress: Callable[..., None]) -> None:
+        self._emit_progress = emit_progress
+        self._buffer = ""
+        self._answer_start: int | None = None
+        self._scan_index = 0
+        self._started = False
+        self._completed = False
+        self._escape = False
+
+    def feed(self, text: str) -> None:
+        if self._completed:
+            return
+        self._buffer += text
+        if self._answer_start is None:
+            if not self._EMPTY_ACTIONS_RE.search(self._buffer):
+                return
+            answer_match = self._FINAL_ANSWER_RE.search(self._buffer)
+            if answer_match is None:
+                return
+            self._answer_start = answer_match.end()
+            self._scan_index = self._answer_start
+        self._emit_available_answer()
+
+    def finish(self) -> bool:
+        if self._started and not self._completed:
+            self._completed = True
+            _emit_runtime_progress(
+                self._emit_progress,
+                "answer_completed",
+                node="planner",
+                status="done",
+            )
+        return self._started
+
+    def _emit_available_answer(self) -> None:
+        pieces: List[str] = []
+        while self._scan_index < len(self._buffer):
+            char = self._buffer[self._scan_index]
+            self._scan_index += 1
+            if self._escape:
+                decoded = _decode_streamed_json_escape(char)
+                if decoded is None:
+                    continue
+                pieces.append(decoded)
+                self._escape = False
+                continue
+            if char == "\\":
+                self._escape = True
+                continue
+            if char == '"':
+                self._completed = True
+                break
+            pieces.append(char)
+        if pieces:
+            self._emit_delta("".join(pieces))
+        if self._completed and self._started:
+            _emit_runtime_progress(
+                self._emit_progress,
+                "answer_completed",
+                node="planner",
+                status="done",
+            )
+
+    def _emit_delta(self, delta: str) -> None:
+        if not self._started:
+            self._started = True
+            _emit_runtime_progress(
+                self._emit_progress,
+                "answer_started",
+                node="planner",
+                status="started",
+            )
+        _emit_runtime_progress(
+            self._emit_progress,
+            "answer_delta",
+            node="planner",
+            status="streaming",
+            delta=delta,
+        )
+
+
+def _decode_streamed_json_escape(char: str) -> str | None:
+    escapes = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+    }
+    if char == "u":
+        return None
+    return escapes.get(char, char)
 
 
 def _runtime_user_prompt(

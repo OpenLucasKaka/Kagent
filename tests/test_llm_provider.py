@@ -235,7 +235,9 @@ def test_fake_llm_provider_returns_configured_text_response():
     provider = FakeLLMProvider('{"actions": []}')
 
     assert provider.complete("system", "user") == '{"actions": []}'
+    assert list(provider.stream_complete("system-stream", "user-stream")) == ['{"actions": []}']
     assert provider.calls == [{"system": "system", "user": "user"}]
+    assert provider.stream_calls == [{"system": "system-stream", "user": "user-stream"}]
 
 
 def test_sequential_fake_llm_provider_returns_configured_responses_in_order():
@@ -288,6 +290,39 @@ def test_openai_compatible_provider_retries_transient_http_errors():
 
     assert provider.complete("system", "user") == '{"actions":[]}'
     assert len(calls) == 2
+
+
+def test_openai_compatible_provider_streams_chat_completion_deltas():
+    calls = []
+    response = _FakeHTTPResponse(
+        (
+            'data: {"choices":[{"delta":{"content":"{\\"actions\\":[],"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"\\"final_answer\\":\\"你"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"好\\"}"}}]}\n\n'
+            "data: [DONE]\n\n"
+        ).encode("utf-8")
+    )
+
+    def open_url(request, *, timeout):
+        calls.append({"request": request, "timeout": timeout})
+        return response
+
+    provider = OpenAICompatibleProvider(
+        LLMProviderConfig(
+            base_url="https://llm.example/v1",
+            api_key="x",
+            model="agent-model",
+        ),
+        urlopen=open_url,
+    )
+
+    assert list(provider.stream_complete("system", "user")) == [
+        '{"actions":[],',
+        '"final_answer":"你',
+        '好"}',
+    ]
+    request_payload = calls[0]["request"].data.decode("utf-8")
+    assert '"stream": true' in request_payload
 
 
 def test_openai_compatible_provider_does_not_retry_non_transient_http_errors():
@@ -446,3 +481,13 @@ class _FakeHTTPResponse:
 
     def read(self) -> bytes:
         return self.body
+
+    def readline(self) -> bytes:
+        if not hasattr(self, "_lines"):
+            self._lines = self.body.splitlines(keepends=True)
+            self._line_index = 0
+        if self._line_index >= len(self._lines):
+            return b""
+        line = self._lines[self._line_index]
+        self._line_index += 1
+        return line

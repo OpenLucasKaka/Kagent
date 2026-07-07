@@ -229,7 +229,7 @@ The service intentionally keeps a narrow API:
   persisted `trace_type: "codex_runtime"` records. It applies the same
   subject visibility rules as runtime list/detail routes, accepts the compact
   list filters, and returns aggregate `run_count`, `status_counts`,
-  `auth_subject_counts`, `tool_counts`, `error_code_counts`,
+  `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
   `failed_observation_count`, `approval_required_count`,
   `pending_approval_count`, `final_answer_guardrail_applied_count`,
   `final_answer_guardrail_reason_counts`, `artifact_count`, `artifact_total_bytes`,

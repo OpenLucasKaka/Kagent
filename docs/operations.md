@@ -712,7 +712,7 @@ runtime traces whose persisted `auth_subject` is `team-a`, and cross-subject run
 Use `GET /runtime/runs/summary` to build a lightweight operations dashboard or
 approval queue badge without loading individual runs. It applies subject
 visibility and compact list filters, then returns `run_count`, `status_counts`,
-`auth_subject_counts`, `tool_counts`, `error_code_counts`,
+`runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
 `failed_observation_count`, `approval_required_count`,
 `pending_approval_count`, `artifact_count`, `artifact_total_bytes`,
 `tag_counts`, and `metadata_key_counts`.

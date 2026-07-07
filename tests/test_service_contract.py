@@ -910,6 +910,7 @@ def test_service_contract_documents_named_success_schemas():
         "trace_type",
         "run_count",
         "status_counts",
+        "runtime_engine_counts",
         "auth_subject_counts",
         "tool_counts",
         "error_code_counts",
@@ -925,6 +926,12 @@ def test_service_contract_documents_named_success_schemas():
         "metadata_key_counts",
     ]
     assert schemas["RuntimeRunSummaryResponse"]["properties"]["status_counts"] == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "runtime_engine_counts"
+    ] == {
         "type": "object",
         "additionalProperties": {"type": "string"},
     }

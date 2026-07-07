@@ -2939,6 +2939,7 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
             "trace_type": "codex_runtime",
             "run_id": "team-a-failed",
             "status": "failed",
+            "runtime_engine": "langgraph",
             "goal": "fetch launch brief",
             "auth_subject": "team-a",
             "final_answer_guardrail": {
@@ -2976,6 +2977,7 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
             "trace_type": "codex_runtime",
             "run_id": "ops-pending",
             "status": "requires_approval",
+            "runtime_engine": "langgraph",
             "goal": "fetch vendor status",
             "auth_subject": "ops",
             "pending_approval": {"id": "ops-fetch", "tool": "http_request"},
@@ -3007,6 +3009,7 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
         "trace_type": "codex_runtime",
         "run_count": "2",
         "status_counts": {"failed": "1", "requires_approval": "1"},
+        "runtime_engine_counts": {"langgraph": "2"},
         "auth_subject_counts": {"ops": "1", "team-a": "1"},
         "tool_counts": {"artifact": "1", "http_request": "2"},
         "error_code_counts": {"tool_execution_timeout": "1"},

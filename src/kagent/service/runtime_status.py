@@ -593,6 +593,7 @@ def _empty_runtime_summary_aggregate() -> Dict[str, Any]:
         "trace_type": RUNTIME_TRACE_TYPE,
         "run_count": "0",
         "status_counts": {},
+        "runtime_engine_counts": {},
         "auth_subject_counts": {},
         "tool_counts": {},
         "error_code_counts": {},
@@ -615,6 +616,10 @@ def _add_runtime_summary_to_aggregate(
 ) -> None:
     aggregate["run_count"] = str(int(aggregate["run_count"]) + 1)
     _increment_count(aggregate["status_counts"], str(summary.get("status", "")))
+    _increment_count(
+        aggregate["runtime_engine_counts"],
+        str(summary.get("runtime_engine", "")),
+    )
     _increment_count(
         aggregate["auth_subject_counts"],
         str(summary.get("auth_subject", "")),

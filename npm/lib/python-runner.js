@@ -7,7 +7,8 @@ const https = require("https");
 const os = require("os");
 const path = require("path");
 
-const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka/kagent/main/package.json";
+const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka/Kagent/main/package.json";
+const GITHUB_HEAD_URL = "https://api.github.com/repos/OpenLucasKaka/Kagent/commits/main";
 const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/kagent";
 const SELF_UPDATE_TIMEOUT_MS = 3000;
 
@@ -27,6 +28,15 @@ function cacheRoot() {
   }
   const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
   return path.join(base, "kagent", "npm-python");
+}
+
+function metadataCacheRoot() {
+  const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
+  return path.join(base, "kagent");
+}
+
+function selfUpdateStatePath() {
+  return path.join(metadataCacheRoot(), "npm-self-update.json");
 }
 
 function candidatePythons() {
@@ -152,9 +162,58 @@ async function fetchLatestGitHubVersion() {
   return packageJson.version;
 }
 
-function promptForSelfUpdate(currentVersion, latestVersion) {
+async function fetchLatestGitHubHeadSha() {
+  const body = await fetchText(GITHUB_HEAD_URL, SELF_UPDATE_TIMEOUT_MS);
+  const payload = JSON.parse(body);
+  const sha = String(payload.sha || "").trim();
+  if (!sha) {
+    throw new Error("GitHub commit response does not declare a sha");
+  }
+  return sha;
+}
+
+async function fetchLatestGitHubUpdateInfo() {
+  const version = await fetchLatestGitHubVersion();
+  const headSha = await fetchLatestGitHubHeadSha();
+  return { version, headSha };
+}
+
+function readSelfUpdateState() {
+  const statePath = selfUpdateStatePath();
+  if (!fs.existsSync(statePath)) {
+    return {};
+  }
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    return state && typeof state === "object" ? state : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function writeSelfUpdateState(state) {
+  const statePath = selfUpdateStatePath();
+  fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
+}
+
+function hasSelfUpdate(latest, currentVersion, state) {
+  if (isNewerVersion(latest.version, currentVersion)) {
+    return true;
+  }
+  if (latest.headSha && latest.headSha !== state.remoteHeadSha) {
+    return true;
+  }
+  return false;
+}
+
+function promptForSelfUpdate(currentVersion, latest) {
+  const shortSha = latest.headSha ? ` (${latest.headSha.slice(0, 7)})` : "";
   process.stderr.write(
-    `kagent ${latestVersion} is available. Current version: ${currentVersion}.\n` +
+    `kagent ${latest.version}${shortSha} is available. Current version: ${currentVersion}.\n` +
       "Update now? [Y/n] "
   );
   const buffer = Buffer.alloc(1024);
@@ -180,19 +239,32 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
     return false;
   }
 
-  let latestVersion;
+  let latest;
+  let state;
   try {
-    latestVersion = await fetchLatestGitHubVersion();
+    latest = await fetchLatestGitHubUpdateInfo();
+    state = readSelfUpdateState();
   } catch (error) {
     process.stderr.write(`kagent: update check skipped: ${error.message}\n`);
     return false;
   }
 
-  if (!isNewerVersion(latestVersion, currentVersion)) {
+  if (!hasSelfUpdate(latest, currentVersion, state)) {
+    writeSelfUpdateState({
+      remoteHeadSha: latest.headSha,
+      remoteVersion: latest.version,
+      checkedAt: new Date().toISOString()
+    });
     return false;
   }
 
-  if (!promptForSelfUpdate(currentVersion, latestVersion)) {
+  if (!promptForSelfUpdate(currentVersion, latest)) {
+    writeSelfUpdateState({
+      remoteHeadSha: latest.headSha,
+      remoteVersion: latest.version,
+      checkedAt: new Date().toISOString(),
+      skipped: "true"
+    });
     return false;
   }
 
@@ -203,6 +275,12 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
     process.stderr.write(`kagent: update failed: ${error.message}; continuing with ${currentVersion}\n`);
     return false;
   }
+  writeSelfUpdateState({
+    remoteHeadSha: latest.headSha,
+    remoteVersion: latest.version,
+    checkedAt: new Date().toISOString(),
+    installed: "true"
+  });
   process.stderr.write("kagent: update installed; restarting\n");
   restartEntrypoint(commandName, args);
   return true;
@@ -346,6 +424,7 @@ async function runPythonEntrypoint(commandName, args) {
 module.exports = {
   runPythonEntrypoint,
   _internals: {
+    hasSelfUpdate,
     isNewerVersion,
     shouldCheckSelfUpdate
   }

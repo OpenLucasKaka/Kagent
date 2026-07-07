@@ -580,7 +580,9 @@ before generating or validating plans.
 Runtime run detail responses include `graph_phase_count`; the expected value is
 `3` for the current graph shell. If it is missing or lower than expected, inspect
 the full trace for graph startup/finalization failures before debugging planner
-or tool behavior.
+or tool behavior. The `/runtime/runs/summary` endpoint aggregates
+`graph_phase_count` across the filtered fleet, which is useful for checking
+whether new graph-phase instrumentation is present across recent internal runs.
 Set `KAGENT_SERVICE_RUNTIME_ALLOWED_TOOLS` to a comma-separated
 allowlist when a deployment should execute only selected runtime tools without
 human approval. Leave it empty for the default policy. Unknown tool names fail

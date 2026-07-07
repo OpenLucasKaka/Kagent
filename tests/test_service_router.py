@@ -2998,6 +2998,10 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
                 "reason": "runtime_identity_boundary",
                 "original_answer_omitted": "true",
             },
+            "graph_phases": [
+                {"node": "prepare", "status": "ok"},
+                {"node": "runtime_loop", "status": "ok"},
+            ],
             "progress_event_sink_failure_count": "3",
             "observations": [
                 {
@@ -3032,6 +3036,11 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
             "goal": "fetch vendor status",
             "auth_subject": "ops",
             "pending_approval": {"id": "ops-fetch", "tool": "http_request"},
+            "graph_phases": [
+                {"node": "prepare", "status": "ok"},
+                {"node": "runtime_loop", "status": "ok"},
+                {"node": "finalize", "status": "ok"},
+            ],
             "progress_event_sink_failure_count": "2",
             "observations": [
                 {
@@ -3065,6 +3074,7 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
         "tool_counts": {"artifact": "1", "http_request": "2"},
         "error_code_counts": {"tool_execution_timeout": "1"},
         "failed_observation_count": "1",
+        "graph_phase_count": "5",
         "progress_event_sink_failure_count": "5",
         "approval_required_count": "1",
         "pending_approval_count": "1",

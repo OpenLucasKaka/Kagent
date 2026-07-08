@@ -499,6 +499,9 @@ def runtime_status_summary(
         "artifact_total_bytes": str(_observation_artifact_total_bytes(observations)),
         "artifact_bytes_by_kind": _observation_artifact_bytes_by_kind(observations),
     }
+    llm_provider_request = _trace_llm_provider_request(trace)
+    if llm_provider_request:
+        summary.update(llm_provider_request)
     runtime_engine = _runtime_scalar(trace.get("runtime_engine"))
     if runtime_engine:
         summary["runtime_engine"] = runtime_engine
@@ -620,6 +623,12 @@ def _empty_runtime_summary_aggregate() -> Dict[str, Any]:
         "graph_phase_count": "0",
         "graph_phase_node_counts": {},
         "progress_event_sink_failure_count": "0",
+        "llm_provider_request_count": "0",
+        "llm_provider_request_attempt_count": "0",
+        "llm_provider_request_retry_count": "0",
+        "llm_provider_request_status_counts": {},
+        "llm_provider_request_error_type_counts": {},
+        "llm_provider_request_http_status_counts": {},
         "approval_required_count": "0",
         "approved_tool_counts": {},
         "pending_approval_count": "0",
@@ -680,6 +689,32 @@ def _add_runtime_summary_to_aggregate(
         int(aggregate["progress_event_sink_failure_count"])
         + _parse_non_negative_int(summary.get("progress_event_sink_failure_count"))
     )
+    if str(summary.get("llm_provider_request_status", "")).strip():
+        aggregate["llm_provider_request_count"] = str(
+            int(aggregate["llm_provider_request_count"]) + 1
+        )
+        aggregate["llm_provider_request_attempt_count"] = str(
+            int(aggregate["llm_provider_request_attempt_count"])
+            + _parse_non_negative_int(
+                summary.get("llm_provider_request_attempt_count")
+            )
+        )
+        aggregate["llm_provider_request_retry_count"] = str(
+            int(aggregate["llm_provider_request_retry_count"])
+            + _parse_non_negative_int(summary.get("llm_provider_request_retry_count"))
+        )
+        _increment_count(
+            aggregate["llm_provider_request_status_counts"],
+            str(summary.get("llm_provider_request_status", "")),
+        )
+        _increment_count(
+            aggregate["llm_provider_request_error_type_counts"],
+            str(summary.get("llm_provider_request_error_type", "")),
+        )
+        _increment_count(
+            aggregate["llm_provider_request_http_status_counts"],
+            str(summary.get("llm_provider_request_http_status", "")),
+        )
     aggregate["approval_required_count"] = str(
         int(aggregate["approval_required_count"])
         + _parse_non_negative_int(summary.get("approval_required_count"))
@@ -755,6 +790,26 @@ def _runtime_scalar(value: Any) -> str:
     if isinstance(value, float):
         return str(value)
     return ""
+
+
+def _trace_llm_provider_request(trace: Dict[str, Any]) -> Dict[str, str]:
+    raw_request = trace.get("llm_provider_request")
+    if not isinstance(raw_request, dict):
+        return {}
+    fields = {
+        "llm_provider_request_status": "status",
+        "llm_provider_request_attempt_count": "attempt_count",
+        "llm_provider_request_retry_count": "retry_count",
+        "llm_provider_request_error_type": "error_type",
+        "llm_provider_request_http_status": "http_status",
+        "llm_provider_request_duration_seconds": "duration_seconds",
+    }
+    summary = {}
+    for output_field, input_field in fields.items():
+        value = _runtime_scalar(raw_request.get(input_field))
+        if value:
+            summary[output_field] = value
+    return summary
 
 
 def _list_count(value: Any) -> int:
@@ -1520,6 +1575,15 @@ def _runtime_list_filters(query: str) -> Dict[str, Any]:
     latest_failed_tool = _single_query_value(values, "latest_failed_tool")
     if latest_failed_tool is not None and not latest_failed_tool.strip():
         raise ValueError("latest_failed_tool must be a non-empty string")
+    llm_provider_status = _single_query_value(values, "llm_provider_status")
+    if llm_provider_status is not None and not llm_provider_status.strip():
+        raise ValueError("llm_provider_status must be a non-empty string")
+    llm_provider_error_type = _single_query_value(values, "llm_provider_error_type")
+    if llm_provider_error_type is not None and not llm_provider_error_type.strip():
+        raise ValueError("llm_provider_error_type must be a non-empty string")
+    llm_provider_http_status = _single_query_value(values, "llm_provider_http_status")
+    if llm_provider_http_status is not None and not llm_provider_http_status.strip():
+        raise ValueError("llm_provider_http_status must be a non-empty string")
     iteration_budget_remaining = _single_query_value(
         values,
         "iteration_budget_remaining",
@@ -1602,6 +1666,10 @@ def _runtime_list_filters(query: str) -> Dict[str, Any]:
         values,
         "has_final_answer_guardrail",
     )
+    has_llm_provider_retries_value = _single_query_value(
+        values,
+        "has_llm_provider_retries",
+    )
     return {
         "status": status,
         "lifecycle_state": lifecycle_state,
@@ -1611,6 +1679,9 @@ def _runtime_list_filters(query: str) -> Dict[str, Any]:
         "latest_failed_error_code": latest_failed_error_code,
         "latest_failed_action_id": latest_failed_action_id,
         "latest_failed_tool": latest_failed_tool,
+        "llm_provider_status": llm_provider_status,
+        "llm_provider_error_type": llm_provider_error_type,
+        "llm_provider_http_status": llm_provider_http_status,
         "iteration_budget_remaining": iteration_budget_remaining,
         "artifact_kind": artifact_kind,
         "artifact_format": artifact_format,
@@ -1648,6 +1719,10 @@ def _runtime_list_filters(query: str) -> Dict[str, Any]:
         "has_final_answer_guardrail": _parse_optional_boolean(
             has_final_answer_guardrail_value,
             field_name="has_final_answer_guardrail",
+        ),
+        "has_llm_provider_retries": _parse_optional_boolean(
+            has_llm_provider_retries_value,
+            field_name="has_llm_provider_retries",
         ),
     }
 
@@ -1713,6 +1788,24 @@ def _runtime_summary_matches_filters(
     if (
         latest_failed_tool is not None
         and summary.get("latest_failed_tool") != latest_failed_tool
+    ):
+        return False
+    llm_provider_status = filters["llm_provider_status"]
+    if (
+        llm_provider_status is not None
+        and summary.get("llm_provider_request_status") != llm_provider_status
+    ):
+        return False
+    llm_provider_error_type = filters["llm_provider_error_type"]
+    if (
+        llm_provider_error_type is not None
+        and summary.get("llm_provider_request_error_type") != llm_provider_error_type
+    ):
+        return False
+    llm_provider_http_status = filters["llm_provider_http_status"]
+    if (
+        llm_provider_http_status is not None
+        and summary.get("llm_provider_request_http_status") != llm_provider_http_status
     ):
         return False
     iteration_budget_remaining = filters["iteration_budget_remaining"]
@@ -1829,11 +1922,20 @@ def _runtime_summary_matches_filters(
         )
         if guardrail_applied != has_final_answer_guardrail:
             return False
+    has_llm_provider_retries = filters["has_llm_provider_retries"]
+    if has_llm_provider_retries is not None:
+        retry_count = _parse_non_negative_int(
+            summary.get("llm_provider_request_retry_count")
+        )
+        if (retry_count > 0) != has_llm_provider_retries:
+            return False
     return True
 
 
 def _runtime_summary_has_errors(summary: Dict[str, Any]) -> bool:
     error_code_counts = summary.get("error_code_counts")
     if isinstance(error_code_counts, dict) and len(error_code_counts) > 0:
+        return True
+    if str(summary.get("llm_provider_request_error_type", "")).strip():
         return True
     return bool(str(summary.get("error_code", "")).strip())

@@ -630,6 +630,12 @@ def service_openapi() -> Dict[str, Any]:
                         "graph_phase_count",
                         "graph_phase_node_counts",
                         "progress_event_sink_failure_count",
+                        "llm_provider_request_count",
+                        "llm_provider_request_attempt_count",
+                        "llm_provider_request_retry_count",
+                        "llm_provider_request_status_counts",
+                        "llm_provider_request_error_type_counts",
+                        "llm_provider_request_http_status_counts",
                         "approval_required_count",
                         "approved_tool_counts",
                         "pending_approval_count",
@@ -677,6 +683,21 @@ def service_openapi() -> Dict[str, Any]:
                             "additionalProperties": {"type": "string"},
                         },
                         "progress_event_sink_failure_count": {"type": "string"},
+                        "llm_provider_request_count": {"type": "string"},
+                        "llm_provider_request_attempt_count": {"type": "string"},
+                        "llm_provider_request_retry_count": {"type": "string"},
+                        "llm_provider_request_status_counts": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "llm_provider_request_error_type_counts": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "llm_provider_request_http_status_counts": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
                         "approval_required_count": {"type": "string"},
                         "approved_tool_counts": {
                             "type": "object",
@@ -1600,6 +1621,36 @@ def service_openapi() -> Dict[str, Any]:
                             "schema": {"type": "string", "minLength": 1},
                         },
                         {
+                            "name": "llm_provider_status",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter persisted runtime runs whose compact "
+                                "llm_provider_request_status matches this status"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
+                            "name": "llm_provider_error_type",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter persisted runtime runs whose compact "
+                                "llm_provider_request_error_type matches this type"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
+                            "name": "llm_provider_http_status",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter persisted runtime runs whose compact "
+                                "llm_provider_request_http_status matches this code"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
                             "name": "iteration_budget_remaining",
                             "in": "query",
                             "required": False,
@@ -1730,6 +1781,16 @@ def service_openapi() -> Dict[str, Any]:
                             "schema": {"type": "boolean"},
                         },
                         {
+                            "name": "has_llm_provider_retries",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter persisted runtime runs by whether compact "
+                                "LLM provider diagnostics recorded retries"
+                            ),
+                            "schema": {"type": "boolean"},
+                        },
+                        {
                             "name": "final_answer_guardrail_reason",
                             "in": "query",
                             "required": False,
@@ -1847,6 +1908,36 @@ def service_openapi() -> Dict[str, Any]:
                             "schema": {"type": "string", "minLength": 1},
                         },
                         {
+                            "name": "llm_provider_status",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter summary by compact "
+                                "llm_provider_request_status"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
+                            "name": "llm_provider_error_type",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter summary by compact "
+                                "llm_provider_request_error_type"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
+                            "name": "llm_provider_http_status",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter summary by compact "
+                                "llm_provider_request_http_status"
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        {
                             "name": "tag",
                             "in": "query",
                             "required": False,
@@ -1884,6 +1975,16 @@ def service_openapi() -> Dict[str, Any]:
                             "description": (
                                 "Filter summary by whether compact summaries contain "
                                 "an applied final-answer guardrail"
+                            ),
+                            "schema": {"type": "boolean"},
+                        },
+                        {
+                            "name": "has_llm_provider_retries",
+                            "in": "query",
+                            "required": False,
+                            "description": (
+                                "Filter summary by whether compact LLM provider "
+                                "diagnostics recorded retries"
                             ),
                             "schema": {"type": "boolean"},
                         },
@@ -2073,6 +2174,12 @@ def _runtime_run_status_properties(
         "progress_event_count": {"type": "string"},
         "graph_phase_count": {"type": "string"},
         "progress_event_sink_failure_count": {"type": "string"},
+        "llm_provider_request_status": {"type": "string"},
+        "llm_provider_request_attempt_count": {"type": "string"},
+        "llm_provider_request_retry_count": {"type": "string"},
+        "llm_provider_request_error_type": {"type": "string"},
+        "llm_provider_request_http_status": {"type": "string"},
+        "llm_provider_request_duration_seconds": {"type": "string"},
         "failed_observation_count": {"type": "string"},
         "planner_failure_count": {"type": "string"},
         "tool_failure_count": {"type": "string"},

@@ -694,9 +694,11 @@ defaults to `50`, is bounded to `1..100`, and is applied after filtering for
 `status=cancelled`, `status=failed`,
 `tool=artifact`, `error_code=invalid_tool_input`,
 `latest_failed_error_code=invalid_tool_input`,
-`latest_failed_action_id=fetch-site`, `latest_failed_tool=planner`,
-`iteration_budget_remaining=0`,
-`artifact_kind=report`,
+	`latest_failed_action_id=fetch-site`, `latest_failed_tool=planner`,
+	`iteration_budget_remaining=0`,
+	`llm_provider_status=failed`, `llm_provider_error_type=http_error`,
+	`llm_provider_http_status=429`, `has_llm_provider_retries=true`,
+	`artifact_kind=report`,
 `artifact_format=markdown`, `artifact_tag=release`, `has_artifacts=true`, and
 `tag=internal-smoke`, `metadata_key=workflow`, `metadata_value=internal`,
 `has_errors=true`, `has_failures=true`, `has_approvals=true`,
@@ -719,8 +721,15 @@ status and filtering surfaces. Compact summaries expose `metadata_keys` and
 `tags` but never accept arbitrary nested metadata objects. CLI runtime runs use
 the same validation via repeated `--tag TAG` and `--metadata KEY=VALUE` flags,
 and interactive sessions attach those labels to each submitted goal.
-Use
-`has_errors=true` to find runs with observation-level
+	Use
+	`llm_provider_status=failed` to list runs whose latest provider request failed,
+	`llm_provider_error_type=http_error` or `llm_provider_http_status=429` to isolate
+	rate-limit and gateway clusters, and `has_llm_provider_retries=true` to find
+	runs that consumed retry budget before completing or failing. These filters use
+	redacted scalar diagnostics only and never expose prompts, headers, API keys,
+	provider base URLs, or response bodies.
+	Use
+	`has_errors=true` to find runs with observation-level
 `error_code_counts` or a run-level `error_code` before narrowing to a specific
 error code. Use `has_failures=true` to find runs with failed observations,
 excluding run-level-only errors. Use `has_approvals=true` to find runs whose
@@ -746,11 +755,15 @@ Tokens from
 runtime traces whose persisted `auth_subject` is `team-a`, and cross-subject run IDs are hidden as `404 not_found`.
 Use `GET /runtime/runs/summary` to build a lightweight operations dashboard or
 approval queue badge without loading individual runs. It applies subject
-visibility and compact list filters, then returns `run_count`, `status_counts`,
-`lifecycle_state_counts`, `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
-`failed_observation_count`, `approval_required_count`,
-`pending_approval_count`, `artifact_count`, `artifact_total_bytes`,
-`tag_counts`, and `metadata_key_counts`.
+	visibility and compact list filters, then returns `run_count`, `status_counts`,
+	`lifecycle_state_counts`, `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
+	`failed_observation_count`, `llm_provider_request_count`,
+	`llm_provider_request_attempt_count`, `llm_provider_request_retry_count`,
+	`llm_provider_request_status_counts`,
+	`llm_provider_request_error_type_counts`,
+	`llm_provider_request_http_status_counts`, `approval_required_count`,
+	`pending_approval_count`, `artifact_count`, `artifact_total_bytes`,
+	`tag_counts`, and `metadata_key_counts`.
 Subject tokens see only their own runtime traces; the primary token can inspect
 the full internal aggregate.
 Use `GET /runtime/approvals` for a compact pending approval queue. The response
@@ -798,12 +811,17 @@ available for operator review before resume. They also include
 `planner_failure_count`, `tool_failure_count`, `latest_failed_action_id`,
 `latest_failed_tool`, `latest_failed_error_code`, `error_code_counts`,
 `latest_plan_action_count`, `latest_plan_action_ids`, `dependency_edge_count`,
-`tool_names`, `final_answer_guardrail`, `artifact_kinds`, `artifact_formats`, `artifact_tags`,
-`artifact_total_bytes`, and `artifact_bytes_by_kind` so
-operators can separate planner failures, tool failures, approval queues,
-error-code clusters, latest plan shape, dependency-heavy plans, tool-specific
-clusters, final-answer guardrail corrections, artifact categories, artifact
-formats, artifact tags, and artifact byte volume before opening full traces.
+	`tool_names`, `final_answer_guardrail`, `artifact_kinds`, `artifact_formats`, `artifact_tags`,
+	`artifact_total_bytes`, `artifact_bytes_by_kind`,
+	`llm_provider_request_status`, `llm_provider_request_attempt_count`,
+	`llm_provider_request_retry_count`, `llm_provider_request_error_type`,
+	`llm_provider_request_http_status`, and
+	`llm_provider_request_duration_seconds` so
+	operators can separate planner failures, tool failures, approval queues,
+	error-code clusters, latest plan shape, dependency-heavy plans, tool-specific
+	clusters, final-answer guardrail corrections, artifact categories, artifact
+	formats, artifact tags, artifact byte volume, provider retry pressure, and
+	provider HTTP/error-type clusters before opening full traces.
 summary scalar metadata is limited to strings and non-boolean numbers for run,
 plan, observation, and artifact index fields; nested objects and arrays are
 omitted from dashboard summaries instead of being stringified.
@@ -813,14 +831,21 @@ omitted from status and list responses.
 guardrail metadata is limited to the string fields `applied`, `reason`, and
 `original_answer_omitted`; malformed nested values are omitted before status,
 list, summary, or metrics aggregation.
-Use `GET /runtime/runs/summary` to aggregate
-`final_answer_guardrail_applied_count` and
+	Use `GET /runtime/runs/summary` to aggregate
+	`final_answer_guardrail_applied_count` and
 `final_answer_guardrail_reason_counts` across visible traces without exposing
 the original provider answer that triggered the correction. Add
 `has_final_answer_guardrail=true` or
 `final_answer_guardrail_reason=runtime_identity_boundary` to the same endpoint
-when an operations dashboard needs to aggregate only corrected runs.
-Artifact-producing runs also
+	when an operations dashboard needs to aggregate only corrected runs.
+	The same summary endpoint aggregates provider diagnostics through
+	`llm_provider_request_status_counts`,
+	`llm_provider_request_error_type_counts`, and
+	`llm_provider_request_http_status_counts`; add
+	`llm_provider_status=failed`, `llm_provider_error_type=http_error`, or
+	`has_llm_provider_retries=true` when a dashboard should focus on provider-side
+	instability instead of tool or policy failures.
+	Artifact-producing runs also
 expose `artifact_count` and `artifact_ids`, which downstream workflows can use
 to discover non-coding deliverables without loading full observation bodies. Use
 `GET /runtime/runs/{run_id}/timeline` for a compact timeline of planner,
@@ -946,15 +971,19 @@ rate dashboards. Spikes here usually point to prompt contract drift, invalid
 JSON, or provider instability before any tool has been executed. In the
 error-code breakdown, `invalid_plan` means planner JSON/schema drift and
 `llm_provider_error` means the provider call or provider response failed.
-Use `runtime_llm_provider_requests_total`,
-`runtime_llm_provider_request_attempts_total`,
-`runtime_llm_provider_request_retries_total`,
-`runtime_llm_provider_requests_by_status`,
-`runtime_llm_provider_request_errors_by_type`,
-`runtime_llm_provider_request_http_status`, and the Prometheus
-`kagent_runtime_llm_provider_*` metrics to monitor provider instability,
-retry pressure, status-code clusters, and provider latency without using high
-cardinality labels or exposing provider payloads.
+	Use `runtime_llm_provider_requests_total`,
+	`runtime_llm_provider_request_attempts_total`,
+	`runtime_llm_provider_request_retries_total`,
+	`runtime_llm_provider_requests_by_status`,
+	`runtime_llm_provider_request_errors_by_type`,
+	`runtime_llm_provider_request_http_status`, and the Prometheus
+	`kagent_runtime_llm_provider_*` metrics to monitor provider instability,
+	retry pressure, status-code clusters, and provider latency without using high
+	cardinality labels or exposing provider payloads.
+	For trace-backed incident review, use
+	`GET /runtime/runs?llm_provider_status=failed&limit=20` and
+	`GET /runtime/runs/summary?has_llm_provider_retries=true` to line up the same
+	provider symptoms with persisted run IDs.
 Use `kagent_runtime_run_duration_seconds_bucket`,
 `kagent_runtime_run_duration_seconds_count`, and
 `kagent_runtime_run_duration_seconds_sum` for percentile and SLO

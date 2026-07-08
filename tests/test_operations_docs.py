@@ -305,6 +305,9 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "invalid_plan" in runbook
     assert "llm_provider_error" in runbook
     assert "llm_provider_request" in runbook
+    assert "llm_provider_request_status" in runbook
+    assert "llm_provider_status=failed" in runbook
+    assert "has_llm_provider_retries=true" in runbook
     assert "runtime_llm_provider_request_retries_total" in runbook
     assert "kagent_runtime_llm_provider_*" in runbook
     assert "Planner parse failures" in runbook

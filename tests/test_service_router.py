@@ -2637,6 +2637,15 @@ def test_service_router_runtime_status_filters_non_scalar_summary_metadata(tmp_p
             "iteration_count": {"secret": "iteration"},
             "iteration_budget_remaining": {"secret": "budget"},
             "approved_action_ids": ["step-1", {"secret": "approved"}],
+            "llm_provider_request": {
+                "status": "failed",
+                "attempt_count": "3",
+                "retry_count": "2",
+                "error_type": "http_error",
+                "http_status": "429",
+                "duration_seconds": "1.2345",
+                "secret": {"token": "do-not-leak"},
+            },
             "plan": {
                 "actions": [
                     {"id": "step-1"},
@@ -2700,6 +2709,12 @@ def test_service_router_runtime_status_filters_non_scalar_summary_metadata(tmp_p
     assert payload["max_iterations"] == ""
     assert payload["iteration_count"] == ""
     assert payload["iteration_budget_remaining"] == ""
+    assert payload["llm_provider_request_status"] == "failed"
+    assert payload["llm_provider_request_attempt_count"] == "3"
+    assert payload["llm_provider_request_retry_count"] == "2"
+    assert payload["llm_provider_request_error_type"] == "http_error"
+    assert payload["llm_provider_request_http_status"] == "429"
+    assert payload["llm_provider_request_duration_seconds"] == "1.2345"
     assert payload["pending_approval_action_id"] == ""
     assert payload["pending_approval_tool"] == ""
     assert payload["approved_action_ids"] == ["step-1"]
@@ -2720,6 +2735,8 @@ def test_service_router_runtime_status_filters_non_scalar_summary_metadata(tmp_p
     }
     assert "secret" not in json.dumps(payload)
     assert "secret" not in json.dumps(list_payload)
+    assert "llm_provider_request" not in payload
+    assert "llm_provider_request" not in list_payload["runs"][0]
 
 
 def test_service_router_runtime_status_derives_trace_path_from_store(tmp_path):
@@ -3086,6 +3103,14 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
                 {"node": "runtime_loop", "status": "ok"},
             ],
             "progress_event_sink_failure_count": "3",
+            "llm_provider_request": {
+                "status": "failed",
+                "attempt_count": "3",
+                "retry_count": "2",
+                "error_type": "http_error",
+                "http_status": "429",
+                "duration_seconds": "1.2345",
+            },
             "events": [
                 {
                     "node": "policy",
@@ -3132,6 +3157,12 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
                 {"node": "finalize", "status": "ok"},
             ],
             "progress_event_sink_failure_count": "2",
+            "llm_provider_request": {
+                "status": "ok",
+                "attempt_count": "1",
+                "retry_count": "0",
+                "duration_seconds": "0.2500",
+            },
             "observations": [
                 {
                     "action_id": "ops-fetch",
@@ -3172,6 +3203,12 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
             "runtime_loop": "2",
         },
         "progress_event_sink_failure_count": "5",
+        "llm_provider_request_count": "2",
+        "llm_provider_request_attempt_count": "4",
+        "llm_provider_request_retry_count": "2",
+        "llm_provider_request_status_counts": {"failed": "1", "ok": "1"},
+        "llm_provider_request_error_type_counts": {"http_error": "1"},
+        "llm_provider_request_http_status_counts": {"429": "1"},
         "approval_required_count": "1",
         "approved_tool_counts": {"http_request": "1"},
         "pending_approval_count": "1",
@@ -3272,6 +3309,118 @@ def test_service_router_runtime_runs_summary_applies_existing_filters(tmp_path):
     assert payload["run_count"] == "1"
     assert payload["status_counts"] == {"failed": "1"}
     assert payload["tool_counts"] == {"http_request": "1"}
+
+
+def test_service_router_runtime_runs_list_filters_by_llm_provider_diagnostics(
+    tmp_path,
+):
+    persist_trace(
+        {
+            "trace_type": "codex_runtime",
+            "run_id": "provider-rate-limited",
+            "status": "failed",
+            "goal": "plan launch",
+            "llm_provider_request": {
+                "status": "failed",
+                "attempt_count": "3",
+                "retry_count": "2",
+                "error_type": "http_error",
+                "http_status": "429",
+            },
+        },
+        str(tmp_path),
+    )
+    persist_trace(
+        {
+            "trace_type": "codex_runtime",
+            "run_id": "provider-ok",
+            "status": "done",
+            "goal": "write note",
+            "llm_provider_request": {
+                "status": "ok",
+                "attempt_count": "1",
+                "retry_count": "0",
+            },
+        },
+        str(tmp_path),
+    )
+
+    status_code, payload = service_router.handle_request(
+        "GET",
+        (
+            "/runtime/runs?llm_provider_status=failed"
+            "&llm_provider_error_type=http_error"
+            "&llm_provider_http_status=429"
+            "&has_llm_provider_retries=true&limit=10"
+        ),
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+
+    assert status_code == 200
+    assert payload["count"] == "1"
+    assert [run["run_id"] for run in payload["runs"]] == ["provider-rate-limited"]
+    assert payload["runs"][0]["llm_provider_request_status"] == "failed"
+    assert payload["runs"][0]["llm_provider_request_attempt_count"] == "3"
+    assert payload["runs"][0]["llm_provider_request_retry_count"] == "2"
+    assert payload["runs"][0]["llm_provider_request_error_type"] == "http_error"
+    assert payload["runs"][0]["llm_provider_request_http_status"] == "429"
+
+
+def test_service_router_runtime_runs_summary_filters_by_llm_provider_diagnostics(
+    tmp_path,
+):
+    persist_trace(
+        {
+            "trace_type": "codex_runtime",
+            "run_id": "provider-rate-limited",
+            "status": "failed",
+            "goal": "plan launch",
+            "llm_provider_request": {
+                "status": "failed",
+                "attempt_count": "3",
+                "retry_count": "2",
+                "error_type": "http_error",
+                "http_status": "429",
+            },
+        },
+        str(tmp_path),
+    )
+    persist_trace(
+        {
+            "trace_type": "codex_runtime",
+            "run_id": "provider-timeout",
+            "status": "failed",
+            "goal": "plan rollout",
+            "llm_provider_request": {
+                "status": "failed",
+                "attempt_count": "1",
+                "retry_count": "0",
+                "error_type": "timeout",
+            },
+        },
+        str(tmp_path),
+    )
+
+    status_code, payload = service_router.handle_request(
+        "GET",
+        (
+            "/runtime/runs/summary?llm_provider_status=failed"
+            "&llm_provider_error_type=http_error"
+            "&has_llm_provider_retries=true"
+        ),
+        b"",
+        config=ServiceConfig(trace_dir=str(tmp_path)),
+    )
+
+    assert status_code == 200
+    assert payload["run_count"] == "1"
+    assert payload["llm_provider_request_count"] == "1"
+    assert payload["llm_provider_request_attempt_count"] == "3"
+    assert payload["llm_provider_request_retry_count"] == "2"
+    assert payload["llm_provider_request_status_counts"] == {"failed": "1"}
+    assert payload["llm_provider_request_error_type_counts"] == {"http_error": "1"}
+    assert payload["llm_provider_request_http_status_counts"] == {"429": "1"}
 
 
 def test_service_router_runtime_approvals_lists_pending_actions_without_inputs(tmp_path):
@@ -5240,6 +5389,27 @@ def test_service_router_runtime_runs_list_rejects_blank_latest_failed_action_id_
     assert status_code == 400
     assert payload["error_code"] == "invalid_request_body"
     assert "latest_failed_action_id" in payload["error"]
+
+
+def test_service_router_runtime_runs_list_rejects_invalid_llm_provider_filters(
+    tmp_path,
+):
+    for query, field_name in [
+        ("llm_provider_status=", "llm_provider_status"),
+        ("llm_provider_error_type=", "llm_provider_error_type"),
+        ("llm_provider_http_status=", "llm_provider_http_status"),
+        ("has_llm_provider_retries=yes", "has_llm_provider_retries"),
+    ]:
+        status_code, payload = service_router.handle_request(
+            "GET",
+            f"/runtime/runs?{query}",
+            b"",
+            config=ServiceConfig(trace_dir=str(tmp_path)),
+        )
+
+        assert status_code == 400
+        assert payload["error_code"] == "invalid_request_body"
+        assert field_name in payload["error"]
 
 
 def test_service_router_runtime_runs_list_rejects_blank_artifact_kind_filter(tmp_path):

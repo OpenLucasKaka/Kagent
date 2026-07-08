@@ -52,6 +52,9 @@ def test_architecture_document_names_runtime_and_operational_boundaries():
     assert "`invalid_plan` observations" in architecture
     assert "`llm_provider_error` observations" in architecture
     assert "llm_provider_request" in architecture
+    assert "llm_provider_request_status" in architecture
+    assert "llm_provider_status=failed" in architecture
+    assert "has_llm_provider_retries=true" in architecture
     assert "runtime_llm_provider_requests_total" in architecture
     assert "kagent_runtime_llm_provider_*" in architecture
     assert "content_omitted=true" in architecture

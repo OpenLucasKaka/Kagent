@@ -368,6 +368,36 @@ def test_service_contract_documents_named_success_schemas():
             "schema": {"type": "string", "minLength": 1},
         },
         {
+            "name": "llm_provider_status",
+            "in": "query",
+            "required": False,
+            "description": (
+                "Filter persisted runtime runs whose compact "
+                "llm_provider_request_status matches this status"
+            ),
+            "schema": {"type": "string", "minLength": 1},
+        },
+        {
+            "name": "llm_provider_error_type",
+            "in": "query",
+            "required": False,
+            "description": (
+                "Filter persisted runtime runs whose compact "
+                "llm_provider_request_error_type matches this type"
+            ),
+            "schema": {"type": "string", "minLength": 1},
+        },
+        {
+            "name": "llm_provider_http_status",
+            "in": "query",
+            "required": False,
+            "description": (
+                "Filter persisted runtime runs whose compact "
+                "llm_provider_request_http_status matches this code"
+            ),
+            "schema": {"type": "string", "minLength": 1},
+        },
+        {
             "name": "iteration_budget_remaining",
             "in": "query",
             "required": False,
@@ -486,6 +516,16 @@ def test_service_contract_documents_named_success_schemas():
             "description": (
                 "Filter persisted runtime runs by whether compact summaries contain "
                 "an applied final-answer guardrail"
+            ),
+            "schema": {"type": "boolean"},
+        },
+        {
+            "name": "has_llm_provider_retries",
+            "in": "query",
+            "required": False,
+            "description": (
+                "Filter persisted runtime runs by whether compact "
+                "LLM provider diagnostics recorded retries"
             ),
             "schema": {"type": "boolean"},
         },
@@ -856,6 +896,20 @@ def test_service_contract_documents_named_success_schemas():
     assert schemas["RuntimeRunListItemResponse"]["properties"][
         "progress_event_sink_failure_count"
     ] == {"type": "string"}
+    for field_name in [
+        "llm_provider_request_status",
+        "llm_provider_request_attempt_count",
+        "llm_provider_request_retry_count",
+        "llm_provider_request_error_type",
+        "llm_provider_request_http_status",
+        "llm_provider_request_duration_seconds",
+    ]:
+        assert schemas["RuntimeRunStatusResponse"]["properties"][field_name] == {
+            "type": "string"
+        }
+        assert schemas["RuntimeRunListItemResponse"]["properties"][field_name] == {
+            "type": "string"
+        }
     assert schemas["RuntimeRunStatusResponse"]["properties"]["failed_observation_count"] == {
         "type": "string"
     }
@@ -1018,6 +1072,12 @@ def test_service_contract_documents_named_success_schemas():
         "graph_phase_count",
         "graph_phase_node_counts",
         "progress_event_sink_failure_count",
+        "llm_provider_request_count",
+        "llm_provider_request_attempt_count",
+        "llm_provider_request_retry_count",
+        "llm_provider_request_status_counts",
+        "llm_provider_request_error_type_counts",
+        "llm_provider_request_http_status_counts",
         "approval_required_count",
         "approved_tool_counts",
         "pending_approval_count",
@@ -1047,6 +1107,24 @@ def test_service_contract_documents_named_success_schemas():
     assert schemas["RuntimeRunSummaryResponse"]["properties"][
         "progress_event_sink_failure_count"
     ] == {"type": "string"}
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "llm_provider_request_count"
+    ] == {"type": "string"}
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "llm_provider_request_attempt_count"
+    ] == {"type": "string"}
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "llm_provider_request_retry_count"
+    ] == {"type": "string"}
+    for field_name in [
+        "llm_provider_request_status_counts",
+        "llm_provider_request_error_type_counts",
+        "llm_provider_request_http_status_counts",
+    ]:
+        assert schemas["RuntimeRunSummaryResponse"]["properties"][field_name] == {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        }
     assert schemas["RuntimeRunSummaryResponse"]["properties"]["graph_phase_count"] == {
         "type": "string"
     }

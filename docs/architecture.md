@@ -220,8 +220,10 @@ The service intentionally keeps a narrow API:
   `lifecycle_state=waiting_approval`,
   `artifact_kind=report`, `artifact_format=markdown`,
   `artifact_tag=release`, `tag=internal-smoke`,
-  `metadata_key=workflow`, `metadata_value=internal`,
-  `has_artifacts=true`, `has_errors=true`,
+	  `metadata_key=workflow`, `metadata_value=internal`,
+	  `llm_provider_status=failed`, `llm_provider_error_type=http_error`,
+	  `llm_provider_http_status=429`, `has_llm_provider_retries=true`,
+	  `has_artifacts=true`, `has_errors=true`,
   `has_failures=true`,
   `has_approvals=true`, `has_pending_approval=true`,
   `has_final_answer_guardrail=true`,
@@ -249,9 +251,13 @@ The service intentionally keeps a narrow API:
   subject visibility rules as runtime list/detail routes, accepts the compact
   list filters, and returns aggregate `run_count`, `status_counts`,
   `lifecycle_state_counts`, `runtime_engine_counts`, `auth_subject_counts`,
-  `tool_counts`, `error_code_counts`,
-  `failed_observation_count`, `graph_phase_count`, `graph_phase_node_counts`,
-  `approval_required_count`,
+	  `tool_counts`, `error_code_counts`,
+	  `failed_observation_count`, `graph_phase_count`, `graph_phase_node_counts`,
+	  `llm_provider_request_count`, `llm_provider_request_attempt_count`,
+	  `llm_provider_request_retry_count`, `llm_provider_request_status_counts`,
+	  `llm_provider_request_error_type_counts`,
+	  `llm_provider_request_http_status_counts`,
+	  `approval_required_count`,
   `pending_approval_count`, `final_answer_guardrail_applied_count`,
   `final_answer_guardrail_reason_counts`, `artifact_count`, `artifact_total_bytes`,
   `tag_counts`, and `metadata_key_counts`
@@ -565,13 +571,19 @@ Planner failures are tracked separately through
 `runtime_planner_failures_total`,
 `runtime_planner_failures_by_error_code`, and Prometheus planner failure
 counters, keeping provider/schema drift distinct from tool execution failures.
-Redacted provider request diagnostics are aggregated through
-`runtime_llm_provider_requests_total`,
-`runtime_llm_provider_request_attempts_total`,
-`runtime_llm_provider_request_retries_total`, and Prometheus
-`kagent_runtime_llm_provider_*` counters/histograms so operators can see provider
-instability without exposing prompts, headers, API keys, or response bodies.
-Runtime run responses and compact persisted status summaries also carry
+	Redacted provider request diagnostics are aggregated through
+	`runtime_llm_provider_requests_total`,
+	`runtime_llm_provider_request_attempts_total`,
+	`runtime_llm_provider_request_retries_total`, and Prometheus
+	`kagent_runtime_llm_provider_*` counters/histograms so operators can see provider
+	instability without exposing prompts, headers, API keys, or response bodies.
+	Persisted runtime status and list summaries expose the same request diagnostics
+	as scalar fields such as `llm_provider_request_status`,
+	`llm_provider_request_retry_count`, `llm_provider_request_error_type`, and
+	`llm_provider_request_http_status`; `/runtime/runs/summary` aggregates them so
+	operators can separate provider rate limits, retries, and response-shape
+	failures without reading full traces.
+	Runtime run responses and compact persisted status summaries also carry
 run-level duration as `duration_seconds`, giving dashboards a low-cardinality
 sort key before operators open full traces.
 

@@ -474,6 +474,7 @@ def test_grafana_dashboard_covers_internal_runtime_operations():
     assert "Runtime Runs by Subject" in panel_titles
     assert "Runtime Outcomes by Subject" in panel_titles
     assert "Runtime Resumes by Subject" in panel_titles
+    assert "Runtime Approvals by Subject" in panel_titles
     assert "Runtime Approval Pressure" in panel_titles
     assert "Runtime Progress Sink Failures" in panel_titles
     assert "Runtime Stale Pending Approvals" in panel_titles
@@ -484,6 +485,7 @@ def test_grafana_dashboard_covers_internal_runtime_operations():
     assert "kagent_runtime_runs_by_auth_subject_total" in payload
     assert "kagent_runtime_run_status_by_auth_subject_total" in payload
     assert "kagent_runtime_resumes_by_auth_subject_total" in payload
+    assert "kagent_runtime_approvals_by_auth_subject_total" in payload
     assert "kagent_runtime_approval_required_total" in payload
     assert "kagent_runtime_progress_event_sink_failures_total" in payload
     assert "kagent_runtime_stale_pending_approvals_current" in payload

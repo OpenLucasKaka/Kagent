@@ -924,14 +924,16 @@ dashboards over `waiting_approval`, `running`, `succeeded`, and `failed`
 phases. Use
 `runtime_runs_by_auth_subject`, `runtime_runs_by_auth_subject_status`,
 `runtime_runs_by_auth_subject_lifecycle_state`,
-`runtime_resumes_by_auth_subject`,
+`runtime_resumes_by_auth_subject`, `runtime_approvals_by_auth_subject`,
 `kagent_runtime_runs_by_auth_subject_total`, and
 `kagent_runtime_run_status_by_auth_subject_total` plus
 `kagent_runtime_run_lifecycle_state_by_auth_subject_total` to build
 per-team runtime outcome dashboards for success, failure, and approval rates
 without exposing bearer tokens. Use
 `kagent_runtime_resumes_by_auth_subject_total` to trend
-subject/admin resume activity separately from run ownership. Use
+subject/admin resume activity separately from run ownership, and
+`kagent_runtime_approvals_by_auth_subject_total` to trend who actually
+consumed pending approvals. Use
 `kagent_runtime_failed_observations_total` for tool or planner
 failure pressure,
 `kagent_runtime_progress_event_sink_failures_total` for progress

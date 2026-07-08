@@ -204,6 +204,7 @@ class ServiceMetrics:
         self._runtime_runs_by_auth_subject_status: Dict[str, int] = {}
         self._runtime_runs_by_auth_subject_lifecycle_state: Dict[str, int] = {}
         self._runtime_resumes_by_auth_subject: Dict[str, int] = {}
+        self._runtime_approvals_by_auth_subject: Dict[str, int] = {}
         self._runtime_failed_observations_total = 0
         self._runtime_progress_event_sink_failures_total = 0
         self._runtime_observation_errors_by_code: Dict[str, int] = {}
@@ -291,6 +292,7 @@ class ServiceMetrics:
         llm_provider_request: Optional[Mapping[str, Any]] = None,
         auth_subject: str = "",
         resumed_by_auth_subject: str = "",
+        approved_by_auth_subject: str = "",
         progress_event_sink_failure_count: int = 0,
     ) -> None:
         with self._lock:
@@ -334,6 +336,14 @@ class ServiceMetrics:
                 self._runtime_resumes_by_auth_subject[resumed_by_auth_subject] = (
                     self._runtime_resumes_by_auth_subject.get(
                         resumed_by_auth_subject,
+                        0,
+                    )
+                    + 1
+                )
+            if approved_by_auth_subject:
+                self._runtime_approvals_by_auth_subject[approved_by_auth_subject] = (
+                    self._runtime_approvals_by_auth_subject.get(
+                        approved_by_auth_subject,
                         0,
                     )
                     + 1
@@ -526,6 +536,9 @@ class ServiceMetrics:
                 ),
                 "runtime_resumes_by_auth_subject": _string_counts(
                     self._runtime_resumes_by_auth_subject
+                ),
+                "runtime_approvals_by_auth_subject": _string_counts(
+                    self._runtime_approvals_by_auth_subject
                 ),
                 "runtime_failed_observations_total": str(
                     self._runtime_failed_observations_total
@@ -907,6 +920,7 @@ def access_log_record(
     auth_subject: str = "",
     runtime_owner_auth_subject: str = "",
     resumed_by_auth_subject: str = "",
+    approved_by_auth_subject: str = "",
 ) -> Dict[str, Any]:
     record = {
         "event": "http_request",
@@ -933,6 +947,8 @@ def access_log_record(
         record["runtime_owner_auth_subject"] = runtime_owner_auth_subject
     if resumed_by_auth_subject:
         record["resumed_by_auth_subject"] = resumed_by_auth_subject
+    if approved_by_auth_subject:
+        record["approved_by_auth_subject"] = approved_by_auth_subject
     return record
 
 
@@ -964,6 +980,7 @@ def access_log_schema() -> Dict[str, Any]:
             "auth_subject": {"type": "string"},
             "runtime_owner_auth_subject": {"type": "string"},
             "resumed_by_auth_subject": {"type": "string"},
+            "approved_by_auth_subject": {"type": "string"},
         },
         "additionalProperties": False,
     }
@@ -1154,6 +1171,21 @@ def prometheus_metrics_text(snapshot: Mapping[str, Any]) -> str:
     ).items():
         lines.append(
             "kagent_runtime_resumes_by_auth_subject_total"
+            f'{{auth_subject="{_prometheus_label(auth_subject)}"}} {count}'
+        )
+    lines.extend(
+        [
+            "# HELP kagent_runtime_approvals_by_auth_subject_total "
+            "Codex-style runtime approvals by authenticated approver subject.",
+            "# TYPE kagent_runtime_approvals_by_auth_subject_total counter",
+        ]
+    )
+    for auth_subject, count in _mapping_value(
+        snapshot,
+        "runtime_approvals_by_auth_subject",
+    ).items():
+        lines.append(
+            "kagent_runtime_approvals_by_auth_subject_total"
             f'{{auth_subject="{_prometheus_label(auth_subject)}"}} {count}'
         )
     lines.extend(

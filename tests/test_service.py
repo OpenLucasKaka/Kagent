@@ -478,6 +478,7 @@ def test_service_metrics_tracks_requests_by_path_and_status():
         "runtime_runs_by_auth_subject_status": {},
         "runtime_runs_by_auth_subject_lifecycle_state": {},
         "runtime_resumes_by_auth_subject": {},
+        "runtime_approvals_by_auth_subject": {},
         "runtime_failed_observations_total": "0",
         "runtime_progress_event_sink_failures_total": "0",
         "runtime_observation_errors_by_code": {},
@@ -612,6 +613,7 @@ def test_service_metrics_tracks_runtime_operational_counters():
         duration_seconds=3.0,
         auth_subject="team-a",
         resumed_by_auth_subject="default",
+        approved_by_auth_subject="default",
         progress_event_sink_failure_count=2,
         error_code_counts={
             "invalid_tool_input": 1,
@@ -664,6 +666,7 @@ def test_service_metrics_tracks_runtime_operational_counters():
         "team-a:waiting_approval": "1",
     }
     assert snapshot["runtime_resumes_by_auth_subject"] == {"default": "1"}
+    assert snapshot["runtime_approvals_by_auth_subject"] == {"default": "1"}
     assert snapshot["runtime_failed_observations_total"] == "2"
     assert snapshot["runtime_progress_event_sink_failures_total"] == "3"
     assert snapshot["runtime_observation_errors_by_code"] == {
@@ -1078,6 +1081,7 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         duration_seconds=0.4,
         auth_subject="team-a",
         resumed_by_auth_subject="default",
+        approved_by_auth_subject="default",
         progress_event_sink_failure_count=1,
         tool_status_counts={"http_request:requires_approval": 1},
         planner_attempt_status_counts={"ok": 1},
@@ -1184,6 +1188,11 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         "# TYPE kagent_runtime_resumes_by_auth_subject_total counter"
         in payload
     )
+    assert "# HELP kagent_runtime_approvals_by_auth_subject_total" in payload
+    assert (
+        "# TYPE kagent_runtime_approvals_by_auth_subject_total counter"
+        in payload
+    )
     assert "# HELP kagent_runtime_observation_errors_total" in payload
     assert "# TYPE kagent_runtime_observation_errors_total counter" in payload
     assert "# HELP kagent_runtime_progress_event_sink_failures_total" in payload
@@ -1287,6 +1296,11 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
     assert (
         'kagent_runtime_resumes_by_auth_subject_total'
         '{auth_subject="team-a"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_approvals_by_auth_subject_total'
+        '{auth_subject="default"} 1'
         in payload
     )
     assert "kagent_runtime_failed_observations_total 2" in payload
@@ -2264,6 +2278,7 @@ def test_service_access_log_schema_documents_required_and_optional_fields():
     assert schema["properties"]["auth_subject"]["type"] == "string"
     assert schema["properties"]["runtime_owner_auth_subject"]["type"] == "string"
     assert schema["properties"]["resumed_by_auth_subject"]["type"] == "string"
+    assert schema["properties"]["approved_by_auth_subject"]["type"] == "string"
 
 
 def test_service_access_log_record_includes_error_code_when_present():
@@ -2350,6 +2365,20 @@ def test_service_access_log_record_includes_resume_actor_when_present():
     )
 
     assert record["resumed_by_auth_subject"] == "default"
+
+
+def test_service_access_log_record_includes_approval_actor_when_present():
+    record = access_log_record(
+        method="POST",
+        path="/runtime/resume",
+        status_code=200,
+        duration_seconds=0.125,
+        request_id="req-123",
+        remote_addr="127.0.0.1",
+        approved_by_auth_subject="default",
+    )
+
+    assert record["approved_by_auth_subject"] == "default"
 
 
 def test_service_access_log_record_includes_runtime_owner_when_present():
@@ -2856,8 +2885,10 @@ def test_service_access_log_includes_runtime_resume_actor_and_owner_over_http(
     assert run["status"] == "done"
     assert run["auth_subject"] == "team-a"
     assert run["resumed_by_auth_subject"] == "default"
+    assert run["approved_by_auth_subject"] == "default"
     assert resume_records[-1]["auth_subject"] == "default"
     assert resume_records[-1]["resumed_by_auth_subject"] == "default"
+    assert resume_records[-1]["approved_by_auth_subject"] == "default"
     assert resume_records[-1]["runtime_owner_auth_subject"] == "team-a"
     assert "admin-token" not in stderr
     assert "team-a-token" not in stderr

@@ -689,6 +689,7 @@ def _record_runtime_run_metrics(
         llm_provider_request=_runtime_llm_provider_request(payload),
         auth_subject=str(payload.get("auth_subject", "")),
         resumed_by_auth_subject=str(payload.get("resumed_by_auth_subject", "")),
+        approved_by_auth_subject=str(payload.get("approved_by_auth_subject", "")),
         progress_event_sink_failure_count=_runtime_non_negative_int(
             payload.get("progress_event_sink_failure_count", 0)
         ),

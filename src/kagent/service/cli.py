@@ -597,6 +597,7 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
         trace_path = _payload_field(payload, "trace_path")
         runtime_owner_auth_subject = _payload_field(payload, "auth_subject")
         resumed_by_auth_subject = _payload_field(payload, "resumed_by_auth_subject")
+        approved_by_auth_subject = _payload_field(payload, "approved_by_auth_subject")
         idempotency_key_present = getattr(self, "_idempotency_key_present", None)
         request_body_bytes = getattr(self, "_request_body_bytes", None)
         config = self._config() if hasattr(self, "_config") else ServiceConfig()
@@ -620,6 +621,7 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
             ),
             runtime_owner_auth_subject=runtime_owner_auth_subject,
             resumed_by_auth_subject=resumed_by_auth_subject,
+            approved_by_auth_subject=approved_by_auth_subject,
         )
         self._metrics().record(
             method=record["method"],

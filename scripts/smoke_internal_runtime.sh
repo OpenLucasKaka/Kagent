@@ -369,6 +369,7 @@ assert metrics["runtime_runs_by_auth_subject_status"]["team-a:done"] == "2", met
 assert metrics["runtime_runs_by_auth_subject_status"]["team-a:requires_approval"] == "2", metrics
 assert metrics["runtime_runs_by_auth_subject_status"]["team-a:cancelled"] == "1", metrics
 assert metrics["runtime_resumes_by_auth_subject"]["default"] == "1", metrics
+assert metrics["runtime_approvals_by_auth_subject"]["default"] == "1", metrics
 assert metrics["runtime_pending_approvals_current"] == "1", metrics
 assert metrics["runtime_stale_pending_approvals_current"] == "0", metrics
 assert int(metrics["runtime_max_pending_approval_age_seconds"]) >= 0, metrics
@@ -380,6 +381,7 @@ assert "kagent_runtime_pending_approvals_current 1" in prometheus_metrics
 assert "kagent_runtime_stale_pending_approvals_current 0" in prometheus_metrics
 assert "kagent_runtime_max_pending_approval_age_seconds" in prometheus_metrics
 assert "kagent_runtime_pending_approval_stale_seconds 3600" in prometheus_metrics
+assert 'kagent_runtime_approvals_by_auth_subject_total{auth_subject="default"} 1' in prometheus_metrics
 
 stderr = open(service_stderr_path, encoding="utf-8").read()
 records = [json.loads(line) for line in stderr.splitlines() if line.strip()]
@@ -412,6 +414,9 @@ print(
             ],
             "runtime_resumes_by_auth_subject": metrics[
                 "runtime_resumes_by_auth_subject"
+            ],
+            "runtime_approvals_by_auth_subject": metrics[
+                "runtime_approvals_by_auth_subject"
             ],
             "runtime_pending_approvals_current": metrics[
                 "runtime_pending_approvals_current"

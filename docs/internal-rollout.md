@@ -283,8 +283,9 @@ matches the intended execution boundary: allowed tools report
 6. Verify primary-token admin resume preserves the original run owner in
    `auth_subject` and records `resumed_by_auth_subject=default`,
    `approved_by_auth_subject=default`, and `approved_at`.
-7. Check access logs for `auth_subject`, `runtime_owner_auth_subject`, and
-   `resumed_by_auth_subject` without raw bearer tokens.
+7. Check access logs for `auth_subject`, `runtime_owner_auth_subject`,
+   `resumed_by_auth_subject`, and `approved_by_auth_subject` without raw bearer
+   tokens.
 
 Use `examples/internal_runtime_client.py` as the starting point for internal
 team integrations. It demonstrates Bearer auth, `Idempotency-Key`,
@@ -316,6 +317,8 @@ Add Grafana panels for:
   `kagent_runtime_run_status_by_auth_subject_total`.
 - Resume activity from
   `kagent_runtime_resumes_by_auth_subject_total`.
+- Approval consumption from
+  `kagent_runtime_approvals_by_auth_subject_total`.
 - Approval pressure from
   `kagent_runtime_approval_required_total`.
 - Stale pending approval queue depth from

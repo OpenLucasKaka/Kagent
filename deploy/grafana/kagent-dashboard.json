@@ -306,8 +306,36 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 8,
         "x": 0,
+        "y": 12
+      },
+      "id": 20,
+      "targets": [
+        {
+          "expr": "sum by (auth_subject) (rate(kagent_runtime_approvals_by_auth_subject_total[5m]))",
+          "legendFormat": "{{auth_subject}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Runtime Approvals by Subject",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
         "y": 12
       },
       "id": 8,

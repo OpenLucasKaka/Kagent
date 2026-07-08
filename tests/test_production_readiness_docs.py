@@ -69,6 +69,7 @@ def test_production_readiness_checklist_documents_release_gates():
     assert "per-subject runtime trace audit" in readiness
     assert "per-subject runtime outcome metrics" in readiness
     assert "per-subject runtime resume metrics" in readiness
+    assert "per-subject runtime approval metrics" in readiness
     assert "per-subject runtime resume alerting" in readiness
     assert "stale pending approval gauges" in readiness
     assert "kagent_runtime_stale_pending_approvals_current" in readiness

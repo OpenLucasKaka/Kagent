@@ -104,6 +104,7 @@ REQUIRED_GRAFANA_METRICS = (
     "kagent_runtime_approval_required_total",
     "kagent_runtime_stale_pending_approvals_current",
     "kagent_runtime_progress_event_sink_failures_total",
+    "kagent_runtime_approvals_by_auth_subject_total",
     "kagent_runtime_runs_by_auth_subject_total",
     "kagent_runtime_run_status_by_auth_subject_total",
     "kagent_runtime_resumes_by_auth_subject_total",

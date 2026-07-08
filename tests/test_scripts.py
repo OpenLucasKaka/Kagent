@@ -544,6 +544,7 @@ def test_observability_acceptance_script_is_secret_safe_and_documented():
     assert "kagent_runtime_planner_failures_total" in script
     assert "kagent_runtime_llm_provider_requests_total" in script
     assert "kagent_runtime_llm_provider_requests_by_status_total" in script
+    assert "kagent_runtime_approvals_by_auth_subject_total" in script
     assert "kagentRuntimeLLMProviderFailures" in script
     assert "kagent_runtime_tool_executions_total" in script
     assert "deploy/grafana/kagent-dashboard.json" in script
@@ -559,6 +560,7 @@ def test_observability_acceptance_script_requires_lifecycle_metrics():
 
     assert "kagent_runtime_run_lifecycle_state_total" in script
     assert "kagent_runtime_run_lifecycle_state_by_auth_subject_total" in script
+    assert "kagent_runtime_approvals_by_auth_subject_total" in script
 
 
 def test_observability_acceptance_script_verifies_live_metrics(tmp_path):
@@ -2344,6 +2346,7 @@ def test_run_checks_starts_internal_runtime_smoke():
     assert "resumed_by_auth_subject" in smoke
     assert "runtime_runs_by_auth_subject" in smoke
     assert "runtime_resumes_by_auth_subject" in smoke
+    assert "runtime_approvals_by_auth_subject" in smoke
     assert "team_a_policy_source" in smoke
     assert "sk-" not in smoke
 
@@ -2377,6 +2380,7 @@ def test_internal_runtime_smoke_script_exercises_internal_subjects():
     assert payload["runtime_runs_by_auth_subject"]["team-a"] == "5"
     assert payload["runtime_runs_by_auth_subject_status"]["team-a:cancelled"] == "1"
     assert payload["runtime_resumes_by_auth_subject"]["default"] == "1"
+    assert payload["runtime_approvals_by_auth_subject"]["default"] == "1"
 
 
 def test_real_llm_runtime_smoke_is_opt_in_and_secret_safe():

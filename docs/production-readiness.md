@@ -290,7 +290,8 @@ ready for SRE review.
   `KAGENT_SERVICE_AUTH_TOKENS`, with `auth_subject` access-log audit
   fields, per-subject rate-limit isolation, subject-scoped runtime trace reads,
   subject-scoped runtime resume, per-subject usage metrics, per-subject runtime trace audit,
-  `resumed_by_auth_subject` approval audit, per-subject runtime resume metrics,
+  `resumed_by_auth_subject` approval audit, `approved_by_auth_subject` approver audit,
+  per-subject runtime resume metrics, per-subject runtime approval metrics,
   per-subject runtime resume alerting, stale pending approval gauges, and
   per-subject runtime outcome metrics.
 - Optional SQLite-backed idempotency cache via

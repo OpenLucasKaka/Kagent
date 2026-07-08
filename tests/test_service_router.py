@@ -2576,6 +2576,7 @@ def test_service_router_runtime_status_reports_persisted_run_summary(tmp_path):
     assert payload["run_id"] == run_payload["run_id"]
     assert payload["trace_type"] == "codex_runtime"
     assert payload["status"] == "requires_approval"
+    assert payload["lifecycle_state"] == "waiting_approval"
     assert payload["goal"] == "fetch site"
     assert payload["trace_path"] == run_payload["trace_path"]
     assert payload["duration_seconds"] == run_payload["duration_seconds"]
@@ -3027,6 +3028,7 @@ def test_service_router_runtime_runs_list_reports_persisted_summaries(tmp_path):
     assert all("observation_count" in run for run in payload["runs"])
     assert all("event_count" in run for run in payload["runs"])
     assert all("progress_event_sink_failure_count" in run for run in payload["runs"])
+    assert all("lifecycle_state" in run for run in payload["runs"])
     assert all("duration_seconds" in run for run in payload["runs"])
     assert all("failed_observation_count" in run for run in payload["runs"])
     assert all("planner_failure_count" in run for run in payload["runs"])
@@ -3143,6 +3145,7 @@ def test_service_router_runtime_runs_summary_aggregates_visible_traces(tmp_path)
         "trace_type": "codex_runtime",
         "run_count": "2",
         "status_counts": {"failed": "1", "requires_approval": "1"},
+        "lifecycle_state_counts": {"failed": "1", "waiting_approval": "1"},
         "runtime_engine_counts": {"langgraph": "2"},
         "auth_subject_counts": {"ops": "1", "team-a": "1"},
         "tool_counts": {"artifact": "1", "http_request": "2"},

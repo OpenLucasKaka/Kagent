@@ -763,6 +763,18 @@ def test_service_contract_documents_named_success_schemas():
         "failed",
         "requires_approval",
     ]
+    assert schemas["RuntimeRunStatusResponse"]["properties"]["lifecycle_state"] == {
+        "type": "string",
+        "enum": [
+            "cancelled",
+            "failed",
+            "planning",
+            "running",
+            "succeeded",
+            "unknown",
+            "waiting_approval",
+        ],
+    }
     assert schemas["RuntimeRunStatusResponse"]["properties"]["plan_count"] == {
         "type": "string"
     }
@@ -964,6 +976,7 @@ def test_service_contract_documents_named_success_schemas():
         "trace_type",
         "run_count",
         "status_counts",
+        "lifecycle_state_counts",
         "runtime_engine_counts",
         "auth_subject_counts",
         "tool_counts",
@@ -983,6 +996,12 @@ def test_service_contract_documents_named_success_schemas():
         "metadata_key_counts",
     ]
     assert schemas["RuntimeRunSummaryResponse"]["properties"]["status_counts"] == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+    assert schemas["RuntimeRunSummaryResponse"]["properties"][
+        "lifecycle_state_counts"
+    ] == {
         "type": "object",
         "additionalProperties": {"type": "string"},
     }

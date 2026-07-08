@@ -620,6 +620,7 @@ def service_openapi() -> Dict[str, Any]:
                         "trace_type",
                         "run_count",
                         "status_counts",
+                        "lifecycle_state_counts",
                         "runtime_engine_counts",
                         "auth_subject_counts",
                         "tool_counts",
@@ -645,6 +646,10 @@ def service_openapi() -> Dict[str, Any]:
                         },
                         "run_count": {"type": "string"},
                         "status_counts": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                        "lifecycle_state_counts": {
                             "type": "object",
                             "additionalProperties": {"type": "string"},
                         },
@@ -2005,6 +2010,18 @@ def _runtime_run_status_properties(
         "status": {
             "type": "string",
             "enum": ["cancelled", "done", "failed", "requires_approval"],
+        },
+        "lifecycle_state": {
+            "type": "string",
+            "enum": [
+                "cancelled",
+                "failed",
+                "planning",
+                "running",
+                "succeeded",
+                "unknown",
+                "waiting_approval",
+            ],
         },
         "goal": {"type": "string"},
         "auth_subject": {"type": "string"},

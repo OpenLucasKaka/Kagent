@@ -231,7 +231,10 @@ The service intentionally keeps a narrow API:
   `limit` is applied after those filters
   so dashboards can ask for the most recent matching runs. List responses
   include `has_more` and an opaque `next_cursor`; callers pass that value back
-  as `cursor` to continue scanning the same filtered run set. Runtime run lists omit full `pending_approval` payloads and expose only compact
+  as `cursor` to continue scanning the same filtered run set. Each compact
+  summary includes derived `lifecycle_state` for operator-facing triage; this
+  value is computed from persisted status, pending approvals, progress events,
+  and execution events, and is not a second execution state source. Runtime run lists omit full `pending_approval` payloads and expose only compact
   `pending_approval_action_id` and `pending_approval_tool` fields for approval
   queue routing.
   It also skips unreadable trace files so one malformed artifact does not break
@@ -244,7 +247,8 @@ The service intentionally keeps a narrow API:
   persisted `trace_type: "codex_runtime"` records. It applies the same
   subject visibility rules as runtime list/detail routes, accepts the compact
   list filters, and returns aggregate `run_count`, `status_counts`,
-  `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
+  `lifecycle_state_counts`, `runtime_engine_counts`, `auth_subject_counts`,
+  `tool_counts`, `error_code_counts`,
   `failed_observation_count`, `graph_phase_count`, `graph_phase_node_counts`,
   `approval_required_count`,
   `pending_approval_count`, `final_answer_guardrail_applied_count`,

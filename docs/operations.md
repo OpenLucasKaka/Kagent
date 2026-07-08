@@ -737,7 +737,7 @@ runtime traces whose persisted `auth_subject` is `team-a`, and cross-subject run
 Use `GET /runtime/runs/summary` to build a lightweight operations dashboard or
 approval queue badge without loading individual runs. It applies subject
 visibility and compact list filters, then returns `run_count`, `status_counts`,
-`runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
+`lifecycle_state_counts`, `runtime_engine_counts`, `auth_subject_counts`, `tool_counts`, `error_code_counts`,
 `failed_observation_count`, `approval_required_count`,
 `pending_approval_count`, `artifact_count`, `artifact_total_bytes`,
 `tag_counts`, and `metadata_key_counts`.
@@ -779,7 +779,7 @@ normalized to `/runtime/runs/{run_id}/cancel`, while artifact lookups are
 normalized to `/runtime/runs/{run_id}/artifacts/{artifact_id}`. Runtime status
 summaries include `iteration_count`, `max_iterations`,
 `iteration_budget_remaining`, `plan_count`, `observation_count`, and
-`event_count` for low-cardinality dashboard triage without exposing full event
+`event_count` plus derived `lifecycle_state` for low-cardinality dashboard triage without exposing full event
 or observation bodies. When a run is waiting for approval, the
 pending approval detail schema is limited to `id`, `tool`, `input`, and optional `reason`;
 unknown action fields are omitted while `pending_approval.input` remains

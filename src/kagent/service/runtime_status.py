@@ -417,6 +417,7 @@ def runtime_status_summary(
         "trace_type": RUNTIME_TRACE_TYPE,
         "run_id": run_id,
         "status": _runtime_scalar(trace.get("status")),
+        "lifecycle_state": _runtime_lifecycle_state(trace),
         "goal": _runtime_scalar(trace.get("goal")),
         "auth_subject": _runtime_scalar(trace.get("auth_subject")),
         "metadata": _trace_metadata(trace),
@@ -601,6 +602,7 @@ def _empty_runtime_summary_aggregate() -> Dict[str, Any]:
         "trace_type": RUNTIME_TRACE_TYPE,
         "run_count": "0",
         "status_counts": {},
+        "lifecycle_state_counts": {},
         "runtime_engine_counts": {},
         "auth_subject_counts": {},
         "tool_counts": {},
@@ -627,6 +629,10 @@ def _add_runtime_summary_to_aggregate(
 ) -> None:
     aggregate["run_count"] = str(int(aggregate["run_count"]) + 1)
     _increment_count(aggregate["status_counts"], str(summary.get("status", "")))
+    _increment_count(
+        aggregate["lifecycle_state_counts"],
+        str(summary.get("lifecycle_state", "")),
+    )
     _increment_count(
         aggregate["runtime_engine_counts"],
         str(summary.get("runtime_engine", "")),
@@ -797,6 +803,64 @@ def _approved_tool_counts(value: Any) -> Dict[str, str]:
             continue
         _increment_count(counts, _runtime_scalar(item.get("tool")))
     return dict(sorted(counts.items()))
+
+
+def _runtime_lifecycle_state(trace: Dict[str, Any]) -> str:
+    status = _runtime_scalar(trace.get("status"))
+    if status == "cancelled":
+        return "cancelled"
+    if status == "failed":
+        return "failed"
+    if status == "requires_approval":
+        return "waiting_approval"
+    if status == "done":
+        return "succeeded"
+    if _trace_pending_approval(trace):
+        return "waiting_approval"
+    event_state = _latest_event_lifecycle_state(trace.get("progress_events"))
+    if event_state != "unknown":
+        return event_state
+    return _latest_event_lifecycle_state(trace.get("events"))
+
+
+def _latest_event_lifecycle_state(value: Any) -> str:
+    if not isinstance(value, list):
+        return "unknown"
+    for item in reversed(value):
+        if not isinstance(item, dict):
+            continue
+        event_type = _runtime_scalar(item.get("type"))
+        node = _runtime_scalar(item.get("node"))
+        status = _runtime_scalar(item.get("status"))
+        if event_type == "run_completed":
+            return _lifecycle_state_from_status(status)
+        if event_type == "approval_required":
+            return "waiting_approval"
+        if event_type in {"tool_started", "tool_completed", "policy_completed"}:
+            return "running"
+        if event_type == "planner_started":
+            return "planning"
+        if node == "executor":
+            return "running"
+        if node == "policy" and status == "requires_approval":
+            return "waiting_approval"
+        if node == "policy":
+            return "running"
+        if node == "planner" and status == "started":
+            return "planning"
+    return "unknown"
+
+
+def _lifecycle_state_from_status(status: str) -> str:
+    if status == "cancelled":
+        return "cancelled"
+    if status == "done":
+        return "succeeded"
+    if status == "failed":
+        return "failed"
+    if status == "requires_approval":
+        return "waiting_approval"
+    return "unknown"
 
 
 def _trace_metadata(trace: Dict[str, Any]) -> Dict[str, str]:

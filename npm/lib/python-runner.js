@@ -11,7 +11,8 @@ const readline = require("readline");
 const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka/Kagent/main/package.json";
 const GITHUB_HEAD_URL = "https://api.github.com/repos/OpenLucasKaka/Kagent/commits/main";
 const GITHUB_TREE_URL_PREFIX = "https://api.github.com/repos/OpenLucasKaka/Kagent/git/trees/";
-const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/kagent";
+const GITHUB_COMPARE_URL_PREFIX = "https://api.github.com/repos/OpenLucasKaka/Kagent/compare/";
+const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/Kagent";
 const SELF_UPDATE_TIMEOUT_MS = 3000;
 
 function packageRoot() {
@@ -201,6 +202,22 @@ async function fetchLatestGitHubSourceFingerprint(headSha) {
   return fingerprintBlobEntries(entries);
 }
 
+async function fetchGitHubAheadBy(baseSha, headSha) {
+  if (!baseSha || !headSha || baseSha === headSha) {
+    return 0;
+  }
+  const body = await fetchText(
+    `${GITHUB_COMPARE_URL_PREFIX}${baseSha}...${headSha}`,
+    SELF_UPDATE_TIMEOUT_MS
+  );
+  const payload = JSON.parse(body);
+  const aheadBy = Number(payload.ahead_by);
+  if (!Number.isInteger(aheadBy) || aheadBy < 0) {
+    throw new Error("GitHub compare response does not declare ahead_by");
+  }
+  return aheadBy;
+}
+
 function readSelfUpdateState() {
   const statePath = selfUpdateStatePath();
   if (!fs.existsSync(statePath)) {
@@ -236,6 +253,9 @@ function hasSelfUpdate(latest, currentVersion, _state, currentSourceFingerprint)
     return true;
   }
   if (latest.version !== currentVersion) {
+    return false;
+  }
+  if (latest.isNewerSameVersion !== true) {
     return false;
   }
   if (!latest.sourceFingerprint || !currentSourceFingerprint) {
@@ -282,14 +302,19 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
   let latest;
   let state;
   let currentSourceFingerprint = "";
+  let currentHeadSha = "";
   try {
     latest = await fetchLatestGitHubUpdateInfo();
     state = readSelfUpdateState();
     if (!isNewerVersion(latest.version, currentVersion)) {
+      currentHeadSha = readPackageHeadSha(root);
       currentSourceFingerprint = localPackageFingerprint(root);
       latest.sourceFingerprint = await fetchLatestGitHubSourceFingerprint(
         latest.headSha
       );
+      latest.isNewerSameVersion = (
+        await fetchGitHubAheadBy(currentHeadSha, latest.headSha)
+      ) > 0;
     }
   } catch (error) {
     process.stderr.write(`kagent: update check skipped: ${error.message}\n`);
@@ -314,7 +339,7 @@ async function maybeSelfUpdate(root, currentVersion, commandName, args) {
 
   process.stderr.write(`kagent: installing ${GITHUB_INSTALL_SPEC}\n`);
   try {
-    runChecked("npm", ["install", "-g", "github:OpenLucasKaka/kagent"], { cwd: root });
+    runChecked("npm", ["install", "-g", GITHUB_INSTALL_SPEC], { cwd: root });
   } catch (error) {
     writeSelfUpdateState(latestSelfUpdateState(latest, {
       failed: "true"
@@ -368,6 +393,20 @@ function sourceHash(root) {
   return hasher.digest("hex");
 }
 
+function readPackageHeadSha(root) {
+  const buildInfoPath = path.join(root, "npm", "build-info.json");
+  if (!fs.existsSync(buildInfoPath)) {
+    return "";
+  }
+  try {
+    const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, "utf8"));
+    const headSha = String(buildInfo.headSha || "").trim();
+    return /^[0-9a-f]{40}$/i.test(headSha) ? headSha : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
 function localPackageFingerprint(root) {
   const entries = [];
   for (const relativePath of packageFingerprintPaths(root)) {
@@ -417,7 +456,7 @@ function packageFingerprintPaths(root) {
   collectRelativeFiles(path.join(root, "npm"), "npm", paths);
   collectRelativeFiles(path.join(root, "src"), "src", paths);
   paths.sort();
-  return paths;
+  return paths.filter(isPackageFingerprintPath);
 }
 
 function isPackageFingerprintPath(relativePath) {
@@ -425,7 +464,7 @@ function isPackageFingerprintPath(relativePath) {
     relativePath === "README.md" ||
     relativePath === "package.json" ||
     relativePath === "pyproject.toml" ||
-    relativePath.startsWith("npm/") ||
+    (relativePath.startsWith("npm/") && relativePath !== "npm/build-info.json") ||
     relativePath.startsWith("src/")
   );
 }
@@ -526,6 +565,7 @@ module.exports = {
     hasSelfUpdate,
     isNewerVersion,
     localPackageFingerprint,
+    readPackageHeadSha,
     shouldCheckSelfUpdate
   }
 };

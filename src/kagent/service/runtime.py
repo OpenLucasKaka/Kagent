@@ -202,6 +202,7 @@ class ServiceMetrics:
         self._runtime_runs_by_lifecycle_state: Dict[str, int] = {}
         self._runtime_runs_by_auth_subject: Dict[str, int] = {}
         self._runtime_runs_by_auth_subject_status: Dict[str, int] = {}
+        self._runtime_runs_by_auth_subject_lifecycle_state: Dict[str, int] = {}
         self._runtime_resumes_by_auth_subject: Dict[str, int] = {}
         self._runtime_failed_observations_total = 0
         self._runtime_progress_event_sink_failures_total = 0
@@ -296,6 +297,19 @@ class ServiceMetrics:
                     self._runtime_runs_by_auth_subject_status.get(subject_status_key, 0)
                     + 1
                 )
+                subject_lifecycle_key = _combined_metrics_key(
+                    auth_subject,
+                    normalized_lifecycle_state,
+                )
+                self._runtime_runs_by_auth_subject_lifecycle_state[
+                    subject_lifecycle_key
+                ] = (
+                    self._runtime_runs_by_auth_subject_lifecycle_state.get(
+                        subject_lifecycle_key,
+                        0,
+                    )
+                    + 1
+                )
             if resumed_by_auth_subject:
                 self._runtime_resumes_by_auth_subject[resumed_by_auth_subject] = (
                     self._runtime_resumes_by_auth_subject.get(
@@ -386,6 +400,9 @@ class ServiceMetrics:
                 ),
                 "runtime_runs_by_auth_subject_status": _string_counts(
                     self._runtime_runs_by_auth_subject_status
+                ),
+                "runtime_runs_by_auth_subject_lifecycle_state": _string_counts(
+                    self._runtime_runs_by_auth_subject_lifecycle_state
                 ),
                 "runtime_resumes_by_auth_subject": _string_counts(
                     self._runtime_resumes_by_auth_subject
@@ -941,6 +958,23 @@ def prometheus_metrics_text(snapshot: Mapping[str, Any]) -> str:
             "kagent_runtime_run_status_by_auth_subject_total"
             f'{{auth_subject="{_prometheus_label(auth_subject)}",'
             f'status="{_prometheus_label(status)}"}} {count}'
+        )
+    lines.extend(
+        [
+            "# HELP kagent_runtime_run_lifecycle_state_by_auth_subject_total "
+            "Codex-style runtime runs by authenticated internal subject and lifecycle state.",
+            "# TYPE kagent_runtime_run_lifecycle_state_by_auth_subject_total counter",
+        ]
+    )
+    for subject_lifecycle, count in _mapping_value(
+        snapshot,
+        "runtime_runs_by_auth_subject_lifecycle_state",
+    ).items():
+        auth_subject, lifecycle_state = _split_combined_metrics_key(subject_lifecycle)
+        lines.append(
+            "kagent_runtime_run_lifecycle_state_by_auth_subject_total"
+            f'{{auth_subject="{_prometheus_label(auth_subject)}",'
+            f'lifecycle_state="{_prometheus_label(lifecycle_state)}"}} {count}'
         )
     lines.extend(
         [

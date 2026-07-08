@@ -146,6 +146,7 @@ def test_architecture_document_names_runtime_and_operational_boundaries():
     assert "kagent_runtime_final_answer_guardrails_total" in architecture
     assert "runtime_runs_by_lifecycle_state" in architecture
     assert "kagent_runtime_run_lifecycle_state_total" in architecture
+    assert "kagent_runtime_run_lifecycle_state_by_auth_subject_total" in architecture
 
 
 def test_readme_documents_console_script_entrypoints():

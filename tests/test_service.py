@@ -476,6 +476,7 @@ def test_service_metrics_tracks_requests_by_path_and_status():
         "runtime_runs_by_lifecycle_state": {},
         "runtime_runs_by_auth_subject": {},
         "runtime_runs_by_auth_subject_status": {},
+        "runtime_runs_by_auth_subject_lifecycle_state": {},
         "runtime_resumes_by_auth_subject": {},
         "runtime_failed_observations_total": "0",
         "runtime_progress_event_sink_failures_total": "0",
@@ -615,6 +616,11 @@ def test_service_metrics_tracks_runtime_operational_counters():
         "ops:done": "1",
         "team-a:failed": "1",
         "team-a:requires_approval": "1",
+    }
+    assert snapshot["runtime_runs_by_auth_subject_lifecycle_state"] == {
+        "ops:succeeded": "1",
+        "team-a:failed": "1",
+        "team-a:waiting_approval": "1",
     }
     assert snapshot["runtime_resumes_by_auth_subject"] == {"default": "1"}
     assert snapshot["runtime_failed_observations_total"] == "2"
@@ -1086,6 +1092,16 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
     assert (
         'kagent_runtime_run_status_by_auth_subject_total'
         '{auth_subject="team-a",status="failed"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_run_lifecycle_state_by_auth_subject_total'
+        '{auth_subject="team-a",lifecycle_state="waiting_approval"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_run_lifecycle_state_by_auth_subject_total'
+        '{auth_subject="team-a",lifecycle_state="failed"} 1'
         in payload
     )
     assert (

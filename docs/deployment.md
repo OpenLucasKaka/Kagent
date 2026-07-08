@@ -243,11 +243,12 @@ defaults.
 The manifest also includes a `CronJob` that runs
 `kagent-trace-prune` against the same trace volume every day and
 deletes old terminal Codex-style runtime trace JSON files older than 7 days
-with `--runtime-only`. That mode protects pending `requires_approval` traces
-by default and reports `protected_pending` plus `matched_by_status`. Run the
-command without `--delete` first when changing the retention window so
-operators can review the JSON dry-run summary before applying a destructive
-cleanup.
+with `--runtime-only --fail-on-errors`. Runtime-only mode protects pending
+`requires_approval` traces by default and reports `protected_pending` plus
+`matched_by_status`. `--fail-on-errors` makes corrupt trace files or failed
+deletes fail the CronJob after writing the JSON summary. Run the command without
+`--delete` first when changing the retention window so operators can review the
+JSON dry-run summary before applying a destructive cleanup.
 The pod sets `terminationGracePeriodSeconds: 45`, which is longer than the
 default `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS=30`, so Kubernetes gives
 the service time to handle `SIGTERM`, close the HTTP server, and let bounded

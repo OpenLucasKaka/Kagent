@@ -384,11 +384,13 @@ PY
 PYTHONWARNINGS=ignore .venv/bin/kagent-trace-prune \
     /tmp/kagent-trace-prune-smoke \
     --max-age-days 1 \
+    --fail-on-errors \
     >/tmp/kagent-trace-prune-dry-run.json
 PYTHONWARNINGS=ignore .venv/bin/kagent-trace-prune \
     /tmp/kagent-trace-prune-smoke \
     --max-age-days 1 \
     --delete \
+    --fail-on-errors \
     >/tmp/kagent-trace-prune-delete.json
 PYTHONWARNINGS=ignore .venv/bin/python - <<'PY'
 import json
@@ -432,12 +434,14 @@ PYTHONWARNINGS=ignore .venv/bin/kagent-trace-prune \
     /tmp/kagent-trace-prune-smoke \
     --max-age-days 1 \
     --runtime-only \
+    --fail-on-errors \
     >/tmp/kagent-runtime-trace-prune-dry-run.json
 PYTHONWARNINGS=ignore .venv/bin/kagent-trace-prune \
     /tmp/kagent-trace-prune-smoke \
     --max-age-days 1 \
     --runtime-only \
     --delete \
+    --fail-on-errors \
     >/tmp/kagent-runtime-trace-prune-delete.json
 PYTHONWARNINGS=ignore .venv/bin/python - <<'PY'
 import json

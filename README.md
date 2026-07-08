@@ -204,7 +204,7 @@ kagent-metrics /tmp/kagent-continuous.jsonl
 kagent-release-evidence --help
 kagent-release-manifest --help
 kagent-serve --host 127.0.0.1 --port 8000
-kagent-trace-prune /tmp/kagent-traces --max-age-days 7
+kagent-trace-prune /tmp/kagent-traces --max-age-days 7 --runtime-only --fail-on-errors
 kagent-trace-replay /tmp/kagent-traces/RUN_ID.json
 ```
 

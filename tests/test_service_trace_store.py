@@ -433,3 +433,33 @@ def test_trace_store_module_prunes_runtime_traces_in_dry_run_mode(tmp_path):
     assert payload["matched"] == 1
     assert payload["deleted"] == 0
     assert old_trace.exists()
+
+
+def test_trace_store_module_can_fail_on_prune_errors_after_writing_summary(
+    tmp_path,
+):
+    malformed_trace = tmp_path / "malformed.json"
+    malformed_trace.write_text("{not-json", encoding="utf-8")
+    os.utime(malformed_trace, (1_000.0, 1_000.0))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "kagent.service.trace_store",
+            str(tmp_path),
+            "--max-age-days",
+            "1",
+            "--runtime-only",
+            "--fail-on-errors",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 1
+    assert payload["unreadable"] == 1
+    assert payload["errors"][0]["path"] == str(malformed_trace)
+    assert "Expecting property name" in payload["errors"][0]["error"]

@@ -131,7 +131,9 @@ rollout markers, and manifest `sha256`, so release evidence proves the packaged
 cluster manifest still contains the Secret, ConfigMap, PVC, Deployment, Service,
 PodDisruptionBudget, NetworkPolicy, CronJob, production doctor, probes,
 non-root/read-only security context, resource limits, graceful termination, and
-trace retention job expected by internal production rollout.
+trace retention job expected by internal production rollout. The trace retention
+CronJob uses `--fail-on-errors` so corrupt persisted traces or failed deletes
+become failed jobs after the redacted JSON summary is written.
 The same `deployment` evidence includes a systemd unit semantic check for
 single-host or VM rollout. It records `service_controls_present`,
 `sandboxing_present`, `resource_controls_present`,
@@ -391,7 +393,8 @@ ready for SRE review.
   `minReadySeconds`, `progressDeadlineSeconds`, `topologySpreadConstraints`, a
   `PodDisruptionBudget`, a restrictive `NetworkPolicy` that requires caller
   namespace and pod labels to set `kagent-access: "true"`, a
-  trace-prune `CronJob`, and a production doctor initContainer.
+  trace-prune `CronJob` with `--fail-on-errors`, and a production doctor
+  initContainer.
 - `deploy/prometheus/kagent-rules.yaml` for baseline service,
   HTTP error, high request latency, slow agent runs, timeout, failed-run,
   slow runtime run, per-subject runtime failure alerting,

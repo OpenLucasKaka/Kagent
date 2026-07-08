@@ -832,3 +832,7 @@
   evidence checks when evidence files are present but semantically invalid,
   printing a redacted `status: "blocked"` stdout summary with `failed_checks`
   before exiting with code 1.
+- Added `kagent-trace-prune --fail-on-errors` for production retention jobs,
+  wiring the flag into the Kubernetes CronJob, standard gate smoke coverage,
+  operations docs, deployment docs, and README so unreadable traces or failed
+  deletes still emit JSON summaries but fail cron/CI alerting paths.

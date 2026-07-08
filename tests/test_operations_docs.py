@@ -46,6 +46,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "progress_event_count" in runbook
     assert "exclude tool inputs" in runbook
     assert "--runtime-only" in runbook
+    assert "--fail-on-errors" in runbook
     assert "protected_pending" in runbook
     assert "matched_by_status" in runbook
     assert "redacted summary" in runbook

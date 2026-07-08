@@ -246,6 +246,14 @@ def main() -> None:
         metavar="PATH",
         help="Write the JSON summary to PATH as well as stdout.",
     )
+    parser.add_argument(
+        "--fail-on-errors",
+        action="store_true",
+        help=(
+            "Exit with status 1 after writing the summary when unreadable traces "
+            "or delete errors are reported."
+        ),
+    )
     args = parser.parse_args()
     if args.max_age_days < 0:
         parser.error("--max-age-days must be non-negative")
@@ -264,6 +272,22 @@ def main() -> None:
             dry_run=not args.delete,
         )
     print(format_and_write_json(summary, args.output))
+    if args.fail_on_errors and _trace_prune_has_errors(summary):
+        raise SystemExit(1)
+
+
+def _trace_prune_has_errors(summary: Dict[str, Any]) -> bool:
+    errors = summary.get("errors")
+    if isinstance(errors, list) and errors:
+        return True
+    return _summary_int(summary.get("unreadable")) > 0
+
+
+def _summary_int(value: Any) -> int:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 if __name__ == "__main__":

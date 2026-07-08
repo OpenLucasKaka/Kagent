@@ -88,6 +88,7 @@ def test_production_readiness_checklist_documents_release_gates():
     assert "SIGTERM" in readiness
     assert "143" in readiness
     assert "termination grace" in readiness
+    assert "--fail-on-errors" in readiness
     assert "wheel artifact" in readiness
     assert "release manifest" in readiness
     assert "14-day artifact retention" in readiness

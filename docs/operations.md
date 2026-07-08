@@ -1070,6 +1070,9 @@ default, matches old `done`, `failed`, and `cancelled` traces while protecting
 `matched_by_status`, `runtime_scanned`, `skipped_non_runtime`, and
 `skipped_status` so operators can review exactly what a retention job would
 delete before adding `--delete`.
+Add `--fail-on-errors` for cron, CI, and Kubernetes CronJobs so unreadable
+traces or delete failures still write the JSON summary and then exit with
+status `1` for alerting.
 Use `kagent-trace-replay TRACE.json` when debugging a persisted
 Codex-style runtime trace. The replay command emits a redacted summary with run
 status, tool counts, failed observations, changed files, artifacts, and timeline
@@ -1273,7 +1276,9 @@ dependency, such as `trace_persistence`.
 Run `kagent-trace-prune` from a cron job or Kubernetes CronJob
 to enforce trace retention. The command defaults to dry-run mode and requires
 `--delete` for destructive cleanup, so operators can wire alerting and review
-before enabling deletion.
+before enabling deletion. Production jobs should include `--fail-on-errors`
+so corrupt trace files, unreadable JSON, or failed deletes surface as failed
+job runs instead of quiet JSON-only warnings.
 Set `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS` to cap execution-route
 wall-clock time for `/run`, `/runtime/run`, and `/runtime/resume`; timed-out
 runs return a structured HTTP `504` response. Keep this value lower than the

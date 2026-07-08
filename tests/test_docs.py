@@ -167,6 +167,7 @@ def test_readme_documents_console_script_entrypoints():
     assert "kagent-release-manifest" in readme
     assert "kagent-serve" in readme
     assert "kagent-trace-prune" in readme
+    assert "--fail-on-errors" in readme
     assert "kagent-trace-replay" in readme
     old_console_name = "-".join(["self", "correcting", "agent"])
     assert old_console_name not in readme

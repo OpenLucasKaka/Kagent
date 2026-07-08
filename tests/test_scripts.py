@@ -403,6 +403,9 @@ def test_production_readiness_audit_reports_required_artifacts():
     ] == "true"
     assert payload["deployment"]["kubernetes_manifest"]["hardening_present"] == "true"
     assert payload["deployment"]["kubernetes_manifest"]["rollout_controls_present"] == "true"
+    assert "--fail-on-errors" not in payload["deployment"]["kubernetes_manifest"][
+        "missing_rollout_markers"
+    ]
     assert len(payload["deployment"]["kubernetes_manifest"]["sha256"]) == 64
     assert payload["deployment"]["systemd_unit"]["status"] == "passed"
     assert payload["deployment"]["systemd_unit"]["service_controls_present"] == "true"
@@ -2540,9 +2543,16 @@ def test_run_checks_smokes_trace_prune_dry_run_and_delete():
     assert "--max-age-days 1" in run_checks
     assert "--runtime-only" in run_checks
     assert "--delete" in run_checks
+    assert "--fail-on-errors" in run_checks
     assert 'str(deleted["deleted"]) != "1"' in run_checks
     assert 'runtime_dry_run["protected_pending"] != 1' in run_checks
     assert 'runtime_deleted["matched_by_status"] != {"done": "1"}' in run_checks
+
+
+def test_production_readiness_audit_requires_trace_prune_failure_exit_marker():
+    audit = Path("scripts/production_readiness_audit.py").read_text()
+
+    assert '"--fail-on-errors"' in audit
 
 
 def test_run_checks_smokes_trace_replay_redacted_summary():

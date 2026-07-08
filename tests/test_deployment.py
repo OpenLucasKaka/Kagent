@@ -338,6 +338,7 @@ def test_kubernetes_manifest_defines_trace_prune_cronjob():
     assert "--runtime-only" in manifest
     assert '"7"' in manifest
     assert "--delete" in manifest
+    assert "--fail-on-errors" in manifest
     assert "restartPolicy: OnFailure" in manifest
     assert "claimName: kagent-traces" in manifest
     assert "readOnlyRootFilesystem: true" in manifest

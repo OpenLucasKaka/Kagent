@@ -213,6 +213,7 @@ REQUIRED_KUBERNETES_ROLLOUT_MARKERS = (
     "CronJob",
     "kagent-trace-prune",
     "--delete",
+    "--fail-on-errors",
 )
 
 REQUIRED_SYSTEMD_SERVICE_MARKERS = (

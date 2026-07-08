@@ -28,6 +28,9 @@ Initial production-oriented LangGraph agent package.
   gate starts the HTTP service and exercises `/health`, `/run`, and `/metrics`.
 - Optional service trace artifact persistence through
   `KAGENT_SERVICE_TRACE_DIR`.
+- Trace retention pruning with `kagent-trace-prune`, runtime-only retention
+  mode, pending approval protection, and `--fail-on-errors` for cron and
+  Kubernetes alerting when corrupt traces or delete failures are encountered.
 - GitHub Actions now runs the standard gate across Python 3.9 and 3.12.
 - Dependabot configuration for Python dependencies and GitHub Actions.
 - systemd unit example for VM or bare-metal deployments.

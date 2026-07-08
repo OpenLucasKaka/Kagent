@@ -415,6 +415,27 @@ def test_cli_can_print_runtime_graph_topology_without_goal():
             "finalize -> END",
         ],
         "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "runtime_loop_nodes": [
+            "planner",
+            "plan_parser",
+            "policy",
+            "executor",
+            "observation",
+            "replan_or_finish",
+        ],
+        "execution_flow": [
+            "cli_goal_input",
+            "provider_and_memory_context",
+            "langgraph_prepare",
+            "planner",
+            "plan_parser",
+            "policy",
+            "executor",
+            "observation",
+            "replan_or_finish",
+            "langgraph_finalize",
+            "cli_render",
+        ],
     }
 
 

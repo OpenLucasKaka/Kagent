@@ -63,7 +63,54 @@ def test_runtime_topology_exposes_production_graph_phases():
             "finalize -> END",
         ],
         "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "runtime_loop_nodes": [
+            "planner",
+            "plan_parser",
+            "policy",
+            "executor",
+            "observation",
+            "replan_or_finish",
+        ],
+        "execution_flow": [
+            "cli_goal_input",
+            "provider_and_memory_context",
+            "langgraph_prepare",
+            "planner",
+            "plan_parser",
+            "policy",
+            "executor",
+            "observation",
+            "replan_or_finish",
+            "langgraph_finalize",
+            "cli_render",
+        ],
     }
+
+
+def test_runtime_topology_explains_user_goal_execution_flow():
+    topology = runtime_topology()
+
+    assert topology["execution_flow"] == [
+        "cli_goal_input",
+        "provider_and_memory_context",
+        "langgraph_prepare",
+        "planner",
+        "plan_parser",
+        "policy",
+        "executor",
+        "observation",
+        "replan_or_finish",
+        "langgraph_finalize",
+        "cli_render",
+    ]
+    assert topology["runtime_loop_nodes"] == [
+        "planner",
+        "plan_parser",
+        "policy",
+        "executor",
+        "observation",
+        "replan_or_finish",
+    ]
 
 
 def test_runtime_agent_result_includes_graph_phase_timings():

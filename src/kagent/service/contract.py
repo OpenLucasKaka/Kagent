@@ -106,6 +106,8 @@ def service_openapi() -> Dict[str, Any]:
                         "nodes",
                         "edges",
                         "loop",
+                        "runtime_loop_nodes",
+                        "execution_flow",
                     ],
                     "properties": {
                         "runtime_engine": {"type": "string", "enum": ["langgraph"]},
@@ -114,6 +116,14 @@ def service_openapi() -> Dict[str, Any]:
                         "nodes": {"type": "array", "items": {"type": "string"}},
                         "edges": {"type": "array", "items": {"type": "string"}},
                         "loop": {"type": "string"},
+                        "runtime_loop_nodes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "execution_flow": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
                     },
                     "additionalProperties": False,
                 },

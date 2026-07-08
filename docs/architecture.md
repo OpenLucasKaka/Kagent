@@ -201,7 +201,10 @@ The service intentionally keeps a narrow API:
 - `GET /version` returns the package version.
 - `GET /tools` returns registered deterministic tool metadata.
 - `GET /runtime/graph` returns Codex-style runtime graph topology, including
-  `runtime_engine`, entry point, terminal, nodes, edges, and loop ownership.
+  `runtime_engine`, entry point, terminal, LangGraph nodes, edges, loop
+  ownership, `runtime_loop_nodes`, and the end-to-end `execution_flow` from CLI
+  input through planner, policy, executor, observation, finalization, and CLI
+  rendering.
 - `GET /runtime/tools` returns Codex-style runtime tool metadata, including
   machine-readable `input_schema` and `output_schema` contracts for planner and
   client validation.

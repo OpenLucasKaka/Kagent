@@ -116,6 +116,24 @@ def test_service_contract_documents_named_success_schemas():
     assert payload["paths"]["/runtime/graph"]["get"]["responses"]["200"]["content"] == {
         "application/json": {"schema": {"$ref": "#/components/schemas/RuntimeGraphResponse"}}
     }
+    assert schemas["RuntimeGraphResponse"]["required"] == [
+        "runtime_engine",
+        "entry_point",
+        "terminal",
+        "nodes",
+        "edges",
+        "loop",
+        "runtime_loop_nodes",
+        "execution_flow",
+    ]
+    assert schemas["RuntimeGraphResponse"]["properties"]["runtime_loop_nodes"] == {
+        "type": "array",
+        "items": {"type": "string"},
+    }
+    assert schemas["RuntimeGraphResponse"]["properties"]["execution_flow"] == {
+        "type": "array",
+        "items": {"type": "string"},
+    }
     assert payload["paths"]["/runtime/resume"]["post"]["responses"]["200"]["content"] == {
         "application/json": {"schema": {"$ref": "#/components/schemas/RuntimeRunResponse"}}
     }

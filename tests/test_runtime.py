@@ -586,6 +586,25 @@ def test_runtime_agent_reports_invalid_llm_plan_as_failed():
     assert float(result["duration_seconds"]) >= 0
 
 
+def test_runtime_agent_reports_provider_request_failure_separately_from_invalid_plan():
+    class FailingProvider:
+        def complete(self, _system, _user):
+            raise RuntimeError(
+                "llm provider request failed: http_status=400 "
+                'body={"error":"Model unloaded."}'
+            )
+
+    result = run_runtime_agent("capture hello", provider=FailingProvider())
+
+    assert result["status"] == "failed"
+    assert result["error_code"] == "llm_provider_error"
+    assert result["observations"][0]["tool"] == "planner"
+    assert result["observations"][0]["status"] == "failed"
+    assert result["observations"][0]["error_code"] == "llm_provider_error"
+    assert result["progress_events"][1]["type"] == "planner_failed"
+    assert result["progress_events"][1]["error_code"] == "llm_provider_error"
+
+
 def test_runtime_agent_includes_tool_input_and_output_schemas_in_planner_prompt():
     provider = FakeLLMProvider('{"actions":[],"final_answer":"ok"}')
 

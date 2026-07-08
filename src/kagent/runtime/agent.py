@@ -344,6 +344,7 @@ def _run_runtime_agent_loop(
             answer_streamed = answer_streamed or streamed_this_plan
             plan = parse_agent_plan(plan_text)
         except Exception as exc:
+            planner_error_code = _planner_failure_error_code(exc)
             timing = _timing_fields(planner_started_at, planner_timer)
             events[-1] = {
                 "node": "planner",
@@ -357,7 +358,7 @@ def _run_runtime_agent_loop(
                     tool="planner",
                     status="failed",
                     output={},
-                    error_code="invalid_plan",
+                    error_code=planner_error_code,
                     error=str(exc),
                     started_at=planner_started_at,
                     completed_at=timing["completed_at"],
@@ -370,7 +371,7 @@ def _run_runtime_agent_loop(
                 iteration=iteration_label,
                 node="planner",
                 status="failed",
-                error_code="invalid_plan",
+                error_code=planner_error_code,
                 duration_seconds=timing["duration_seconds"],
             )
             if iteration < max_iterations:
@@ -916,6 +917,17 @@ def _last_failed_observation(
 
 def _latest_observation_failed(observations: List[AgentObservation]) -> bool:
     return bool(observations and observations[-1].status == "failed")
+
+
+def _planner_failure_error_code(exc: BaseException) -> str:
+    if isinstance(exc, TimeoutError):
+        return "llm_provider_error"
+    message = str(exc).lower()
+    if message.startswith("llm provider "):
+        return "llm_provider_error"
+    if "llm provider request failed" in message:
+        return "llm_provider_error"
+    return "invalid_plan"
 
 
 def _emit_runtime_progress(

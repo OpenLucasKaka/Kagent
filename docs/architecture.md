@@ -339,9 +339,11 @@ The service intentionally keeps a narrow API:
   `approved_action_ids` is limited to explicit `plan` or `plan_sequence`
   replay and must reference action ids in that replay payload; live provider
   approvals must resume a persisted `pending_approval` through
-  `POST /runtime/resume`. Planner parse failures and invalid plan shapes also
-  become `invalid_plan` observations, allowing the next planner call to correct
-  its own output while budget remains. A converged planner may return
+  `POST /runtime/resume`. Planner parse failures and invalid plan shapes become
+  `invalid_plan` observations, while provider request or provider response
+  failures become `llm_provider_error` observations. Both can drive another
+  planner call while budget remains, but the split keeps model contract drift
+  separate from provider instability in traces and metrics. A converged planner may return
   `final_answer`, which the runtime exposes as the top-level response `answer`.
   If the latest observation is still failed, an empty-action `final_answer`
   is rejected and the run remains failed; the planner must schedule recovery

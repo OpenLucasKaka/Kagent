@@ -351,8 +351,11 @@ persisted pending action rather than pre-approving a future model choice.
 If the latest observation is still failed, the runtime rejects an empty-action
 `final_answer` and keeps the run failed, which prevents a provider from
 claiming success after an unresolved tool or planner failure.
-Planner parse failures and invalid plan shapes are also kept as `invalid_plan`
-observations and can drive another planner iteration while budget remains.
+Planner parse failures and invalid plan shapes are kept as `invalid_plan`
+observations. Provider request failures, provider timeouts, and malformed
+provider responses are kept as `llm_provider_error` observations. Both can drive
+another planner iteration while budget remains, but the split lets operators
+separate prompt/schema drift from provider instability.
 Artifact observations are compacted before they are included in replanning
 prompts: metadata is retained and `content_omitted=true` is set, but the
 artifact body is not sent back to the provider. Persisted traces and artifact
@@ -936,7 +939,9 @@ Use `runtime_planner_attempts_by_status`,
 `kagent_runtime_planner_failures_by_error_code_total` to separate planner
 schema/provider failures from runtime tool failures and build planner failure
 rate dashboards. Spikes here usually point to prompt contract drift, invalid
-JSON, or provider instability before any tool has been executed.
+JSON, or provider instability before any tool has been executed. In the
+error-code breakdown, `invalid_plan` means planner JSON/schema drift and
+`llm_provider_error` means the provider call or provider response failed.
 Use `kagent_runtime_run_duration_seconds_bucket`,
 `kagent_runtime_run_duration_seconds_count`, and
 `kagent_runtime_run_duration_seconds_sum` for percentile and SLO

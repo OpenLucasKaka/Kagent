@@ -662,6 +662,7 @@ def _record_runtime_run_metrics(
         return
     status = str(payload.get("status", ""))
     observations = payload.get("observations")
+    events = payload.get("events")
     failed_observation_count = _runtime_observation_status_count(
         observations,
         "failed",
@@ -682,6 +683,7 @@ def _record_runtime_run_metrics(
         duration_seconds=_runtime_duration_seconds(payload),
         error_code_counts=_runtime_observation_error_code_counts(observations),
         tool_status_counts=_runtime_observation_tool_status_counts(observations),
+        planner_attempt_status_counts=_runtime_planner_attempt_status_counts(events),
         planner_failure_count=_runtime_planner_failure_count(observations),
         planner_error_code_counts=_runtime_planner_error_code_counts(observations),
         auth_subject=str(payload.get("auth_subject", "")),
@@ -779,4 +781,20 @@ def _runtime_planner_error_code_counts(value: Any) -> Dict[str, int]:
         if not error_code:
             continue
         counts[error_code] = counts.get(error_code, 0) + 1
+    return counts
+
+
+def _runtime_planner_attempt_status_counts(value: Any) -> Dict[str, int]:
+    if not isinstance(value, list):
+        return {}
+    counts: Dict[str, int] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("node", "")) != "planner":
+            continue
+        status = str(item.get("status", "")).strip()
+        if not status:
+            continue
+        counts[status] = counts.get(status, 0) + 1
     return counts

@@ -24,6 +24,10 @@ def test_release_evidence_requires_lifecycle_observability_metrics():
         "kagent_runtime_planner_failures_total"
         in REQUIRED_OBSERVABILITY_ACCEPTANCE_METRICS
     )
+    assert (
+        "kagent_runtime_planner_attempts_total"
+        in REQUIRED_OBSERVABILITY_ACCEPTANCE_METRICS
+    )
 
 
 def test_release_evidence_cli_builds_verified_bundle(tmp_path):

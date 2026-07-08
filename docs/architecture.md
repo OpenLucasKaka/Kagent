@@ -554,6 +554,8 @@ Metrics snapshots additionally expose
 tool is failing, succeeding, or stopping at the approval boundary without
 opening every full trace.
 Planner failures are tracked separately through
+`runtime_planner_attempts_by_status`,
+`kagent_runtime_planner_attempts_total`,
 `runtime_planner_failures_total`,
 `runtime_planner_failures_by_error_code`, and Prometheus planner failure
 counters, keeping provider/schema drift distinct from tool execution failures.

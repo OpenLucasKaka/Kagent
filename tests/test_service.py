@@ -482,6 +482,7 @@ def test_service_metrics_tracks_requests_by_path_and_status():
         "runtime_progress_event_sink_failures_total": "0",
         "runtime_observation_errors_by_code": {},
         "runtime_tool_executions_by_tool_status": {},
+        "runtime_planner_attempts_by_status": {},
         "runtime_planner_failures_total": "0",
         "runtime_planner_failures_by_error_code": {},
         "runtime_approval_required_total": "0",
@@ -792,6 +793,10 @@ def test_service_metrics_endpoint_reports_runtime_operational_outcomes():
         "http_request:requires_approval": "1",
         "transform_text:failed": "1",
     }
+    assert metrics_payload["runtime_planner_attempts_by_status"] == {
+        "failed": "1",
+        "ok": "2",
+    }
     assert metrics_payload["runtime_planner_failures_total"] == "1"
     assert metrics_payload["runtime_planner_failures_by_error_code"] == {
         "invalid_plan": "1"
@@ -952,6 +957,7 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         resumed_by_auth_subject="default",
         progress_event_sink_failure_count=1,
         tool_status_counts={"http_request:requires_approval": 1},
+        planner_attempt_status_counts={"ok": 1},
     )
     metrics.record_runtime_run(
         status="failed",
@@ -967,6 +973,7 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
             "tool_execution_timeout": 1,
         },
         tool_status_counts={"transform_text:failed": 1},
+        planner_attempt_status_counts={"failed": 1},
         planner_failure_count=1,
         planner_error_code_counts={"invalid_plan": 1},
     )
@@ -1166,6 +1173,10 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         '{tool="transform_text",status="failed"} 1'
         in payload
     )
+    assert "# HELP kagent_runtime_planner_attempts_total" in payload
+    assert "# TYPE kagent_runtime_planner_attempts_total counter" in payload
+    assert 'kagent_runtime_planner_attempts_total{status="ok"} 1' in payload
+    assert 'kagent_runtime_planner_attempts_total{status="failed"} 1' in payload
     assert "# HELP kagent_runtime_planner_failures_total" in payload
     assert "# TYPE kagent_runtime_planner_failures_total counter" in payload
     assert "kagent_runtime_planner_failures_total 1" in payload

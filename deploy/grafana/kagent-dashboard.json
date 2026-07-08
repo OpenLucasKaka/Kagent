@@ -425,14 +425,19 @@
       "id": 14,
       "targets": [
         {
+          "expr": "sum by (status) (rate(kagent_runtime_planner_attempts_total[5m]))",
+          "legendFormat": "attempt {{status}}",
+          "refId": "A"
+        },
+        {
           "expr": "sum(rate(kagent_runtime_planner_failures_total[5m]))",
           "legendFormat": "planner failures",
-          "refId": "A"
+          "refId": "B"
         },
         {
           "expr": "sum by (error_code) (rate(kagent_runtime_planner_failures_by_error_code_total[5m]))",
           "legendFormat": "{{error_code}}",
-          "refId": "B"
+          "refId": "C"
         }
       ],
       "title": "Runtime Planner Failures",

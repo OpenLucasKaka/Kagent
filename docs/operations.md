@@ -928,13 +928,15 @@ which bounded runtime tool is succeeding, failing, or stopping at an approval
 boundary. Unknown tool names are collapsed to `unknown`, and unknown statuses
 are collapsed to `other`, keeping Prometheus labels low-cardinality while still
 showing the operational hotspot.
-Use `runtime_planner_failures_total`,
+Use `runtime_planner_attempts_by_status`,
+`kagent_runtime_planner_attempts_total`,
+`runtime_planner_failures_total`,
 `runtime_planner_failures_by_error_code`,
 `kagent_runtime_planner_failures_total`, and
 `kagent_runtime_planner_failures_by_error_code_total` to separate planner
-schema/provider failures from runtime tool failures. Spikes here usually point
-to prompt contract drift, invalid JSON, or provider instability before any tool
-has been executed.
+schema/provider failures from runtime tool failures and build planner failure
+rate dashboards. Spikes here usually point to prompt contract drift, invalid
+JSON, or provider instability before any tool has been executed.
 Use `kagent_runtime_run_duration_seconds_bucket`,
 `kagent_runtime_run_duration_seconds_count`, and
 `kagent_runtime_run_duration_seconds_sum` for percentile and SLO

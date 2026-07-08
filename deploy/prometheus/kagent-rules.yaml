@@ -199,7 +199,10 @@ groups:
           description: Runtime progress events could not be delivered to an operator UI, webhook, or streaming sink.
 
       - alert: kagentRuntimePlannerFailures
-        expr: sum(rate(kagent_runtime_planner_failures_total[5m])) > 0
+        expr: |
+          sum(rate(kagent_runtime_planner_failures_total[5m]))
+            /
+          clamp_min(sum(rate(kagent_runtime_planner_attempts_total[5m])), 1) > 0.05
         for: 10m
         labels:
           severity: warning

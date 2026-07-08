@@ -485,6 +485,27 @@ def test_service_metrics_tracks_requests_by_path_and_status():
         "runtime_planner_attempts_by_status": {},
         "runtime_planner_failures_total": "0",
         "runtime_planner_failures_by_error_code": {},
+        "runtime_llm_provider_requests_total": "0",
+        "runtime_llm_provider_request_attempts_total": "0",
+        "runtime_llm_provider_request_retries_total": "0",
+        "runtime_llm_provider_requests_by_status": {},
+        "runtime_llm_provider_request_errors_by_type": {},
+        "runtime_llm_provider_request_http_status": {},
+        "runtime_llm_provider_request_duration_seconds_bucket": {
+            "0.05": "0",
+            "0.1": "0",
+            "0.25": "0",
+            "0.5": "0",
+            "1": "0",
+            "2.5": "0",
+            "5": "0",
+            "10": "0",
+            "+Inf": "0",
+        },
+        "runtime_llm_provider_request_duration_seconds_count": "0",
+        "runtime_llm_provider_request_duration_seconds_sum": "0.0000",
+        "average_runtime_llm_provider_request_duration_seconds": "0.0000",
+        "max_runtime_llm_provider_request_duration_seconds": "0.0000",
         "runtime_approval_required_total": "0",
         "runtime_failed_budget_exhaustions_total": "0",
         "runtime_run_duration_seconds_bucket": {
@@ -575,6 +596,13 @@ def test_service_metrics_tracks_runtime_operational_counters():
         duration_seconds=0.2,
         auth_subject="team-a",
         progress_event_sink_failure_count=1,
+        llm_provider_request={
+            "attempt_count": "1",
+            "retry_count": "0",
+            "status": "ok",
+            "stream": "false",
+            "duration_seconds": "0.2000",
+        },
     )
     metrics.record_runtime_run(
         status="failed",
@@ -588,6 +616,15 @@ def test_service_metrics_tracks_runtime_operational_counters():
         error_code_counts={
             "invalid_tool_input": 1,
             "tool_execution_timeout": 1,
+        },
+        llm_provider_request={
+            "attempt_count": "3",
+            "retry_count": "2",
+            "status": "failed",
+            "stream": "false",
+            "duration_seconds": "1.2000",
+            "error_type": "http_error",
+            "http_status": "429",
         },
     )
     metrics.record_runtime_run(
@@ -633,6 +670,32 @@ def test_service_metrics_tracks_runtime_operational_counters():
         "invalid_tool_input": "1",
         "tool_execution_timeout": "1",
     }
+    assert snapshot["runtime_llm_provider_requests_total"] == "2"
+    assert snapshot["runtime_llm_provider_request_attempts_total"] == "4"
+    assert snapshot["runtime_llm_provider_request_retries_total"] == "2"
+    assert snapshot["runtime_llm_provider_requests_by_status"] == {
+        "failed": "1",
+        "ok": "1",
+    }
+    assert snapshot["runtime_llm_provider_request_errors_by_type"] == {
+        "http_error": "1"
+    }
+    assert snapshot["runtime_llm_provider_request_http_status"] == {"429": "1"}
+    assert snapshot["runtime_llm_provider_request_duration_seconds_bucket"] == {
+        "0.05": "0",
+        "0.1": "0",
+        "0.25": "1",
+        "0.5": "1",
+        "1": "1",
+        "2.5": "2",
+        "5": "2",
+        "10": "2",
+        "+Inf": "2",
+    }
+    assert snapshot["runtime_llm_provider_request_duration_seconds_count"] == "2"
+    assert snapshot["runtime_llm_provider_request_duration_seconds_sum"] == "1.4000"
+    assert snapshot["average_runtime_llm_provider_request_duration_seconds"] == "0.7000"
+    assert snapshot["max_runtime_llm_provider_request_duration_seconds"] == "1.2000"
     assert snapshot["runtime_approval_required_total"] == "1"
     assert snapshot["runtime_failed_budget_exhaustions_total"] == "1"
     assert snapshot["runtime_run_duration_seconds_bucket"] == {
@@ -841,6 +904,66 @@ def test_service_metrics_endpoint_records_runtime_progress_sink_failures(monkeyp
     assert metrics_payload["runtime_progress_event_sink_failures_total"] == "4"
 
 
+def test_service_metrics_endpoint_records_runtime_llm_provider_request(monkeypatch):
+    metrics = ServiceMetrics()
+
+    def runtime_response(_body, _config, _auth_subject):
+        return 200, {
+            "trace_type": "codex_runtime",
+            "status": "failed",
+            "duration_seconds": "0.50",
+            "iteration_budget_remaining": "0",
+            "observations": [
+                {
+                    "tool": "planner",
+                    "status": "failed",
+                    "error_code": "llm_provider_error",
+                    "output": {},
+                }
+            ],
+            "events": [{"node": "planner", "status": "failed"}],
+            "llm_provider_request": {
+                "attempt_count": "3",
+                "retry_count": "2",
+                "status": "failed",
+                "stream": "false",
+                "duration_seconds": "1.2500",
+                "error_type": "http_error",
+                "http_status": "429",
+                "api_key": "must-not-leak",
+            },
+        }
+
+    monkeypatch.setattr(
+        service_router.service_runtime_run,
+        "execute_runtime_run_request",
+        runtime_response,
+    )
+
+    run_status, run_payload = handle_request(
+        "POST",
+        "/runtime/run",
+        b'{"goal":"provider fails"}',
+        metrics=metrics,
+    )
+    metrics_status, metrics_payload = handle_request("GET", "/metrics", b"", metrics=metrics)
+
+    assert run_status == 200
+    assert run_payload["llm_provider_request"]["attempt_count"] == "3"
+    assert metrics_status == 200
+    assert metrics_payload["runtime_llm_provider_requests_total"] == "1"
+    assert metrics_payload["runtime_llm_provider_request_attempts_total"] == "3"
+    assert metrics_payload["runtime_llm_provider_request_retries_total"] == "2"
+    assert metrics_payload["runtime_llm_provider_requests_by_status"] == {
+        "failed": "1"
+    }
+    assert metrics_payload["runtime_llm_provider_request_errors_by_type"] == {
+        "http_error": "1"
+    }
+    assert metrics_payload["runtime_llm_provider_request_http_status"] == {"429": "1"}
+    assert "must-not-leak" not in json.dumps(metrics_payload)
+
+
 def test_service_metrics_endpoint_reports_current_runtime_approval_queue(tmp_path):
     old_trace_path = persist_trace(
         {
@@ -958,6 +1081,13 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         progress_event_sink_failure_count=1,
         tool_status_counts={"http_request:requires_approval": 1},
         planner_attempt_status_counts={"ok": 1},
+        llm_provider_request={
+            "attempt_count": "1",
+            "retry_count": "0",
+            "status": "ok",
+            "stream": "false",
+            "duration_seconds": "0.2000",
+        },
     )
     metrics.record_runtime_run(
         status="failed",
@@ -976,6 +1106,15 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         planner_attempt_status_counts={"failed": 1},
         planner_failure_count=1,
         planner_error_code_counts={"invalid_plan": 1},
+        llm_provider_request={
+            "attempt_count": "3",
+            "retry_count": "2",
+            "status": "failed",
+            "stream": "false",
+            "duration_seconds": "1.2000",
+            "error_type": "http_error",
+            "http_status": "429",
+        },
     )
     limiter = ServiceConcurrencyLimiter(max_concurrent_runs=2)
     idempotency_cache = ServiceIdempotencyCache(max_entries=5)
@@ -1185,6 +1324,45 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
     assert (
         'kagent_runtime_planner_failures_by_error_code_total'
         '{error_code="invalid_plan"} 1'
+        in payload
+    )
+    assert "# HELP kagent_runtime_llm_provider_requests_total" in payload
+    assert "# TYPE kagent_runtime_llm_provider_requests_total counter" in payload
+    assert "kagent_runtime_llm_provider_requests_total 2" in payload
+    assert "kagent_runtime_llm_provider_request_attempts_total 4" in payload
+    assert "kagent_runtime_llm_provider_request_retries_total 2" in payload
+    assert (
+        'kagent_runtime_llm_provider_requests_by_status_total{status="ok"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_llm_provider_requests_by_status_total{status="failed"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_llm_provider_request_errors_by_type_total'
+        '{error_type="http_error"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_llm_provider_request_http_status_total'
+        '{http_status="429"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_llm_provider_request_duration_seconds_bucket{le="0.25"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_llm_provider_request_duration_seconds_bucket{le="2.5"} 2'
+        in payload
+    )
+    assert (
+        "kagent_runtime_llm_provider_request_duration_seconds_count 2"
+        in payload
+    )
+    assert (
+        "kagent_runtime_llm_provider_request_duration_seconds_sum 1.4000"
         in payload
     )
     assert "kagent_runtime_approval_required_total 1" in payload

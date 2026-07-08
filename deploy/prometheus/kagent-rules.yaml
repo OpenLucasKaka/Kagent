@@ -210,6 +210,22 @@ groups:
           summary: Codex-style runtime planner failures are elevated
           description: Runtime planner calls are failing before tool execution; inspect invalid_plan and provider error signals.
 
+      - alert: kagentRuntimeLLMProviderFailures
+        expr: |
+          sum(rate(
+            kagent_runtime_llm_provider_requests_by_status_total{
+              status="failed"
+            }[5m]
+          ))
+            /
+          clamp_min(sum(rate(kagent_runtime_llm_provider_requests_total[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Runtime LLM provider failures are elevated
+          description: LLM provider requests are failing or exhausting retries; inspect provider request status, error type, HTTP status, and retry counters.
+
       - alert: kagentRuntimeToolExecutionFailures
         expr: |
           sum by (tool) (

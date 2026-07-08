@@ -946,6 +946,15 @@ rate dashboards. Spikes here usually point to prompt contract drift, invalid
 JSON, or provider instability before any tool has been executed. In the
 error-code breakdown, `invalid_plan` means planner JSON/schema drift and
 `llm_provider_error` means the provider call or provider response failed.
+Use `runtime_llm_provider_requests_total`,
+`runtime_llm_provider_request_attempts_total`,
+`runtime_llm_provider_request_retries_total`,
+`runtime_llm_provider_requests_by_status`,
+`runtime_llm_provider_request_errors_by_type`,
+`runtime_llm_provider_request_http_status`, and the Prometheus
+`kagent_runtime_llm_provider_*` metrics to monitor provider instability,
+retry pressure, status-code clusters, and provider latency without using high
+cardinality labels or exposing provider payloads.
 Use `kagent_runtime_run_duration_seconds_bucket`,
 `kagent_runtime_run_duration_seconds_count`, and
 `kagent_runtime_run_duration_seconds_sum` for percentile and SLO

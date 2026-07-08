@@ -66,6 +66,8 @@ required_metrics = [
     "kagent_runtime_tool_executions_total",
     "kagent_runtime_planner_attempts_total",
     "kagent_runtime_planner_failures_total",
+    "kagent_runtime_llm_provider_requests_total",
+    "kagent_runtime_llm_provider_requests_by_status_total",
     "kagent_runtime_approval_required_total",
     "kagent_runtime_stale_pending_approvals_current",
     "kagent_runtime_progress_event_sink_failures_total",
@@ -133,6 +135,7 @@ def grafana_status():
         "kagent_runtime_tool_executions_total",
         "kagent_runtime_planner_attempts_total",
         "kagent_runtime_planner_failures_total",
+        "kagent_runtime_llm_provider_requests_by_status_total",
         "kagent_runtime_progress_event_sink_failures_total",
         "kagent_runtime_stale_pending_approvals_current",
     ]
@@ -164,6 +167,7 @@ def prometheus_rules_status():
         "kagentRuntimeSubjectRunFailures",
         "kagentRuntimeLifecycleFailures",
         "kagentRuntimeSubjectLifecycleApprovalsPending",
+        "kagentRuntimeLLMProviderFailures",
     ]
     if any(alert not in text for alert in required_alerts):
         return "missing_required_alerts", file_sha256(path)

@@ -342,6 +342,8 @@ def test_production_readiness_audit_reports_required_artifacts():
     assert "kagentRuntimeProgressSinkFailures" in script_text
     assert "kagent_runtime_planner_attempts_total" in script_text
     assert "kagent_runtime_planner_failures_total" in script_text
+    assert "kagent_runtime_llm_provider_requests_by_status_total" in script_text
+    assert "kagentRuntimeLLMProviderFailures" in script_text
     assert "kagent_runtime_run_lifecycle_state_total" in script_text
     assert "kagent_runtime_run_lifecycle_state_by_auth_subject_total" in script_text
     assert "kagent_runtime_tool_executions_total" in script_text
@@ -537,6 +539,9 @@ def test_observability_acceptance_script_is_secret_safe_and_documented():
     assert "kagent_runtime_progress_event_sink_failures_total" in script
     assert "kagent_runtime_planner_attempts_total" in script
     assert "kagent_runtime_planner_failures_total" in script
+    assert "kagent_runtime_llm_provider_requests_total" in script
+    assert "kagent_runtime_llm_provider_requests_by_status_total" in script
+    assert "kagentRuntimeLLMProviderFailures" in script
     assert "kagent_runtime_tool_executions_total" in script
     assert "deploy/grafana/kagent-dashboard.json" in script
     assert "deploy/prometheus/kagent-rules.yaml" in script

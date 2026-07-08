@@ -363,7 +363,7 @@ def test_prometheus_alert_rules_cover_service_and_agent_health():
     )
     assert "groups:" in rules
     assert "  - name: kagent.rules" in rules
-    assert alert_count == 32
+    assert alert_count == 33
     assert "kagentServiceDown" in rules
     assert "kagentHighErrorRate" in rules
     assert "kagentHighRequestLatency" in rules
@@ -382,6 +382,7 @@ def test_prometheus_alert_rules_cover_service_and_agent_health():
     assert "kagentRuntimeBudgetExhausted" in rules
     assert "kagentRuntimeProgressSinkFailures" in rules
     assert "kagentRuntimePlannerFailures" in rules
+    assert "kagentRuntimeLLMProviderFailures" in rules
     assert "kagentRuntimeToolExecutionFailures" in rules
     assert "kagentRuntimeToolApprovalPressure" in rules
     assert "kagentRuntimeToolExecutionTimeouts" in rules
@@ -410,6 +411,8 @@ def test_prometheus_alert_rules_cover_service_and_agent_health():
     assert "kagent_runtime_stale_pending_approvals_current" in rules
     assert "kagent_runtime_failed_budget_exhaustions_total" in rules
     assert "kagent_runtime_progress_event_sink_failures_total" in rules
+    assert "kagent_runtime_llm_provider_requests_total" in rules
+    assert "kagent_runtime_llm_provider_requests_by_status_total" in rules
     assert "kagent_runtime_observation_errors_total" in rules
     assert "tool_execution_timeout" in rules
     assert "kagent_error_responses_total" in rules
@@ -483,6 +486,8 @@ def test_grafana_dashboard_covers_internal_runtime_operations():
     assert "kagent_runtime_approval_required_total" in payload
     assert "kagent_runtime_progress_event_sink_failures_total" in payload
     assert "kagent_runtime_stale_pending_approvals_current" in payload
+    assert "kagent_runtime_llm_provider_requests_by_status_total" in payload
+    assert "kagent_runtime_llm_provider_request_retries_total" in payload
     assert "kagent_runtime_observation_errors_total" in payload
     assert "deploy/grafana/kagent-dashboard.json" in deployment
     assert "deploy/grafana/kagent-dashboard.json" in rollout

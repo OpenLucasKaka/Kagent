@@ -565,6 +565,12 @@ Planner failures are tracked separately through
 `runtime_planner_failures_total`,
 `runtime_planner_failures_by_error_code`, and Prometheus planner failure
 counters, keeping provider/schema drift distinct from tool execution failures.
+Redacted provider request diagnostics are aggregated through
+`runtime_llm_provider_requests_total`,
+`runtime_llm_provider_request_attempts_total`,
+`runtime_llm_provider_request_retries_total`, and Prometheus
+`kagent_runtime_llm_provider_*` counters/histograms so operators can see provider
+instability without exposing prompts, headers, API keys, or response bodies.
 Runtime run responses and compact persisted status summaries also carry
 run-level duration as `duration_seconds`, giving dashboards a low-cardinality
 sort key before operators open full traces.

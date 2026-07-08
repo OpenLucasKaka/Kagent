@@ -438,6 +438,16 @@
           "expr": "sum by (error_code) (rate(kagent_runtime_planner_failures_by_error_code_total[5m]))",
           "legendFormat": "{{error_code}}",
           "refId": "C"
+        },
+        {
+          "expr": "sum by (status) (rate(kagent_runtime_llm_provider_requests_by_status_total[5m]))",
+          "legendFormat": "provider {{status}}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(kagent_runtime_llm_provider_request_retries_total[5m]))",
+          "legendFormat": "provider retries",
+          "refId": "E"
         }
       ],
       "title": "Runtime Planner Failures",

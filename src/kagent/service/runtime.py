@@ -211,6 +211,17 @@ class ServiceMetrics:
         self._runtime_planner_attempts_by_status: Dict[str, int] = {}
         self._runtime_planner_failures_total = 0
         self._runtime_planner_failures_by_error_code: Dict[str, int] = {}
+        self._runtime_llm_provider_requests_total = 0
+        self._runtime_llm_provider_request_attempts_total = 0
+        self._runtime_llm_provider_request_retries_total = 0
+        self._runtime_llm_provider_requests_by_status: Dict[str, int] = {}
+        self._runtime_llm_provider_request_errors_by_type: Dict[str, int] = {}
+        self._runtime_llm_provider_request_http_status: Dict[str, int] = {}
+        self._runtime_llm_provider_request_duration_seconds = 0.0
+        self._max_runtime_llm_provider_request_duration_seconds = 0.0
+        self._runtime_llm_provider_request_duration_buckets: Dict[str, int] = (
+            _empty_duration_buckets()
+        )
         self._runtime_approval_required_total = 0
         self._runtime_failed_budget_exhaustions_total = 0
         self._runtime_run_duration_seconds = 0.0
@@ -277,6 +288,7 @@ class ServiceMetrics:
         planner_attempt_status_counts: Optional[Mapping[str, int]] = None,
         planner_failure_count: int = 0,
         planner_error_code_counts: Optional[Mapping[str, int]] = None,
+        llm_provider_request: Optional[Mapping[str, Any]] = None,
         auth_subject: str = "",
         resumed_by_auth_subject: str = "",
         progress_event_sink_failure_count: int = 0,
@@ -387,6 +399,64 @@ class ServiceMetrics:
                     )
                     + max(0, int(count))
                 )
+            if llm_provider_request:
+                attempt_count = _non_negative_int_value(
+                    llm_provider_request.get("attempt_count", 0)
+                )
+                retry_count = _non_negative_int_value(
+                    llm_provider_request.get("retry_count", 0)
+                )
+                provider_duration = _non_negative_float_value(
+                    llm_provider_request.get("duration_seconds", 0.0)
+                )
+                provider_status = _runtime_llm_provider_status_metrics_label(
+                    str(llm_provider_request.get("status", ""))
+                )
+                provider_error_type = _runtime_llm_provider_error_type_metrics_label(
+                    str(llm_provider_request.get("error_type", ""))
+                )
+                provider_http_status = _runtime_llm_provider_http_status_metrics_label(
+                    str(llm_provider_request.get("http_status", ""))
+                )
+                self._runtime_llm_provider_requests_total += 1
+                self._runtime_llm_provider_request_attempts_total += attempt_count
+                self._runtime_llm_provider_request_retries_total += retry_count
+                self._runtime_llm_provider_requests_by_status[provider_status] = (
+                    self._runtime_llm_provider_requests_by_status.get(
+                        provider_status,
+                        0,
+                    )
+                    + 1
+                )
+                if provider_error_type:
+                    self._runtime_llm_provider_request_errors_by_type[
+                        provider_error_type
+                    ] = (
+                        self._runtime_llm_provider_request_errors_by_type.get(
+                            provider_error_type,
+                            0,
+                        )
+                        + 1
+                    )
+                if provider_http_status:
+                    self._runtime_llm_provider_request_http_status[
+                        provider_http_status
+                    ] = (
+                        self._runtime_llm_provider_request_http_status.get(
+                            provider_http_status,
+                            0,
+                        )
+                        + 1
+                    )
+                self._runtime_llm_provider_request_duration_seconds += provider_duration
+                self._max_runtime_llm_provider_request_duration_seconds = max(
+                    self._max_runtime_llm_provider_request_duration_seconds,
+                    provider_duration,
+                )
+                for bucket, label in _duration_bucket_labels():
+                    if provider_duration <= bucket:
+                        self._runtime_llm_provider_request_duration_buckets[label] += 1
+                self._runtime_llm_provider_request_duration_buckets["+Inf"] += 1
             self._runtime_approval_required_total += max(0, approval_required_count)
             if budget_exhausted:
                 self._runtime_failed_budget_exhaustions_total += 1
@@ -407,6 +477,12 @@ class ServiceMetrics:
             average_runtime_run_duration = (
                 self._runtime_run_duration_seconds / self._runtime_runs_total
                 if self._runtime_runs_total
+                else 0.0
+            )
+            average_runtime_llm_provider_request_duration = (
+                self._runtime_llm_provider_request_duration_seconds
+                / self._runtime_llm_provider_requests_total
+                if self._runtime_llm_provider_requests_total
                 else 0.0
             )
             return {
@@ -471,6 +547,39 @@ class ServiceMetrics:
                 ),
                 "runtime_planner_failures_by_error_code": _string_counts(
                     self._runtime_planner_failures_by_error_code
+                ),
+                "runtime_llm_provider_requests_total": str(
+                    self._runtime_llm_provider_requests_total
+                ),
+                "runtime_llm_provider_request_attempts_total": str(
+                    self._runtime_llm_provider_request_attempts_total
+                ),
+                "runtime_llm_provider_request_retries_total": str(
+                    self._runtime_llm_provider_request_retries_total
+                ),
+                "runtime_llm_provider_requests_by_status": _string_counts(
+                    self._runtime_llm_provider_requests_by_status
+                ),
+                "runtime_llm_provider_request_errors_by_type": _string_counts(
+                    self._runtime_llm_provider_request_errors_by_type
+                ),
+                "runtime_llm_provider_request_http_status": _string_counts(
+                    self._runtime_llm_provider_request_http_status
+                ),
+                "runtime_llm_provider_request_duration_seconds_bucket": _string_counts(
+                    self._runtime_llm_provider_request_duration_buckets
+                ),
+                "runtime_llm_provider_request_duration_seconds_count": str(
+                    self._runtime_llm_provider_requests_total
+                ),
+                "runtime_llm_provider_request_duration_seconds_sum": (
+                    f"{self._runtime_llm_provider_request_duration_seconds:.4f}"
+                ),
+                "average_runtime_llm_provider_request_duration_seconds": (
+                    f"{average_runtime_llm_provider_request_duration:.4f}"
+                ),
+                "max_runtime_llm_provider_request_duration_seconds": (
+                    f"{self._max_runtime_llm_provider_request_duration_seconds:.4f}"
                 ),
                 "runtime_approval_required_total": str(
                     self._runtime_approval_required_total
@@ -1121,6 +1230,89 @@ def prometheus_metrics_text(snapshot: Mapping[str, Any]) -> str:
         )
     lines.extend(
         [
+            "# HELP kagent_runtime_llm_provider_requests_total "
+            "Runtime LLM provider requests with redacted diagnostics.",
+            "# TYPE kagent_runtime_llm_provider_requests_total counter",
+            "kagent_runtime_llm_provider_requests_total "
+            f"{snapshot.get('runtime_llm_provider_requests_total', '0')}",
+            "# HELP kagent_runtime_llm_provider_request_attempts_total "
+            "Runtime LLM provider HTTP attempts including retries.",
+            "# TYPE kagent_runtime_llm_provider_request_attempts_total counter",
+            "kagent_runtime_llm_provider_request_attempts_total "
+            f"{snapshot.get('runtime_llm_provider_request_attempts_total', '0')}",
+            "# HELP kagent_runtime_llm_provider_request_retries_total "
+            "Runtime LLM provider retry attempts.",
+            "# TYPE kagent_runtime_llm_provider_request_retries_total counter",
+            "kagent_runtime_llm_provider_request_retries_total "
+            f"{snapshot.get('runtime_llm_provider_request_retries_total', '0')}",
+            "# HELP kagent_runtime_llm_provider_requests_by_status_total "
+            "Runtime LLM provider requests by bounded status.",
+            "# TYPE kagent_runtime_llm_provider_requests_by_status_total counter",
+        ]
+    )
+    for status, count in _mapping_value(
+        snapshot,
+        "runtime_llm_provider_requests_by_status",
+    ).items():
+        lines.append(
+            "kagent_runtime_llm_provider_requests_by_status_total"
+            f'{{status="{_prometheus_label(status)}"}} {count}'
+        )
+    lines.extend(
+        [
+            "# HELP kagent_runtime_llm_provider_request_errors_by_type_total "
+            "Runtime LLM provider request failures by bounded error type.",
+            "# TYPE kagent_runtime_llm_provider_request_errors_by_type_total counter",
+        ]
+    )
+    for error_type, count in _mapping_value(
+        snapshot,
+        "runtime_llm_provider_request_errors_by_type",
+    ).items():
+        lines.append(
+            "kagent_runtime_llm_provider_request_errors_by_type_total"
+            f'{{error_type="{_prometheus_label(error_type)}"}} {count}'
+        )
+    lines.extend(
+        [
+            "# HELP kagent_runtime_llm_provider_request_http_status_total "
+            "Runtime LLM provider HTTP failures by status code.",
+            "# TYPE kagent_runtime_llm_provider_request_http_status_total counter",
+        ]
+    )
+    for http_status, count in _mapping_value(
+        snapshot,
+        "runtime_llm_provider_request_http_status",
+    ).items():
+        lines.append(
+            "kagent_runtime_llm_provider_request_http_status_total"
+            f'{{http_status="{_prometheus_label(http_status)}"}} {count}'
+        )
+    lines.extend(
+        [
+            "# HELP kagent_runtime_llm_provider_request_duration_seconds "
+            "Runtime LLM provider request duration in seconds.",
+            "# TYPE kagent_runtime_llm_provider_request_duration_seconds histogram",
+        ]
+    )
+    for bucket, count in _mapping_value(
+        snapshot,
+        "runtime_llm_provider_request_duration_seconds_bucket",
+    ).items():
+        lines.append(
+            "kagent_runtime_llm_provider_request_duration_seconds_bucket"
+            f'{{le="{_prometheus_label(bucket)}"}} {count}'
+        )
+    lines.append(
+        "kagent_runtime_llm_provider_request_duration_seconds_count "
+        f"{snapshot.get('runtime_llm_provider_request_duration_seconds_count', '0')}"
+    )
+    lines.append(
+        "kagent_runtime_llm_provider_request_duration_seconds_sum "
+        f"{snapshot.get('runtime_llm_provider_request_duration_seconds_sum', '0.0000')}"
+    )
+    lines.extend(
+        [
             "# HELP kagent_runtime_progress_event_sink_failures_total "
             "Runtime progress event sink delivery failures.",
             "# TYPE kagent_runtime_progress_event_sink_failures_total counter",
@@ -1519,6 +1711,36 @@ def _runtime_planner_attempt_status_metrics_label(value: str) -> str:
     return "other"
 
 
+def _runtime_llm_provider_status_metrics_label(value: str) -> str:
+    normalized = str(value).strip()
+    if normalized in {"failed", "ok"}:
+        return normalized
+    return "other"
+
+
+def _runtime_llm_provider_error_type_metrics_label(value: str) -> str:
+    normalized = str(value).strip()
+    if not normalized:
+        return ""
+    if normalized in {
+        "exhausted",
+        "http_error",
+        "provider_error",
+        "response_error",
+        "timeout",
+        "url_error",
+    }:
+        return normalized
+    return "other"
+
+
+def _runtime_llm_provider_http_status_metrics_label(value: str) -> str:
+    normalized = str(value).strip()
+    if len(normalized) == 3 and normalized.isdigit():
+        return normalized
+    return ""
+
+
 def _runtime_lifecycle_state(status: str) -> str:
     if status == "cancelled":
         return "cancelled"
@@ -1539,6 +1761,20 @@ def _empty_duration_buckets() -> Dict[str, int]:
     buckets = {label: 0 for _bucket, label in _duration_bucket_labels()}
     buckets["+Inf"] = 0
     return buckets
+
+
+def _non_negative_int_value(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _non_negative_float_value(value: Any) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _method_metrics_label(method: str) -> str:

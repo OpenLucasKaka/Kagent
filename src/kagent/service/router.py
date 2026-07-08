@@ -686,6 +686,7 @@ def _record_runtime_run_metrics(
         planner_attempt_status_counts=_runtime_planner_attempt_status_counts(events),
         planner_failure_count=_runtime_planner_failure_count(observations),
         planner_error_code_counts=_runtime_planner_error_code_counts(observations),
+        llm_provider_request=_runtime_llm_provider_request(payload),
         auth_subject=str(payload.get("auth_subject", "")),
         resumed_by_auth_subject=str(payload.get("resumed_by_auth_subject", "")),
         progress_event_sink_failure_count=_runtime_non_negative_int(
@@ -706,6 +707,26 @@ def _runtime_non_negative_int(value: Any) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
+
+
+def _runtime_llm_provider_request(value: Mapping[str, Any]) -> Dict[str, str]:
+    diagnostics = value.get("llm_provider_request")
+    if not isinstance(diagnostics, dict):
+        return {}
+    allowed_fields = {
+        "attempt_count",
+        "retry_count",
+        "status",
+        "stream",
+        "duration_seconds",
+        "error_type",
+        "http_status",
+    }
+    return {
+        key: str(diagnostics[key])
+        for key in sorted(allowed_fields)
+        if str(diagnostics.get(key, "")).strip()
+    }
 
 
 def _runtime_observation_status_count(value: Any, status: str) -> int:

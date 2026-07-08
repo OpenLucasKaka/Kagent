@@ -493,7 +493,8 @@ def test_service_router_runtime_idempotency_cache_isolated_by_internal_auth_subj
 def test_service_router_runs_codex_style_runtime_with_fake_plan_payload():
     body = (
         b'{"goal":"capture hello","plan":{"actions":[{"id":"step-1",'
-        b'"tool":"note","input":{"text":"hello"},"reason":"capture"}]}}'
+        b'"tool":"note","input":{"text":"hello"},"reason":"capture"}],'
+        b'"final_answer":"captured hello"}}'
     )
 
     status_code, payload = service_router.handle_request(
@@ -612,7 +613,7 @@ def test_service_router_runtime_run_can_execute_artifact_tool():
         b'{"goal":"write launch plan","plan":{"actions":[{"id":"step-1",'
         b'"tool":"artifact","input":{"title":"Launch plan","kind":"plan",'
         b'"content":"# Ship\\nDo the rollout.","tags":["release"]},'
-        b'"reason":"produce artifact"}]}}'
+        b'"reason":"produce artifact"}],"final_answer":"wrote launch plan"}}'
     )
 
     status_code, payload = service_router.handle_request("POST", "/runtime/run", body)
@@ -1389,7 +1390,7 @@ def test_service_router_runtime_run_can_execute_decision_matrix_tool():
         b'"criteria":[{"name":"impact","weight":0.7},{"name":"confidence",'
         b'"weight":0.3}],"options":[{"name":"Manual rollout",'
         b'"scores":[3,4]},{"name":"Automated rollout","scores":[4,4]}]},'
-        b'"reason":"rank options"}]}}'
+        b'"reason":"rank options"}],"final_answer":"picked launch path"}}'
     )
 
     status_code, payload = service_router.handle_request("POST", "/runtime/run", body)
@@ -1405,7 +1406,7 @@ def test_service_router_runtime_run_can_execute_task_list_tool():
         b'{"goal":"plan launch","plan":{"actions":[{"id":"step-1",'
         b'"tool":"task_list","input":{"items":[{"title":"Write runbook",'
         b'"priority":"high"},{"title":"Open dashboard","status":"done"}]},'
-        b'"reason":"structure work"}]}}'
+        b'"reason":"structure work"}],"final_answer":"planned launch"}}'
     )
 
     status_code, payload = service_router.handle_request("POST", "/runtime/run", body)
@@ -1441,7 +1442,8 @@ def test_service_router_runtime_run_can_execute_rubric_score_tool():
                         },
                         "reason": "score readiness",
                     }
-                ]
+                ],
+                "final_answer": "reviewed launch readiness",
             },
         }
     ).encode()
@@ -1457,8 +1459,12 @@ def test_service_router_runtime_run_can_execute_rubric_score_tool():
 def test_service_router_runtime_run_accepts_iteration_limit():
     body = (
         b'{"goal":"capture twice","max_iterations":2,'
-        b'"plan":{"actions":[{"id":"step-1","tool":"note",'
-        b'"input":{"text":"hello"},"reason":"capture"}]}}'
+        b'"plan_sequence":['
+        b'{"actions":[{"id":"step-1","tool":"note",'
+        b'"input":{"text":"hello"},"reason":"capture"}]},'
+        b'{"actions":[{"id":"step-2","tool":"note",'
+        b'"input":{"text":"done"},"reason":"finish"}],'
+        b'"final_answer":"captured twice"}]}'
     )
 
     status_code, payload = service_router.handle_request(
@@ -1553,7 +1559,8 @@ def test_service_router_runtime_run_accepts_approved_action_ids(monkeypatch):
                         "input": {"url": url},
                         "reason": "fetch",
                     }
-                ]
+                ],
+                "final_answer": "fetched approved URL",
             },
         }
     ).encode("utf-8")
@@ -1692,7 +1699,8 @@ def test_service_router_runtime_run_preserves_action_dependencies():
         b'{"goal":"capture then report","plan":{"actions":['
         b'{"id":"step-1","tool":"note","input":{"text":"hello"}},'
         b'{"id":"step-2","tool":"artifact","input":{"title":"Report",'
-        b'"kind":"report","content":"ready"},"depends_on":["step-1"]}]}}'
+        b'"kind":"report","content":"ready"},"depends_on":["step-1"]}],'
+        b'"final_answer":"reported"}}'
     )
 
     status_code, payload = service_router.handle_request("POST", "/runtime/run", body)
@@ -1809,7 +1817,8 @@ def test_service_router_runtime_resume_continues_persisted_pending_approval(
                             "input": {"url": url},
                             "reason": "fetch",
                         }
-                    ]
+                    ],
+                    "final_answer": "fetched site",
                 },
             }
         ).encode("utf-8"),
@@ -1872,7 +1881,8 @@ def test_service_router_runtime_resume_executes_only_pending_approval_action(
                             "input": {"url": url},
                             "reason": "fetch after approval",
                         },
-                    ]
+                    ],
+                    "final_answer": "recorded and fetched",
                 },
             }
         ).encode("utf-8"),
@@ -1932,7 +1942,8 @@ def test_service_router_runtime_resume_treats_prior_dependencies_as_satisfied(
                             "reason": "fetch after approval",
                             "depends_on": ["step-1"],
                         },
-                    ]
+                    ],
+                    "final_answer": "fetched with dependency",
                 },
             }
         ).encode("utf-8"),
@@ -1982,7 +1993,8 @@ def test_service_router_runtime_resume_preserves_metadata_and_tags(
                             "input": {"url": url},
                             "reason": "fetch",
                         }
-                    ]
+                    ],
+                    "final_answer": "fetched site",
                 },
             }
         ).encode("utf-8"),
@@ -2038,7 +2050,8 @@ def test_service_router_runtime_resume_hides_cross_subject_pending_run(
                             "input": {"url": url},
                             "reason": "fetch",
                         }
-                    ]
+                    ],
+                    "final_answer": "fetched site",
                 },
             }
         ).encode("utf-8"),
@@ -2090,7 +2103,8 @@ def test_service_router_runtime_resume_allows_primary_token_for_any_subject_run(
                             "input": {"url": url},
                             "reason": "fetch",
                         }
-                    ]
+                    ],
+                    "final_answer": "fetched site",
                 },
             }
         ).encode("utf-8"),
@@ -5650,7 +5664,7 @@ def test_service_router_runtime_run_uses_configured_runtime_allowed_tools():
         (
             b'{"goal":"transform hello","plan":{"actions":[{"id":"step-1",'
             b'"tool":"transform_text","input":{"text":"hello","mode":"uppercase"},'
-            b'"reason":"transform"}]}}'
+            b'"reason":"transform"}],"final_answer":"transformed hello"}}'
         ),
         config=ServiceConfig(runtime_allowed_tools=("note",)),
     )
@@ -5669,7 +5683,7 @@ def test_service_router_runtime_run_uses_subject_runtime_allowed_tools():
         (
             b'{"goal":"transform hello","plan":{"actions":[{"id":"step-1",'
             b'"tool":"transform_text","input":{"text":"hello","mode":"uppercase"},'
-            b'"reason":"transform"}]}}'
+            b'"reason":"transform"}],"final_answer":"transformed hello"}}'
         ),
         headers={"Authorization": "Bearer team-a-token"},
         config=ServiceConfig(
@@ -5693,7 +5707,7 @@ def test_service_router_runtime_run_falls_back_to_global_runtime_allowed_tools()
         (
             b'{"goal":"transform hello","plan":{"actions":[{"id":"step-1",'
             b'"tool":"transform_text","input":{"text":"hello","mode":"uppercase"},'
-            b'"reason":"transform"}]}}'
+            b'"reason":"transform"}],"final_answer":"transformed hello"}}'
         ),
         headers={"Authorization": "Bearer team-b-token"},
         config=ServiceConfig(
@@ -5714,7 +5728,8 @@ def test_service_router_runtime_run_metrics_track_internal_auth_subject(tmp_path
     metrics = ServiceMetrics()
     body = (
         b'{"goal":"capture hello","plan":{"actions":[{"id":"step-1",'
-        b'"tool":"note","input":{"text":"hello"},"reason":"capture"}]}}'
+        b'"tool":"note","input":{"text":"hello"},"reason":"capture"}],'
+        b'"final_answer":"captured hello"}}'
     )
 
     status_code, payload = service_router.handle_request(

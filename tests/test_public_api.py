@@ -100,7 +100,8 @@ def test_public_api_exports_run_summary_helper():
 
 def test_public_api_exports_runtime_agent_entrypoint():
     provider = FakeLLMProvider(
-        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"}}]}'
+        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"}}],'
+        '"final_answer":"captured hello"}'
     )
 
     result = run_runtime_agent("capture hello", provider=provider)

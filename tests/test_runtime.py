@@ -34,7 +34,8 @@ def test_runtime_entrypoint_is_delegated_to_runtime_agent_module():
 def test_runtime_graph_runs_codex_style_runtime_through_langgraph():
     graph = build_runtime_graph()
     provider = FakeLLMProvider(
-        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},"reason":"capture"}]}'
+        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},'
+        '"reason":"capture"}],"final_answer":"captured hello"}'
     )
 
     final_state = graph.invoke(
@@ -115,7 +116,8 @@ def test_runtime_topology_explains_user_goal_execution_flow():
 
 def test_runtime_agent_result_includes_graph_phase_timings():
     provider = FakeLLMProvider(
-        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},"reason":"capture"}]}'
+        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},'
+        '"reason":"capture"}],"final_answer":"captured hello"}'
     )
 
     result = run_runtime_agent("capture hello", provider=provider)
@@ -136,7 +138,8 @@ def test_runtime_agent_result_includes_graph_phase_timings():
 
 def test_runtime_agent_runs_fake_llm_plan_through_policy_and_tools():
     provider = FakeLLMProvider(
-        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},"reason":"capture"}]}'
+        '{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"},'
+        '"reason":"capture"}],"final_answer":"captured hello"}'
     )
 
     result = run_runtime_agent("capture hello", provider=provider)
@@ -371,7 +374,8 @@ def test_runtime_agent_redacts_secret_like_plain_strings_in_result_payload():
                         },
                         "reason": "capture sensitive text",
                     }
-                ]
+                ],
+                "final_answer": "captured sensitive text",
             }
         )
     )
@@ -401,7 +405,8 @@ def test_runtime_agent_redacts_shell_command_output_and_command_text():
                         "input": {"command": command},
                         "reason": "capture shell output",
                     }
-                ]
+                ],
+                "final_answer": "captured shell output",
             }
         )
     )
@@ -422,7 +427,8 @@ def test_runtime_agent_redacts_shell_command_output_and_command_text():
 def test_runtime_agent_can_execute_action_after_explicit_approval():
     provider = FakeLLMProvider(
         '{"actions":[{"id":"step-1","tool":"transform_text",'
-        '"input":{"text":"hello","mode":"uppercase"},"reason":"normalize"}]}'
+        '"input":{"text":"hello","mode":"uppercase"},"reason":"normalize"}],'
+        '"final_answer":"normalized"}'
     )
 
     result = run_runtime_agent(
@@ -443,7 +449,8 @@ def test_runtime_agent_can_execute_action_after_explicit_approval():
 def test_runtime_agent_reports_only_consumed_approved_action_ids():
     provider = FakeLLMProvider(
         '{"actions":[{"id":"step-1","tool":"note",'
-        '"input":{"text":"hello"},"reason":"capture"}]}'
+        '"input":{"text":"hello"},"reason":"capture"}],'
+        '"final_answer":"captured hello"}'
     )
 
     result = run_runtime_agent(
@@ -510,7 +517,8 @@ def test_runtime_agent_executes_http_request_after_explicit_approval(monkeypatch
     )
     provider = FakeLLMProvider(
         '{"actions":[{"id":"step-1","tool":"http_request",'
-        '"input":{"url":"https://example.com/hello"},"reason":"fetch"}]}'
+        '"input":{"url":"https://example.com/hello"},"reason":"fetch"}],'
+        '"final_answer":"fetched hello"}'
     )
 
     result = run_runtime_agent(
@@ -652,7 +660,8 @@ def test_runtime_agent_can_replan_from_previous_observations():
             ),
             (
                 '{"actions":[{"id":"step-2","tool":"note",'
-                '"input":{"text":"HELLO"},"reason":"persist"}]}'
+                '"input":{"text":"HELLO"},"reason":"persist"}],'
+                '"final_answer":"persisted HELLO"}'
             ),
         ]
     )
@@ -891,6 +900,25 @@ def test_runtime_agent_reports_failed_when_tool_failure_exhausts_iteration_budge
     assert "mode" in result["error"]
     assert result["observations"][0]["status"] == "failed"
     assert result["observations"][0]["error_code"] == "invalid_tool_input"
+
+
+def test_runtime_agent_reports_failed_when_successful_actions_exhaust_iteration_budget():
+    provider = SequentialLLMProvider(
+        [
+            (
+                '{"actions":[{"id":"step-1","tool":"note",'
+                '"input":{"text":"still working"},"reason":"continue"}]}'
+            )
+        ]
+    )
+
+    result = run_runtime_agent("finish the whole task", provider=provider, max_iterations=1)
+
+    assert result["status"] == "failed"
+    assert result["error_code"] == "iteration_budget_exhausted"
+    assert "final answer" in result["error"]
+    assert "answer" not in result
+    assert result["observations"][0]["status"] == "ok"
 
 
 def test_runtime_agent_does_not_report_final_answer_when_action_failed():

@@ -290,6 +290,8 @@ def _run_runtime_agent_loop(
     answer = ""
     final_answer_guardrail: Dict[str, str] = {}
     pending_approval: Dict[str, Any] = {}
+    terminal_error_code = ""
+    terminal_error = ""
     iteration_count = 0
     progress_events: List[Dict[str, Any]] = []
     progress_event_sink_failure_count = 0
@@ -534,6 +536,13 @@ def _run_runtime_agent_loop(
                 plan.final_answer,
             )
             break
+        if iteration >= max_iterations:
+            status = "failed"
+            terminal_error_code = "iteration_budget_exhausted"
+            terminal_error = (
+                "iteration budget exhausted before the planner returned a final answer"
+            )
+            break
 
     result = {
         "trace_type": RUNTIME_TRACE_TYPE,
@@ -572,6 +581,9 @@ def _run_runtime_agent_loop(
     if status == "failed" and failed_observation is not None:
         result["error_code"] = failed_observation.error_code
         result["error"] = failed_observation.error
+    elif status == "failed" and terminal_error_code:
+        result["error_code"] = terminal_error_code
+        result["error"] = terminal_error
     _emit_runtime_progress(
         emit_progress,
         "run_completed",

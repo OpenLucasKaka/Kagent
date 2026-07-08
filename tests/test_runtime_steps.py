@@ -60,7 +60,8 @@ def test_runtime_steps_hide_internal_note_actions():
                         "input": {"text": "internal context"},
                         "reason": "Capture internal context",
                     }
-                ]
+                ],
+                "final_answer": "captured internal context",
             }
         )
     )

@@ -359,6 +359,7 @@ def service_openapi() -> Dict[str, Any]:
                         "max_iterations": {"type": "string"},
                         "iteration_budget_remaining": {"type": "string"},
                         "prompt_observation_compaction": {"type": "object"},
+                        "llm_provider_request": _llm_provider_request_schema(),
                         "approved_action_count": {"type": "string"},
                         "approved_action_ids": {
                             "type": "array",
@@ -2262,6 +2263,22 @@ def _final_answer_guardrail_schema() -> Dict[str, Any]:
                 ],
             },
             "original_answer_omitted": {"type": "string", "enum": ["true"]},
+        },
+        "additionalProperties": False,
+    }
+
+
+def _llm_provider_request_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "attempt_count": {"type": "string"},
+            "retry_count": {"type": "string"},
+            "status": {"type": "string", "enum": ["ok", "failed"]},
+            "stream": {"type": "string", "enum": ["true", "false"]},
+            "duration_seconds": {"type": "string", "pattern": r"^\d+\.\d{4}$"},
+            "error_type": {"type": "string"},
+            "http_status": {"type": "string"},
         },
         "additionalProperties": False,
     }

@@ -660,6 +660,19 @@ def test_service_contract_documents_named_success_schemas():
     assert schemas["RuntimeRunResponse"]["properties"]["prompt_observation_compaction"] == {
         "type": "object"
     }
+    assert schemas["RuntimeRunResponse"]["properties"]["llm_provider_request"] == {
+        "type": "object",
+        "properties": {
+            "attempt_count": {"type": "string"},
+            "retry_count": {"type": "string"},
+            "status": {"type": "string", "enum": ["ok", "failed"]},
+            "stream": {"type": "string", "enum": ["true", "false"]},
+            "duration_seconds": {"type": "string", "pattern": r"^\d+\.\d{4}$"},
+            "error_type": {"type": "string"},
+            "http_status": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
     assert schemas["RuntimeRunResponse"]["properties"]["approved_action_count"] == {
         "type": "string"
     }

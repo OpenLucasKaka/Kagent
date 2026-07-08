@@ -605,6 +605,33 @@ def test_runtime_agent_reports_provider_request_failure_separately_from_invalid_
     assert result["progress_events"][1]["error_code"] == "llm_provider_error"
 
 
+def test_runtime_agent_includes_provider_request_diagnostics_when_available():
+    class DiagnosticProvider:
+        def complete(self, _system, _user):
+            return '{"actions":[],"final_answer":"ok"}'
+
+        def request_diagnostics(self):
+            return {
+                "attempt_count": "2",
+                "retry_count": "1",
+                "status": "ok",
+                "stream": "false",
+                "duration_seconds": "0.1234",
+                "api_key": "secret",
+            }
+
+    result = run_runtime_agent("capture hello", provider=DiagnosticProvider())
+
+    assert result["status"] == "done"
+    assert result["llm_provider_request"] == {
+        "attempt_count": "2",
+        "retry_count": "1",
+        "status": "ok",
+        "stream": "false",
+        "duration_seconds": "0.1234",
+    }
+
+
 def test_runtime_agent_includes_tool_input_and_output_schemas_in_planner_prompt():
     provider = FakeLLMProvider('{"actions":[],"final_answer":"ok"}')
 

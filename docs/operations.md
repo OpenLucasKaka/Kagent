@@ -356,6 +356,10 @@ observations. Provider request failures, provider timeouts, and malformed
 provider responses are kept as `llm_provider_error` observations. Both can drive
 another planner iteration while budget remains, but the split lets operators
 separate prompt/schema drift from provider instability.
+When the provider exposes diagnostics, runtime responses include
+`llm_provider_request` with redacted request metadata: attempt count, retry count,
+status, stream mode, duration, error type, and HTTP status. It intentionally omits
+prompts, headers, API keys, and provider response bodies.
 Artifact observations are compacted before they are included in replanning
 prompts: metadata is retained and `content_omitted=true` is set, but the
 artifact body is not sent back to the provider. Persisted traces and artifact

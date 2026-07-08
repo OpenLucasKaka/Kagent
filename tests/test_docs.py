@@ -51,6 +51,7 @@ def test_architecture_document_names_runtime_and_operational_boundaries():
     assert "MAX_PLAN_FINAL_ANSWER_CHARS" in architecture
     assert "`invalid_plan` observations" in architecture
     assert "`llm_provider_error` observations" in architecture
+    assert "llm_provider_request" in architecture
     assert "content_omitted=true" in architecture
     assert "truncated_chars" in architecture
     assert "prompt_observation_compaction" in architecture

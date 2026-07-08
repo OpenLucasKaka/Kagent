@@ -321,6 +321,7 @@ class OpenAICompatibleProvider:
         self.config = config
         self._urlopen = urlopen
         self._sleep = sleep
+        self._last_request_diagnostics: Dict[str, str] = {}
 
     def complete(self, system: str, user: str) -> str:
         request = self._chat_completion_request(system, user, stream=False)
@@ -328,11 +329,15 @@ class OpenAICompatibleProvider:
         try:
             return str(body["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError) as exc:
+            self._mark_request_diagnostics_failed("response_error")
             raise RuntimeError("llm provider response missing message content") from exc
 
     def stream_complete(self, system: str, user: str) -> Iterator[str]:
         request = self._chat_completion_request(system, user, stream=True)
         yield from self._request_stream_with_retries(request)
+
+    def request_diagnostics(self) -> Dict[str, str]:
+        return dict(self._last_request_diagnostics)
 
     def _chat_completion_request(
         self,
@@ -366,32 +371,69 @@ class OpenAICompatibleProvider:
 
     def _request_json_with_retries(self, request: urllib.request.Request) -> Dict[str, Any]:
         max_attempts = self.config.max_retries + 1
+        started = time.perf_counter()
+        retry_count = 0
         for attempt in range(max_attempts):
             try:
                 with self._urlopen(
                     request,
                     timeout=self.config.timeout_seconds,
                 ) as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    body = json.loads(response.read().decode("utf-8"))
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=False,
+                        status="ok",
+                    )
+                    return body
             except urllib.error.HTTPError as exc:
                 body = _read_http_error_body(exc)
                 if attempt >= max_attempts - 1 or not _is_retryable_provider_error(
                     exc,
                     body,
                 ):
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=False,
+                        status="failed",
+                        error_type=_provider_error_type(exc),
+                        http_status=str(exc.code),
+                    )
                     raise RuntimeError(
                         _provider_failure_message(exc, self.config.api_key, body)
                     ) from exc
+                retry_count += 1
                 retry_delay = _provider_retry_delay_seconds(exc, self.config)
                 if retry_delay:
                     self._sleep(retry_delay)
             except (urllib.error.URLError, TimeoutError) as exc:
                 if attempt >= max_attempts - 1 or not _is_retryable_provider_error(exc):
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=False,
+                        status="failed",
+                        error_type=_provider_error_type(exc),
+                    )
                     raise RuntimeError(
                         _provider_failure_message(exc, self.config.api_key)
                     ) from exc
+                retry_count += 1
                 if self.config.retry_backoff_seconds:
                     self._sleep(self.config.retry_backoff_seconds)
+        self._set_request_diagnostics(
+            started_at=started,
+            attempt_count=max_attempts,
+            retry_count=retry_count,
+            stream=False,
+            status="failed",
+            error_type="exhausted",
+        )
         raise RuntimeError("llm provider request failed")
 
     def _request_stream_with_retries(
@@ -399,13 +441,33 @@ class OpenAICompatibleProvider:
         request: urllib.request.Request,
     ) -> Iterator[str]:
         max_attempts = self.config.max_retries + 1
+        started = time.perf_counter()
+        retry_count = 0
         for attempt in range(max_attempts):
             try:
                 with self._urlopen(
                     request,
                     timeout=self.config.timeout_seconds,
                 ) as response:
-                    yield from _stream_openai_chat_completion_chunks(response)
+                    try:
+                        yield from _stream_openai_chat_completion_chunks(response)
+                    except RuntimeError:
+                        self._set_request_diagnostics(
+                            started_at=started,
+                            attempt_count=attempt + 1,
+                            retry_count=retry_count,
+                            stream=True,
+                            status="failed",
+                            error_type="response_error",
+                        )
+                        raise
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=True,
+                        status="ok",
+                    )
                     return
             except urllib.error.HTTPError as exc:
                 body = _read_http_error_body(exc)
@@ -413,20 +475,79 @@ class OpenAICompatibleProvider:
                     exc,
                     body,
                 ):
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=True,
+                        status="failed",
+                        error_type=_provider_error_type(exc),
+                        http_status=str(exc.code),
+                    )
                     raise RuntimeError(
                         _provider_failure_message(exc, self.config.api_key, body)
                     ) from exc
+                retry_count += 1
                 retry_delay = _provider_retry_delay_seconds(exc, self.config)
                 if retry_delay:
                     self._sleep(retry_delay)
             except (urllib.error.URLError, TimeoutError) as exc:
                 if attempt >= max_attempts - 1 or not _is_retryable_provider_error(exc):
+                    self._set_request_diagnostics(
+                        started_at=started,
+                        attempt_count=attempt + 1,
+                        retry_count=retry_count,
+                        stream=True,
+                        status="failed",
+                        error_type=_provider_error_type(exc),
+                    )
                     raise RuntimeError(
                         _provider_failure_message(exc, self.config.api_key)
                     ) from exc
+                retry_count += 1
                 if self.config.retry_backoff_seconds:
                     self._sleep(self.config.retry_backoff_seconds)
+        self._set_request_diagnostics(
+            started_at=started,
+            attempt_count=max_attempts,
+            retry_count=retry_count,
+            stream=True,
+            status="failed",
+            error_type="exhausted",
+        )
         raise RuntimeError("llm provider request failed")
+
+    def _set_request_diagnostics(
+        self,
+        *,
+        started_at: float,
+        attempt_count: int,
+        retry_count: int,
+        stream: bool,
+        status: str,
+        error_type: str = "",
+        http_status: str = "",
+    ) -> None:
+        diagnostics = {
+            "attempt_count": str(max(0, attempt_count)),
+            "retry_count": str(max(0, retry_count)),
+            "status": status,
+            "stream": str(stream).lower(),
+            "duration_seconds": f"{time.perf_counter() - started_at:.4f}",
+        }
+        if error_type:
+            diagnostics["error_type"] = error_type
+        if http_status:
+            diagnostics["http_status"] = http_status
+        self._last_request_diagnostics = diagnostics
+
+    def _mark_request_diagnostics_failed(self, error_type: str) -> None:
+        diagnostics = dict(self._last_request_diagnostics)
+        if not diagnostics:
+            return
+        diagnostics["status"] = "failed"
+        diagnostics["error_type"] = error_type
+        self._last_request_diagnostics = diagnostics
 
 
 def build_llm_provider(
@@ -501,6 +622,16 @@ def _provider_retry_delay_seconds(
         if retry_after is not None:
             return retry_after
     return config.retry_backoff_seconds
+
+
+def _provider_error_type(exc: BaseException) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        return "http_error"
+    if isinstance(exc, urllib.error.URLError):
+        return "url_error"
+    if isinstance(exc, TimeoutError):
+        return "timeout"
+    return "provider_error"
 
 
 def _numeric_retry_after_seconds(exc: urllib.error.HTTPError) -> float | None:

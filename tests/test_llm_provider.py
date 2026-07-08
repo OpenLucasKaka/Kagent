@@ -393,6 +393,11 @@ def test_openai_compatible_provider_retries_model_unloaded_http_errors():
 
     assert provider.complete("system", "user") == '{"actions":[]}'
     assert len(calls) == 2
+    assert provider.request_diagnostics()["attempt_count"] == "2"
+    assert provider.request_diagnostics()["retry_count"] == "1"
+    assert provider.request_diagnostics()["status"] == "ok"
+    assert provider.request_diagnostics()["stream"] == "false"
+    assert float(provider.request_diagnostics()["duration_seconds"]) >= 0
 
 
 def test_openai_compatible_provider_uses_numeric_retry_after_header():
@@ -467,6 +472,12 @@ def test_openai_compatible_provider_redacts_secret_like_error_body_values():
         assert "[redacted]" in message
     else:
         raise AssertionError("expected provider error")
+    assert provider.request_diagnostics()["attempt_count"] == "1"
+    assert provider.request_diagnostics()["retry_count"] == "0"
+    assert provider.request_diagnostics()["status"] == "failed"
+    assert provider.request_diagnostics()["error_type"] == "http_error"
+    assert provider.request_diagnostics()["http_status"] == "401"
+    assert api_key not in str(provider.request_diagnostics())
 
 
 class _FakeHTTPResponse:

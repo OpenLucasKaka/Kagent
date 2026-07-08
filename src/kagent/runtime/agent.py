@@ -574,6 +574,9 @@ def _run_runtime_agent_loop(
         result["metadata"] = normalized_metadata
     if normalized_tags:
         result["tags"] = normalized_tags
+    provider_request = _llm_provider_request_diagnostics(provider)
+    if provider_request:
+        result["llm_provider_request"] = provider_request
     if final_answer_guardrail:
         result["final_answer_guardrail"] = final_answer_guardrail
     if pending_approval:
@@ -928,6 +931,32 @@ def _planner_failure_error_code(exc: BaseException) -> str:
     if "llm provider request failed" in message:
         return "llm_provider_error"
     return "invalid_plan"
+
+
+def _llm_provider_request_diagnostics(provider: Any) -> Dict[str, str]:
+    diagnostics_fn = getattr(provider, "request_diagnostics", None)
+    if not callable(diagnostics_fn):
+        return {}
+    try:
+        diagnostics = diagnostics_fn()
+    except Exception:
+        return {}
+    if not isinstance(diagnostics, dict):
+        return {}
+    allowed_fields = {
+        "attempt_count",
+        "retry_count",
+        "status",
+        "stream",
+        "duration_seconds",
+        "error_type",
+        "http_status",
+    }
+    return {
+        key: str(diagnostics[key])
+        for key in sorted(allowed_fields)
+        if str(diagnostics.get(key, "")).strip()
+    }
 
 
 def _emit_runtime_progress(

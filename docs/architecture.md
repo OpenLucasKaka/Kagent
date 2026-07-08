@@ -343,7 +343,11 @@ The service intentionally keeps a narrow API:
   `invalid_plan` observations, while provider request or provider response
   failures become `llm_provider_error` observations. Both can drive another
   planner call while budget remains, but the split keeps model contract drift
-  separate from provider instability in traces and metrics. A converged planner may return
+  separate from provider instability in traces and metrics. When the provider
+  exposes diagnostics, responses include a redacted `llm_provider_request`
+  summary with attempt count, retry count, status, stream mode, duration, error
+  type, and HTTP status only; prompts, API keys, headers, and response bodies are
+  omitted. A converged planner may return
   `final_answer`, which the runtime exposes as the top-level response `answer`.
   If the latest observation is still failed, an empty-action `final_answer`
   is rejected and the run remains failed; the planner must schedule recovery

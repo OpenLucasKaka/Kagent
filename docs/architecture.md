@@ -542,6 +542,10 @@ list responses carry `final_answer_guardrail`, fleet summaries include
 `final_answer_guardrail_reason_counts`, and Prometheus exposes
 `kagent_runtime_final_answer_guardrails_total` plus
 `kagent_runtime_final_answer_guardrails_by_reason_total`.
+Metrics snapshots also expose `runtime_runs_by_lifecycle_state`, and Prometheus
+exposes `kagent_runtime_run_lifecycle_state_total`, so operator dashboards can
+graph `waiting_approval`, `running`, `succeeded`, and `failed` phases without
+recomputing status mappings outside the service.
 Runtime run responses and compact persisted status summaries also carry
 run-level duration as `duration_seconds`, giving dashboards a low-cardinality
 sort key before operators open full traces.

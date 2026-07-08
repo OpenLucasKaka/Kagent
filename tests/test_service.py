@@ -473,6 +473,7 @@ def test_service_metrics_tracks_requests_by_path_and_status():
         "max_agent_run_duration_seconds": "0.0000",
         "runtime_runs_total": "0",
         "runtime_runs_by_status": {},
+        "runtime_runs_by_lifecycle_state": {},
         "runtime_runs_by_auth_subject": {},
         "runtime_runs_by_auth_subject_status": {},
         "runtime_resumes_by_auth_subject": {},
@@ -600,6 +601,11 @@ def test_service_metrics_tracks_runtime_operational_counters():
         "done": "1",
         "failed": "1",
         "requires_approval": "1",
+    }
+    assert snapshot["runtime_runs_by_lifecycle_state"] == {
+        "failed": "1",
+        "succeeded": "1",
+        "waiting_approval": "1",
     }
     assert snapshot["runtime_runs_by_auth_subject"] == {
         "ops": "1",
@@ -748,6 +754,10 @@ def test_service_metrics_endpoint_reports_runtime_operational_outcomes():
     assert metrics_payload["runtime_runs_by_status"] == {
         "failed": "1",
         "requires_approval": "1",
+    }
+    assert metrics_payload["runtime_runs_by_lifecycle_state"] == {
+        "failed": "1",
+        "waiting_approval": "1",
     }
     assert metrics_payload["runtime_failed_observations_total"] == "1"
     assert metrics_payload["runtime_progress_event_sink_failures_total"] == "0"
@@ -1054,6 +1064,15 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
         in payload
     )
     assert 'kagent_runtime_run_status_total{status="failed"} 1' in payload
+    assert (
+        'kagent_runtime_run_lifecycle_state_total'
+        '{lifecycle_state="waiting_approval"} 1'
+        in payload
+    )
+    assert (
+        'kagent_runtime_run_lifecycle_state_total{lifecycle_state="failed"} 1'
+        in payload
+    )
     assert (
         'kagent_runtime_runs_by_auth_subject_total'
         '{auth_subject="team-a"} 2'

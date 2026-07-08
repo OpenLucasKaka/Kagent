@@ -672,6 +672,7 @@ def _record_runtime_run_metrics(
     )
     metrics.record_runtime_run(
         status=status,
+        lifecycle_state=str(payload.get("lifecycle_state", "")),
         failed_observation_count=failed_observation_count,
         approval_required_count=approval_required_count,
         budget_exhausted=(

@@ -199,6 +199,7 @@ class ServiceMetrics:
         self._agent_runs_by_status: Dict[str, int] = {}
         self._runtime_runs_total = 0
         self._runtime_runs_by_status: Dict[str, int] = {}
+        self._runtime_runs_by_lifecycle_state: Dict[str, int] = {}
         self._runtime_runs_by_auth_subject: Dict[str, int] = {}
         self._runtime_runs_by_auth_subject_status: Dict[str, int] = {}
         self._runtime_resumes_by_auth_subject: Dict[str, int] = {}
@@ -261,6 +262,7 @@ class ServiceMetrics:
         self,
         *,
         status: str,
+        lifecycle_state: str = "",
         failed_observation_count: int = 0,
         approval_required_count: int = 0,
         budget_exhausted: bool = False,
@@ -274,6 +276,16 @@ class ServiceMetrics:
             self._runtime_runs_total += 1
             self._runtime_runs_by_status[status] = (
                 self._runtime_runs_by_status.get(status, 0) + 1
+            )
+            normalized_lifecycle_state = lifecycle_state or _runtime_lifecycle_state(
+                status
+            )
+            self._runtime_runs_by_lifecycle_state[normalized_lifecycle_state] = (
+                self._runtime_runs_by_lifecycle_state.get(
+                    normalized_lifecycle_state,
+                    0,
+                )
+                + 1
             )
             if auth_subject:
                 self._runtime_runs_by_auth_subject[auth_subject] = (
@@ -366,6 +378,9 @@ class ServiceMetrics:
                 "max_agent_run_duration_seconds": f"{self._max_agent_run_duration_seconds:.4f}",
                 "runtime_runs_total": str(self._runtime_runs_total),
                 "runtime_runs_by_status": _string_counts(self._runtime_runs_by_status),
+                "runtime_runs_by_lifecycle_state": _string_counts(
+                    self._runtime_runs_by_lifecycle_state
+                ),
                 "runtime_runs_by_auth_subject": _string_counts(
                     self._runtime_runs_by_auth_subject
                 ),
@@ -882,6 +897,21 @@ def prometheus_metrics_text(snapshot: Mapping[str, Any]) -> str:
         )
     lines.extend(
         [
+            "# HELP kagent_runtime_run_lifecycle_state_total "
+            "Codex-style runtime runs by derived operator lifecycle state.",
+            "# TYPE kagent_runtime_run_lifecycle_state_total counter",
+        ]
+    )
+    for lifecycle_state, count in _mapping_value(
+        snapshot,
+        "runtime_runs_by_lifecycle_state",
+    ).items():
+        lines.append(
+            "kagent_runtime_run_lifecycle_state_total"
+            f'{{lifecycle_state="{_prometheus_label(lifecycle_state)}"}} {count}'
+        )
+    lines.extend(
+        [
             "# HELP kagent_runtime_runs_by_auth_subject_total "
             "Codex-style runtime runs by authenticated internal subject.",
             "# TYPE kagent_runtime_runs_by_auth_subject_total counter",
@@ -1320,6 +1350,18 @@ def _split_combined_metrics_key(value: str) -> Tuple[str, str]:
     if not separator:
         return value, ""
     return left, right
+
+
+def _runtime_lifecycle_state(status: str) -> str:
+    if status == "cancelled":
+        return "cancelled"
+    if status == "done":
+        return "succeeded"
+    if status == "failed":
+        return "failed"
+    if status == "requires_approval":
+        return "waiting_approval"
+    return "unknown"
 
 
 def _duration_bucket_labels() -> Tuple[Tuple[float, str], ...]:

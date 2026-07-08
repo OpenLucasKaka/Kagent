@@ -883,6 +883,10 @@ and SLO burn-rate views that average and max gauges cannot provide on their own.
 Use `kagent_runtime_runs_total` and
 `kagent_runtime_run_status_total` to trend Codex-style runtime
 traffic separately from the deterministic `/run` path. Use
+`runtime_runs_by_lifecycle_state` and
+`kagent_runtime_run_lifecycle_state_total` for operator-facing lifecycle
+dashboards over `waiting_approval`, `running`, `succeeded`, and `failed`
+phases. Use
 `runtime_runs_by_auth_subject`, `runtime_runs_by_auth_subject_status`,
 `runtime_resumes_by_auth_subject`,
 `kagent_runtime_runs_by_auth_subject_total`, and

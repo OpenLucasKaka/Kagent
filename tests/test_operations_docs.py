@@ -348,6 +348,8 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "kagent_runtime_run_duration_seconds_bucket" in runbook
     assert "kagent_runtime_runs_total" in runbook
     assert "kagent_runtime_run_status_total" in runbook
+    assert "runtime_runs_by_lifecycle_state" in runbook
+    assert "kagent_runtime_run_lifecycle_state_total" in runbook
     assert "runtime_runs_by_auth_subject" in runbook
     assert "runtime_runs_by_auth_subject_status" in runbook
     assert "runtime_resumes_by_auth_subject" in runbook

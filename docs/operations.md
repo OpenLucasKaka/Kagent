@@ -581,11 +581,14 @@ hardening without inspecting the filesystem on every pod. The OpenAPI
 `ConfigResponse` and `MetricsResponse` schemas also declare those fields for
 generated clients and gateway contract checks.
 They also expose redacted LLM provider state through `llm_provider`,
-`llm_provider_display_name`, `llm_base_url`, `llm_model`,
-`llm_api_key_configured`, and `llm_timeout_seconds`, plus retry audit fields
-`llm_max_retries` and `llm_retry_backoff_seconds`. Operational rule:
-raw API key is never exposed. Operators should use
-`llm_api_key_configured` only to confirm whether a key is present.
+`llm_provider_display_name`, `llm_base_url`, `llm_base_url_configured`,
+`llm_model`, `llm_api_key_configured`, and `llm_timeout_seconds`, plus retry
+audit fields `llm_max_retries` and `llm_retry_backoff_seconds`. Embedding
+provider diagnostics use the same redacted pattern: `embedding_provider`,
+`embedding_base_url`, `embedding_base_url_configured`, `embedding_model`, and
+`embedding_api_key_configured`. Operational rule: raw API keys and raw provider endpoints are never exposed.
+Operators should use configured/not-configured fields only to confirm whether
+endpoints and keys are present.
 Probe and integration endpoints such as `HEAD /health`, `HEAD /ready`,
 `OPTIONS /run`, and `GET /metrics.prom` also declare response headers and
 content types in the OpenAPI document.
@@ -1011,7 +1014,8 @@ authentication failures, rate limiting, and service-side agent failures by
 stable `error_code`. Use `service_version`, `bind_host`, `bind_port`,
 `auth_required`, `trace_persistence`, `trace_directory_permissions`,
 `trace_file_permissions`, `trace_probe_file_permissions`, `max_request_bytes`,
-`trust_forwarded_for`, `llm_provider`, `llm_base_url`, `llm_model`,
+`trust_forwarded_for`, `embedding_provider`, `embedding_base_url_configured`,
+`llm_provider`, `llm_base_url_configured`, `llm_model`,
 `llm_api_key_configured`, `llm_timeout_seconds`, `llm_max_retries`, and
 `llm_retry_backoff_seconds` in `/metrics`, plus
 `kagent_build_info` in Prometheus scrapes, to audit rollout

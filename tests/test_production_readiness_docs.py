@@ -110,7 +110,9 @@ def test_production_readiness_checklist_documents_release_gates():
     assert "evidence_secret_findings" in readiness
     assert "kagent-release-evidence" in readiness
     assert "Known External Dependencies" in readiness
-    assert "redacted LLM provider audit fields" in readiness
+    assert "redacted LLM and embedding provider audit fields" in readiness
+    assert "embedding_base_url_configured" in readiness
+    assert "raw provider endpoints" in readiness
     assert "llm_api_key_configured" in readiness
     assert "llm_max_retries" in readiness
     assert "llm_retry_backoff_seconds" in readiness

@@ -326,6 +326,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "unknown action fields" in runbook
     assert "oversized plans fail" in runbook
     assert "llm_base_url" in runbook
+    assert "embedding_base_url_configured" in runbook
     assert "llm_model" in runbook
     assert "llm_api_key_configured" in runbook
     assert "llm_timeout_seconds" in runbook
@@ -341,7 +342,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "Provider details stay behind the configuration boundary" in runbook
     assert "final_answer_guardrail" in runbook
     assert "unresolved_failure_boundary" in runbook
-    assert "raw API key is never exposed" in runbook
+    assert "raw API keys and raw provider endpoints are never exposed" in runbook
     assert "bind_host" in runbook
     assert "bind_port" in runbook
     assert "max_request_bytes" in runbook

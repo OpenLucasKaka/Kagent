@@ -23,6 +23,14 @@ function readPackageVersion(root) {
   return packageJson.version;
 }
 
+function maybePrintNodeHandledOutput(commandName, args, version) {
+  if (commandName === "kagent" && args.length === 1 && args[0] === "--version") {
+    process.stdout.write(`${JSON.stringify({ version }, null, 2)}\n`);
+    return true;
+  }
+  return false;
+}
+
 function cacheRoot() {
   if (process.env.KAGENT_NODE_VENV) {
     return path.resolve(process.env.KAGENT_NODE_VENV);
@@ -416,6 +424,9 @@ async function runPythonEntrypoint(commandName, args) {
   try {
     const root = packageRoot();
     const version = readPackageVersion(root);
+    if (maybePrintNodeHandledOutput(commandName, args, version)) {
+      return;
+    }
     if (await maybeSelfUpdate(root, version, commandName, args)) {
       return;
     }
@@ -432,6 +443,7 @@ module.exports = {
   _internals: {
     hasSelfUpdate,
     isNewerVersion,
+    maybePrintNodeHandledOutput,
     shouldCheckSelfUpdate
   }
 };

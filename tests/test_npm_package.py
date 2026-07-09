@@ -75,6 +75,28 @@ def test_npm_runner_checks_github_for_interactive_self_update():
     )
 
 
+def test_npm_kagent_version_does_not_bootstrap_python_runtime(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        return
+    package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
+
+    completed = subprocess.run(
+        [node, "npm/bin/kagent.js", "--version"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "KAGENT_NODE_VENV": str(tmp_path / "empty-cache"),
+            "KAGENT_NO_SELF_UPDATE": "1",
+            "PATH": "",
+        },
+    )
+
+    assert json.loads(completed.stdout) == {"version": package_json["version"]}
+    assert completed.stderr == ""
+
+
 def test_npm_runner_semver_comparison_handles_multi_digit_segments():
     node = shutil.which("node")
     if node is None:

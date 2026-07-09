@@ -177,6 +177,34 @@ def test_service_status_reports_configured_external_backend_snapshot():
     assert snapshot["external_backend_timeout_seconds"] == "1.5"
 
 
+def test_readiness_fails_when_embedding_config_is_incomplete():
+    readiness = readiness_payload(
+        ServiceConfig(
+            embedding_base_url="https://embedding.example/v1",
+            embedding_model="",
+        )
+    )
+
+    assert readiness["status"] == "not_ready"
+    assert readiness["checks"]["embedding_provider"] == (
+        "failed: embedding_provider_unavailable"
+    )
+    assert readiness["failed_checks"] == ["embedding_provider"]
+    assert readiness["error_code"] == "readiness_failed"
+
+
+def test_readiness_accepts_complete_embedding_config_without_network_probe():
+    readiness = readiness_payload(
+        ServiceConfig(
+            embedding_base_url="https://embedding.example/v1",
+            embedding_model="text-embedding-model",
+        )
+    )
+
+    assert readiness["status"] == "ready"
+    assert readiness["checks"]["embedding_provider"] == "ok"
+
+
 def test_readiness_fails_when_sqlite_idempotency_cache_path_is_unusable(tmp_path):
     blocked_parent = tmp_path / "not-a-directory"
     blocked_parent.write_text("not a directory", encoding="utf-8")

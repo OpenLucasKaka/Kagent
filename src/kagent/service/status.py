@@ -49,6 +49,11 @@ def readiness_payload(config: Optional[ServiceConfig] = None) -> Dict[str, Any]:
             lambda: _check_idempotency_cache_persistence(active_config),
             "idempotency_cache_unavailable",
         )
+    if _embedding_provider_configured(active_config):
+        checks["embedding_provider"] = _readiness_check(
+            lambda: _check_embedding_provider_config(active_config),
+            "embedding_provider_unavailable",
+        )
     checks.update(check_external_backends(_external_backend_config(active_config)))
     failed_checks = [name for name, value in checks.items() if value != "ok"]
     status = "ready" if not failed_checks else "not_ready"
@@ -185,6 +190,27 @@ def _check_idempotency_cache_persistence(config: ServiceConfig) -> None:
         max_entries=config.idempotency_cache_size,
         database_path=config.idempotency_cache_path,
     ).snapshot()
+
+
+def _embedding_provider_configured(config: ServiceConfig) -> bool:
+    return bool(
+        config.embedding_base_url
+        or config.embedding_api_key
+        or config.embedding_model
+    )
+
+
+def _check_embedding_provider_config(config: ServiceConfig) -> None:
+    if not config.embedding_base_url:
+        raise ValueError("embedding base_url is required")
+    if not config.embedding_model:
+        raise ValueError("embedding model is required")
+    EmbeddingProviderConfig(
+        base_url=config.embedding_base_url,
+        api_key=config.embedding_api_key,
+        model=config.embedding_model,
+        timeout_seconds=config.embedding_timeout_seconds,
+    )
 
 
 def _external_backend_config(config: ServiceConfig) -> ExternalBackendConfig:

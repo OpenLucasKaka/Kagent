@@ -14,6 +14,13 @@ def test_npm_package_declares_daily_use_bins():
     }
 
 
+def test_npm_and_python_package_versions_match():
+    package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert f'version = "{package_json["version"]}"' in pyproject
+
+
 def test_npm_package_ships_python_runtime_sources():
     package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
 

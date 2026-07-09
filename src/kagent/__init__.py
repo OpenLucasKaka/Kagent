@@ -1,11 +1,28 @@
 """kagent LangGraph agent package."""
 
+import re
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+
+def _source_tree_version() -> str:
+    for parent in Path(__file__).resolve().parents:
+        pyproject_path = parent / "pyproject.toml"
+        if not pyproject_path.exists():
+            continue
+        pyproject = pyproject_path.read_text(encoding="utf-8")
+        if 'name = "kagent"' not in pyproject:
+            continue
+        match = re.search(r'(?m)^version = "([^"]+)"$', pyproject)
+        if match:
+            return match.group(1)
+    return ""
+
 
 try:
-    __version__ = version("kagent")
+    __version__ = _source_tree_version() or version("kagent")
 except PackageNotFoundError:
-    __version__ = "0.1.0"
+    __version__ = "0.1.5"
 
 __all__ = [
     "AgentConfig",

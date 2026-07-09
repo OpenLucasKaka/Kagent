@@ -241,6 +241,14 @@ def test_kubernetes_manifest_defines_production_runtime_resources():
     assert "secretRef:" in manifest
 
 
+def test_kubernetes_manifest_image_tags_match_package_version():
+    manifest = Path("deploy/kubernetes/kagent.yaml").read_text()
+    version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+
+    assert "image: kagent:0.1.0" not in manifest
+    assert manifest.count(f"image: kagent:{version}") == 3
+
+
 def test_kubernetes_manifest_uses_cluster_safe_pod_hardening():
     manifest = Path("deploy/kubernetes/kagent.yaml").read_text()
 

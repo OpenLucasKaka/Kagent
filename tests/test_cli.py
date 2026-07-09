@@ -455,7 +455,7 @@ def test_cli_can_print_package_version_without_goal():
     payload = json.loads(completed.stdout)
 
     assert completed.stderr == ""
-    assert payload == {"version": "0.1.0"}
+    assert payload == {"version": "0.1.5"}
 
 
 def test_cli_output_file_also_applies_to_introspection_commands(tmp_path):

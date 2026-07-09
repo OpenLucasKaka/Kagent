@@ -366,6 +366,30 @@ def test_shell_command_tool_rejects_network_exfiltration_commands(
         assert observation.error_code == "invalid_tool_input"
 
 
+def test_shell_command_tool_rejects_inline_interpreter_network_code(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+
+    python_bin = shlex.quote(sys.executable)
+    for command in [
+        f"{python_bin} -c 'import socket; socket.create_connection((\"example.com\", 443))'",
+        f"{python_bin} -c 'import urllib.request; urllib.request.urlopen(\"https://example.com\")'",
+        "node -e 'require(\"net\").connect(443, \"example.com\")'",
+    ]:
+        observation = execute_runtime_tool(
+            default_runtime_tools(),
+            "shell_command",
+            {"command": command},
+            action_id="step-1",
+        )
+
+        assert observation.status == "failed"
+        assert observation.error_code == "invalid_tool_input"
+        assert "network shell commands are not supported" in observation.error
+
+
 def test_apply_patch_tool_adds_file_inside_workspace(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

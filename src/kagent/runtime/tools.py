@@ -90,6 +90,18 @@ _SHELL_SECRET_EXPOSURE_PATTERNS = (
 _SHELL_NETWORK_COMMAND_PATTERNS = (
     re.compile(r"\b(?:curl|wget|ssh|scp|sftp|rsync|nc|netcat|telnet)\b"),
 )
+_SHELL_INLINE_NETWORK_CODE_PATTERNS = (
+    re.compile(
+        r"\bpython[0-9.]*\b[^;&|]*\s+-c\s+.+"
+        r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bnode\b[^;&|]*\s+-e\s+.+"
+        r"(?:\bfetch\s*\(|require\s*\(\s*['\"](?:net|http|https|dgram)['\"]\s*\))",
+        re.I,
+    ),
+)
 _SHELL_PIPE_TO_SHELL_PATTERN = re.compile(
     r"\|\s*(?:sh|bash|zsh|python[0-9.]*|node|ruby)\b"
 )
@@ -2031,6 +2043,9 @@ def _validate_shell_command(command: str) -> None:
     if _SHELL_PIPE_TO_SHELL_PATTERN.search(command):
         raise ValueError("pipe-to-shell commands are not supported")
     for pattern in _SHELL_NETWORK_COMMAND_PATTERNS:
+        if pattern.search(command):
+            raise ValueError("network shell commands are not supported; use http_request")
+    for pattern in _SHELL_INLINE_NETWORK_CODE_PATTERNS:
         if pattern.search(command):
             raise ValueError("network shell commands are not supported; use http_request")
 

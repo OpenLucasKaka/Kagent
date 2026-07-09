@@ -71,6 +71,7 @@ def test_architecture_document_names_runtime_and_operational_boundaries():
     assert "shell_command" in architecture
     assert "secret-exposing environment reads" in architecture
     assert "SSRF" in architecture
+    assert "inline interpreter network APIs" in architecture
     assert "private, loopback, and link-local" in architecture
     assert "url credentials" in architecture
     assert "secret-like query or fragment" in architecture

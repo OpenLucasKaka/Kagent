@@ -649,7 +649,7 @@ uses Google Chrome automation first, falls back to macOS `open`, and does not
 fetch page content into the runtime trace. `shell_command` executes only after
 policy approval, uses workspace-confined cwd, strips host secrets by replacing
 the inherited environment with a minimal sandbox environment, rejects
-network-capable shell clients, and returns `sandbox.enabled`,
+network-capable shell clients and common inline interpreter network APIs, and returns `sandbox.enabled`,
 `sandbox.filesystem`, `sandbox.network`, and `sandbox.env_policy` in the
 observation output. Approval does not bypass SSRF
 protection: `http_request` rejects private, loopback, and link-local URL

@@ -293,6 +293,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "blocking failures" in runbook
     assert "Tools that affect the local desktop, network, or shell require approval" in runbook
     assert "`open_app`, `open_url`, `http_request`, and `shell_command`" in runbook
+    assert "inline interpreter network APIs" in runbook
     assert "plans" in runbook
     assert "final_answer" in runbook
     assert "duplicate tool calls" in runbook

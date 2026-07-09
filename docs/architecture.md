@@ -63,7 +63,8 @@ policy-gated `http_request` tool for approved HTTP GET fetches and
 can register behind the same metadata, input, output, and error-code contract.
 `shell_command` stays approval-required by default and rejects destructive
 local commands, secret-exposing environment reads, pipe-to-shell installers, and
-network-capable shell clients; use `http_request` for approved HTTP fetches
+network-capable shell clients plus common inline interpreter network APIs; use
+`http_request` for approved HTTP fetches
 instead. Approved shell commands execute with workspace-confined cwd, bounded
 timeout/output, and a minimal sandbox environment that does not inherit provider
 keys or host process secrets. Shell observations expose `sandbox.enabled`,

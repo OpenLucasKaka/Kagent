@@ -2132,10 +2132,34 @@ def _diagnostic_audit_properties() -> Dict[str, Dict[str, Any]]:
     return properties
 
 
+def _runtime_llm_provider_metric_properties() -> Dict[str, Dict[str, Any]]:
+    string_metric_schema = {"type": "string"}
+    map_metric_schema = {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+    properties = {
+        "runtime_llm_provider_requests_total": string_metric_schema,
+        "runtime_llm_provider_request_attempts_total": string_metric_schema,
+        "runtime_llm_provider_request_retries_total": string_metric_schema,
+        "runtime_llm_provider_request_duration_seconds_count": string_metric_schema,
+        "runtime_llm_provider_request_duration_seconds_sum": string_metric_schema,
+        "average_runtime_llm_provider_request_duration_seconds": string_metric_schema,
+        "max_runtime_llm_provider_request_duration_seconds": string_metric_schema,
+        "runtime_llm_provider_requests_by_status": map_metric_schema,
+        "runtime_llm_provider_request_errors_by_type": map_metric_schema,
+        "runtime_llm_provider_request_http_status": map_metric_schema,
+        "runtime_llm_provider_request_retryable_reason": map_metric_schema,
+        "runtime_llm_provider_request_duration_seconds_bucket": map_metric_schema,
+    }
+    return properties
+
+
 def _metrics_response_properties() -> Dict[str, Dict[str, Any]]:
     properties = _diagnostic_audit_properties()
     properties["runtime_progress_event_sink_failures_total"] = {"type": "string"}
     properties["runtime_hook_failures_total"] = {"type": "string"}
+    properties.update(_runtime_llm_provider_metric_properties())
     return properties
 
 

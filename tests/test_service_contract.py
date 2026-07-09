@@ -1507,6 +1507,41 @@ def test_service_contract_documents_runtime_progress_sink_failure_metric():
     )
 
 
+def test_service_contract_documents_runtime_llm_provider_metrics():
+    payload = service_openapi()
+    schema_properties = payload["components"]["schemas"]["MetricsResponse"]["properties"]
+    string_metrics = [
+        "runtime_llm_provider_requests_total",
+        "runtime_llm_provider_request_attempts_total",
+        "runtime_llm_provider_request_retries_total",
+        "runtime_llm_provider_request_duration_seconds_count",
+        "runtime_llm_provider_request_duration_seconds_sum",
+        "average_runtime_llm_provider_request_duration_seconds",
+        "max_runtime_llm_provider_request_duration_seconds",
+    ]
+    map_metrics = [
+        "runtime_llm_provider_requests_by_status",
+        "runtime_llm_provider_request_errors_by_type",
+        "runtime_llm_provider_request_http_status",
+        "runtime_llm_provider_request_retryable_reason",
+        "runtime_llm_provider_request_duration_seconds_bucket",
+    ]
+
+    for metric_name in string_metrics:
+        assert schema_properties[metric_name] == {"type": "string"}
+
+    for metric_name in map_metrics:
+        assert schema_properties[metric_name] == {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        }
+
+        assert (
+            metric_name
+            not in payload["components"]["schemas"]["ConfigResponse"]["properties"]
+        )
+
+
 def test_service_contract_documents_llm_provider_audit_fields():
     payload = service_openapi()
     schemas = payload["components"]["schemas"]

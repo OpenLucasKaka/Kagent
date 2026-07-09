@@ -1916,6 +1916,77 @@ def test_memory_text_tools_embed_text_before_milvus_operations(monkeypatch):
     ]
 
 
+def test_memory_write_tools_reject_secret_like_payloads_before_backend_calls(
+    monkeypatch,
+):
+    calls = []
+
+    class FakeRedisMemory:
+        def __init__(self, *_args, **_kwargs):
+            calls.append("redis_init")
+
+    class FakeEmbeddingProvider:
+        def __init__(self, *_args, **_kwargs):
+            calls.append("embedding_init")
+
+    class FakeMilvusMemory:
+        def __init__(self, *_args, **_kwargs):
+            calls.append("milvus_init")
+
+    monkeypatch.setattr(runtime_tools, "RedisShortTermMemory", FakeRedisMemory)
+    monkeypatch.setattr(runtime_tools, "OpenAICompatibleEmbeddingProvider", FakeEmbeddingProvider)
+    monkeypatch.setattr(runtime_tools, "MilvusLongTermMemory", FakeMilvusMemory)
+    tools = default_runtime_tools(
+        redis_url="redis://memory:6379/0",
+        milvus_url="http://milvus:19530",
+        embedding_base_url="https://llm.example/v1",
+        embedding_model="embed-model",
+    )
+
+    redis_write = execute_runtime_tool(
+        tools,
+        "memory_put",
+        {
+            "namespace": "session",
+            "key": "secret",
+            "value": {"token": "Bearer abcdefghijklmnop"},
+        },
+        action_id="step-1",
+    )
+    milvus_write = execute_runtime_tool(
+        tools,
+        "memory_remember",
+        {
+            "collection": "memories",
+            "memory_id": "secret",
+            "text": "api key sk-abcdefghijklmnop",
+        },
+        action_id="step-2",
+    )
+    vector_write = execute_runtime_tool(
+        tools,
+        "memory_upsert",
+        {
+            "collection": "memories",
+            "memory_id": "secret",
+            "text": "Authorization: Bearer abcdefghijklmnop",
+            "vector": [0.1],
+        },
+        action_id="step-3",
+    )
+
+    assert redis_write.status == "failed"
+    assert redis_write.error_code == "invalid_tool_input"
+    assert redis_write.error == "memory write payload contains secret-like text"
+    assert milvus_write.status == "failed"
+    assert milvus_write.error_code == "invalid_tool_input"
+    assert milvus_write.error == "memory write payload contains secret-like text"
+    assert vector_write.status == "failed"
+    assert vector_write.error_code == "invalid_tool_input"
+    assert vector_write.error == "memory write payload contains secret-like text"
+    assert calls == []
+
+
 def test_artifact_tool_records_structured_artifact_observation():
     observation = execute_runtime_tool(
         default_runtime_tools(),

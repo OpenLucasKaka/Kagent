@@ -22,6 +22,7 @@ from kagent.providers.embeddings import (
     OpenAICompatibleEmbeddingProvider,
 )
 from kagent.runtime.policy import RuntimePolicy
+from kagent.runtime.redaction import redact_runtime_payload
 from kagent.runtime.skills import RuntimeSkillRegistry
 from kagent.runtime.task_state import TASK_EVENTS, TASK_STATES, TaskStateMachine
 from kagent.runtime.types import AgentObservation
@@ -1709,6 +1710,7 @@ def _memory_put(
 ) -> Dict[str, Any]:
     if not redis_url:
         raise ValueError("redis memory backend is not configured")
+    _reject_secret_like_memory_payload(input_payload.get("value"))
     ttl = input_payload.get("ttl_seconds", 0)
     if isinstance(ttl, bool) or not isinstance(ttl, (int, float)):
         raise ValueError("ttl_seconds must be a number")
@@ -1753,6 +1755,12 @@ def _memory_upsert(
     metadata = input_payload.get("metadata", {})
     if not isinstance(metadata, dict):
         raise ValueError("metadata must be an object")
+    _reject_secret_like_memory_payload(
+        {
+            "text": input_payload.get("text", ""),
+            "metadata": metadata,
+        }
+    )
     return MilvusLongTermMemory(
         milvus_url,
         timeout_seconds=timeout_seconds,
@@ -1802,6 +1810,7 @@ def _memory_remember(
     if not isinstance(metadata, dict):
         raise ValueError("metadata must be an object")
     text = str(input_payload.get("text", ""))
+    _reject_secret_like_memory_payload({"text": text, "metadata": metadata})
     vector = OpenAICompatibleEmbeddingProvider(embedding_config).embed(text)
     output = MilvusLongTermMemory(
         milvus_url,
@@ -1858,6 +1867,11 @@ def _require_embedding_config(config: EmbeddingProviderConfig) -> None:
         raise ValueError("embedding base_url is not configured")
     if not config.model:
         raise ValueError("embedding model is not configured")
+
+
+def _reject_secret_like_memory_payload(value: Any) -> None:
+    if redact_runtime_payload(value) != value:
+        raise ValueError("memory write payload contains secret-like text")
 
 
 def _first_env_value(names: tuple[str, ...]) -> str:

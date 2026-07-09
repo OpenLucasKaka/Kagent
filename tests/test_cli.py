@@ -1522,7 +1522,11 @@ def test_cli_runtime_provider_config_redacts_secret_values():
 
 
 def test_cli_prompt_toolkit_reader_wraps_long_lines():
-    from kagent.cli.interactive import _PromptToolkitLineReader
+    from kagent.cli.interactive import (
+        _PromptToolkitLineReader,
+        _runtime_prompt_continuation,
+        _runtime_prompt_fragments,
+    )
 
     class FakeSession:
         def __init__(self):
@@ -1538,15 +1542,33 @@ def test_cli_prompt_toolkit_reader_wraps_long_lines():
     assert reader.read(color=True) == "帮我制定一个很长很长的周末旅行攻略"
     assert session.calls == [
         {
-            "message": [("class:input-bar.prompt", "› ")],
+            "message": _runtime_prompt_fragments(color=True),
             "wrap_lines": True,
             "multiline": False,
+            "prompt_continuation": _runtime_prompt_continuation,
+            "reserve_space_for_menu": 4,
             "refresh_interval": 0.12,
         }
     ]
     assert "bottom_toolbar" not in session.calls[0]
     assert reader.should_erase_empty_line() is False
     assert reader.uses_prompt_status() is False
+
+
+def test_cli_prompt_toolkit_prompt_fragments_keep_arrow_inside_input_bar():
+    from kagent.cli.interactive import (
+        _runtime_prompt_continuation,
+        _runtime_prompt_fragments,
+    )
+
+    assert _runtime_prompt_fragments(color=True) == [
+        ("class:input-bar.padding", "  "),
+        ("class:input-bar.prompt", "› "),
+    ]
+    assert _runtime_prompt_fragments(color=False) == "  › "
+    assert _runtime_prompt_continuation(80, 1, False) == [
+        ("class:input-bar.padding", "    "),
+    ]
 
 
 def test_cli_defaults_history_to_xdg_state(monkeypatch, tmp_path):
@@ -1637,7 +1659,7 @@ def test_cli_prompt_toolkit_session_uses_persistent_history(
     style_rules = str(created_sessions[0]["style"].style_rules)
     assert "bg:" not in style_rules
     assert "bottom-toolbar" not in str(created_sessions[0]["style"].style_rules)
-    assert "input-bar.blank" not in str(created_sessions[0]["style"].style_rules)
+    assert "input-bar.padding" in str(created_sessions[0]["style"].style_rules)
     assert "input-bar.prompt" in str(created_sessions[0]["style"].style_rules)
     assert "input-bar.progress" not in str(created_sessions[0]["style"].style_rules)
     assert "#303030" not in style_rules

@@ -442,6 +442,34 @@ function spawnEntrypoint(venvDir, commandName, args) {
   process.exit(result.status === null ? 1 : result.status);
 }
 
+function ensurePythonRuntime() {
+  const root = packageRoot();
+  const version = readPackageVersion(root);
+  const venvDir = ensureVenv(root, version);
+  return {
+    root,
+    version,
+    venvDir,
+    pythonPath: venvPythonPath(venvDir)
+  };
+}
+
+function spawnPythonModule(moduleName, args, options) {
+  const runtime = ensurePythonRuntime();
+  return childProcess.spawn(
+    runtime.pythonPath,
+    ["-m", moduleName].concat(args || []),
+    Object.assign(
+      {
+        cwd: runtime.root,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"]
+      },
+      options || {}
+    )
+  );
+}
+
 async function runPythonEntrypoint(commandName, args) {
   try {
     const root = packageRoot();
@@ -461,7 +489,9 @@ async function runPythonEntrypoint(commandName, args) {
 }
 
 module.exports = {
+  ensurePythonRuntime,
   runPythonEntrypoint,
+  spawnPythonModule,
   _internals: {
     hasSelfUpdate,
     isNewerVersion,

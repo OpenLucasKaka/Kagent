@@ -36,6 +36,33 @@ def test_npm_package_declares_ink_tui_dependencies():
     assert package_json["dependencies"]["react"].startswith("^18.")
 
 
+def test_npm_package_declares_typed_ink_build_pipeline():
+    package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
+    tsconfig = json.loads(Path("tsconfig.json").read_text(encoding="utf-8"))
+
+    assert package_json["scripts"]["build:cli"] == "tsc -p tsconfig.json"
+    assert "npm run build:cli" in package_json["scripts"]["check"]
+    assert package_json["devDependencies"]["typescript"].startswith("^5.")
+    assert package_json["devDependencies"]["@types/react"].startswith("^18.")
+    assert tsconfig["compilerOptions"]["jsx"] == "react-jsx"
+    assert tsconfig["include"] == ["npm/src/**/*.ts", "npm/src/**/*.tsx"]
+
+
+def test_npm_ink_source_uses_jsonl_runtime_protocol():
+    source_paths = [
+        Path("npm/src/App.tsx"),
+        Path("npm/src/protocol.ts"),
+        Path("npm/src/runtime-client.ts"),
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in source_paths)
+
+    assert "run_request" in combined
+    assert "run_progress" in combined
+    assert "run_completed" in combined
+    assert "kagent.cli.stdio_runtime" in combined
+    assert "--classic" not in Path("npm/src/runtime-client.ts").read_text(encoding="utf-8")
+
+
 def test_npm_bin_scripts_are_executable_node_wrappers():
     for script in (Path("npm/bin/kagent.js"), Path("npm/bin/kagent-serve.js")):
         text = script.read_text(encoding="utf-8")
@@ -52,15 +79,15 @@ def test_npm_kagent_bin_prefers_ink_tui_with_classic_fallback():
     assert "runPythonEntrypoint(\"kagent\", classicArgs(args))" in text
 
 
-def test_npm_ink_runner_bridges_to_classic_python_runtime():
+def test_npm_ink_runner_uses_built_ink_app():
     text = Path("npm/lib/ink-runner.js").read_text(encoding="utf-8")
+    client = Path("npm/lib/runtime-client.js").read_text(encoding="utf-8")
 
     assert "Ink" in text
     assert "React" in text
-    assert "spawn" in text
-    assert "--classic" in text
-    assert "--runtime" in text
     assert "kagent" in text
+    assert "kagent.cli.stdio_runtime" in client
+    assert "run_request" in client
 
 
 def test_npm_runner_uses_cache_venv_and_env_forwarding():

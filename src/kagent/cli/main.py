@@ -12,6 +12,7 @@ from kagent.cli.interactive import (
     run_runtime_interactive as _run_runtime_interactive,
 )
 from kagent.cli.memory import default_runtime_session_memory_path
+from kagent.cli.provider import RuntimeProviderConfigError, runtime_provider_config_message
 from kagent.cli.trace import (
     persist_runtime_cli_trace,
 )
@@ -26,10 +27,6 @@ from kagent.runtime.metadata import (
 from kagent.utils.json_output import format_and_write_json, json_ready
 
 DEFAULT_RUNTIME_MAX_ITERATIONS = 3
-
-
-class RuntimeProviderConfigError(ValueError):
-    pass
 
 
 def main() -> None:
@@ -410,27 +407,8 @@ def _runtime_provider_from_args(
                 missing.append("KAGENT_LLM_MODEL")
             if not missing:
                 return build_llm_provider(config)
-        raise RuntimeProviderConfigError(_runtime_provider_config_message(missing))
+        raise RuntimeProviderConfigError(runtime_provider_config_message(missing))
     return build_llm_provider(config)
-
-
-def _runtime_provider_config_message(missing: list[str]) -> str:
-    missing_list = ", ".join(missing)
-    return (
-        "kagent runtime provider is not configured.\n"
-        f"Missing: {missing_list}\n\n"
-        "Fastest setup:\n"
-        "  kagent --configure\n\n"
-        "Or set the provider in your shell, then run kagent again:\n"
-        "  export KAGENT_LLM_PROVIDER='openai_compatible'\n"
-        "  export KAGENT_LLM_BASE_URL='https://your-openai-compatible-endpoint/v1'\n"
-        "  export KAGENT_LLM_MODEL='qwen3.5-122b-a10b'\n"
-        "  export KAGENT_LLM_API_KEY='your-api-key'\n\n"
-        "Provider can be openai_compatible, deepseek, qwen, or ollama; "
-        "kagent can usually infer it from Base URL and model.\n\n"
-        "For a local LLM-free smoke test, run:\n"
-        "  kagent --deterministic 'calculate 2 + 3'"
-    )
 
 
 def _configure_runtime_provider_interactively(

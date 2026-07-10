@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "declaration": false,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "npm/lib",
+    "rootDir": "npm/src",
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["npm/src/**/*.ts", "npm/src/**/*.tsx"]
+}

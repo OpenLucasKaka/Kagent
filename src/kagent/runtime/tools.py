@@ -32,7 +32,7 @@ from kagent.runtime.workspace import VIRTUAL_WORKSPACE_KINDS, RuntimeWorkspace
 RuntimeToolHandler = Callable[[Dict[str, Any]], Dict[str, Any]]
 _ARTIFACT_KINDS = ("report", "plan", "decision", "data", "message")
 _ARTIFACT_FORMATS = ("markdown", "plain_text", "json")
-_TASK_STATUSES = ("pending", "in_progress", "blocked", "done")
+_TASK_STATUSES = ("pending", "in_progress", "blocked", "done", "failed")
 _TASK_PRIORITIES = ("low", "normal", "high")
 _SHORT_TEXT_MAX_LENGTH = 200
 _TASK_TITLE_MAX_LENGTH = 500
@@ -309,6 +309,7 @@ _TASK_STATUS_COUNTS_OUTPUT_SCHEMA = {
         "in_progress": {"type": "number", "minimum": 0},
         "blocked": {"type": "number", "minimum": 0},
         "done": {"type": "number", "minimum": 0},
+        "failed": {"type": "number", "minimum": 0},
     },
     "additionalProperties": False,
 }
@@ -3248,7 +3249,7 @@ def _normalize_task_item(item: Dict[str, Any], index: int) -> Dict[str, Any]:
     status = item.get("status", "pending")
     if status not in _TASK_STATUSES:
         raise ValueError(
-            f"item {index} status must be pending, in_progress, blocked, or done"
+            f"item {index} status must be pending, in_progress, blocked, done, or failed"
         )
     priority = item.get("priority", "normal")
     if priority not in _TASK_PRIORITIES:

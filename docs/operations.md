@@ -690,6 +690,9 @@ in observations.
 decisions, `rubric_score` returns score percentages, failed criteria, and
 blocking failures for structured self-review, while `task_list` returns
 normalized task items plus status counts for planning and handoff workflows.
+`task_transition` validates lifecycle events including `fail`, so operators can
+distinguish failed work from blocked, cancelled, or completed work in structured
+task artifacts.
 Runtime tool execution enforces the declared schema subset before calling
 handlers, so undeclared fields, missing required values, invalid enum values,
 malformed nested items, and non-numeric `number` fields return

@@ -1481,6 +1481,7 @@ def test_service_router_runtime_run_can_execute_task_list_tool():
         "in_progress": 0,
         "blocked": 0,
         "done": 1,
+        "failed": 0,
     }
 
 

@@ -18,6 +18,18 @@ def test_task_state_machine_accepts_valid_lifecycle_transition():
     }
 
 
+def test_task_state_machine_can_mark_active_task_failed():
+    machine = TaskStateMachine()
+
+    transition = machine.transition("in_progress", "fail")
+
+    assert transition == {
+        "previous_state": "in_progress",
+        "event": "fail",
+        "state": "failed",
+    }
+
+
 def test_task_state_machine_rejects_invalid_transition():
     machine = TaskStateMachine()
 
@@ -38,4 +50,20 @@ def test_task_transition_tool_returns_structured_transition():
         "previous_state": "in_progress",
         "event": "block",
         "state": "blocked",
+    }
+
+
+def test_task_transition_tool_returns_failed_transition():
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "task_transition",
+        {"state": "blocked", "event": "fail"},
+        action_id="step-1",
+    )
+
+    assert observation.status == "ok"
+    assert observation.output == {
+        "previous_state": "blocked",
+        "event": "fail",
+        "state": "failed",
     }

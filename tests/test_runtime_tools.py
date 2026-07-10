@@ -1375,6 +1375,7 @@ def test_runtime_tool_specs_expose_output_schemas_for_planning_and_clients():
         "in_progress": {"type": "number", "minimum": 0},
         "blocked": {"type": "number", "minimum": 0},
         "done": {"type": "number", "minimum": 0},
+        "failed": {"type": "number", "minimum": 0},
     }
 
 
@@ -1719,6 +1720,12 @@ def test_registered_runtime_tool_metadata_includes_input_schemas():
         "state",
         "event",
     ]
+    assert "failed" in by_name["task_transition"]["input_schema"]["properties"][
+        "state"
+    ]["enum"]
+    assert "fail" in by_name["task_transition"]["input_schema"]["properties"][
+        "event"
+    ]["enum"]
     assert by_name["decision_matrix"]["output_schema"]["required"] == [
         "question",
         "criteria",
@@ -2305,8 +2312,37 @@ def test_task_list_tool_normalizes_items_and_counts_statuses():
                 "owner": "ops",
             },
         ],
-        "counts": {"pending": 1, "in_progress": 0, "blocked": 0, "done": 1},
+        "counts": {
+            "pending": 1,
+            "in_progress": 0,
+            "blocked": 0,
+            "done": 1,
+            "failed": 0,
+        },
         "total": 2,
+    }
+
+
+def test_task_list_tool_accepts_failed_status():
+    observation = execute_runtime_tool(
+        default_runtime_tools(),
+        "task_list",
+        {
+            "items": [
+                {"title": "Collect logs", "status": "failed", "priority": "high"},
+            ]
+        },
+        action_id="step-1",
+    )
+
+    assert observation.status == "ok"
+    assert observation.output["items"][0]["status"] == "failed"
+    assert observation.output["counts"] == {
+        "pending": 0,
+        "in_progress": 0,
+        "blocked": 0,
+        "done": 0,
+        "failed": 1,
     }
 
 

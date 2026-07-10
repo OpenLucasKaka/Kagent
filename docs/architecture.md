@@ -93,7 +93,9 @@ tradeoff-heavy planning. `rubric_score` gives the runtime a structured
 self-review primitive for pass/fail criteria, score percentages, failed
 criteria, and blocking failures. `task_list` gives the runtime a structured
 planning artifact with normalized statuses, priorities, owners, due labels, and
-status counts. `workspace_write`, `workspace_read`, `workspace_list`,
+status counts, including failed task tracking; `task_transition` validates
+start, block, resume, complete, fail, cancel, and reopen lifecycle events.
+`workspace_write`, `workspace_read`, `workspace_list`,
 `workspace_search`, `workspace_history`, and `workspace_diff` provide bounded
 virtual-workspace asset creation, retrieval, listing, text search, bounded
 overwrite history, and unified change review. These assets cover reports, logs,

@@ -2,20 +2,24 @@ from __future__ import annotations
 
 from typing import Dict
 
-TASK_STATES = ("pending", "in_progress", "blocked", "done", "cancelled")
-TASK_EVENTS = ("start", "block", "resume", "complete", "cancel", "reopen")
+TASK_STATES = ("pending", "in_progress", "blocked", "done", "failed", "cancelled")
+TASK_EVENTS = ("start", "block", "resume", "complete", "fail", "cancel", "reopen")
 
 
 class TaskStateMachine:
     _TRANSITIONS = {
         ("pending", "start"): "in_progress",
+        ("pending", "fail"): "failed",
         ("pending", "cancel"): "cancelled",
         ("in_progress", "block"): "blocked",
         ("in_progress", "complete"): "done",
+        ("in_progress", "fail"): "failed",
         ("in_progress", "cancel"): "cancelled",
         ("blocked", "resume"): "in_progress",
+        ("blocked", "fail"): "failed",
         ("blocked", "cancel"): "cancelled",
         ("done", "reopen"): "in_progress",
+        ("failed", "reopen"): "pending",
         ("cancelled", "reopen"): "pending",
     }
 

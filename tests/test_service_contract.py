@@ -292,10 +292,18 @@ def test_service_contract_documents_named_success_schemas():
             "name": "status",
             "in": "query",
             "required": False,
-            "description": "Filter persisted runtime runs by terminal status",
+            "description": "Filter persisted runtime runs by status",
             "schema": {
                 "type": "string",
-                "enum": ["cancelled", "done", "failed", "requires_approval"],
+                "enum": [
+                    "cancelled",
+                    "done",
+                    "failed",
+                    "requires_approval",
+                    "resumed",
+                    "resuming",
+                    "running",
+                ],
             },
         },
         {
@@ -872,6 +880,9 @@ def test_service_contract_documents_named_success_schemas():
         "done",
         "failed",
         "requires_approval",
+        "resumed",
+        "resuming",
+        "running",
     ]
     assert schemas["RuntimeRunStatusResponse"]["properties"]["lifecycle_state"] == {
         "type": "string",

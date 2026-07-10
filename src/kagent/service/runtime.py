@@ -1925,6 +1925,10 @@ def _runtime_lifecycle_state(status: str) -> str:
         return "failed"
     if status == "requires_approval":
         return "waiting_approval"
+    if status in {"running", "resuming"}:
+        return "running"
+    if status == "resumed":
+        return "succeeded"
     return "unknown"
 
 

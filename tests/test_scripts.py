@@ -2378,7 +2378,7 @@ def test_internal_runtime_smoke_script_exercises_internal_subjects():
     assert payload["team_a_tag_summary_run_count"] == "1"
     assert payload["team_a_metadata_summary_run_count"] == "1"
     assert payload["admin_pending_summary_run_count"] == "1"
-    assert payload["runtime_runs_by_auth_subject"]["team-a"] == "5"
+    assert payload["runtime_runs_by_auth_subject"]["team-a"] == "6"
     assert payload["runtime_runs_by_auth_subject_status"]["team-a:cancelled"] == "1"
     assert payload["runtime_resumes_by_auth_subject"]["default"] == "1"
     assert payload["runtime_approvals_by_auth_subject"]["default"] == "1"

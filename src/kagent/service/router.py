@@ -31,6 +31,7 @@ from kagent.service import (
 from kagent.service import (
     status as service_status,
 )
+from kagent.service.active_runs import ActiveRunRegistry, ExecutionSlotLease
 from kagent.service.contract import service_openapi
 from kagent.service.runtime import (
     ServiceConcurrencyLimiter,
@@ -52,6 +53,7 @@ def handle_request(
     metrics: Optional[ServiceMetrics] = None,
     rate_limiter: Optional[ServiceRateLimiter] = None,
     concurrency_limiter: Optional[ServiceConcurrencyLimiter] = None,
+    active_run_registry: Optional[ActiveRunRegistry] = None,
     idempotency_cache: Optional[ServiceIdempotencyCache] = None,
     remote_addr: str = "",
     agent_runner: Optional[Callable[[str, Any], Dict[str, Any]]] = None,
@@ -205,6 +207,7 @@ def handle_request(
             metrics=metrics,
             rate_limiter=rate_limiter,
             concurrency_limiter=concurrency_limiter,
+            active_run_registry=active_run_registry,
             idempotency_cache=idempotency_cache,
             remote_addr=remote_addr,
             agent_runner=agent_runner,
@@ -222,11 +225,13 @@ def handle_request(
             idempotency_scope="POST /runtime/run",
             include_auth_admin=False,
             execute_request=(
-                lambda request_body, service_config, auth_subject, _auth_is_admin: (
+                lambda request_body, service_config, auth_subject, _auth_is_admin, lease: (
                     service_runtime_run.execute_runtime_run_request(
                         request_body,
                         service_config,
                         auth_subject,
+                        active_run_registry=active_run_registry,
+                        execution_slot_lease=lease,
                     )
                 )
             ),
@@ -244,12 +249,14 @@ def handle_request(
             idempotency_scope="POST /runtime/resume",
             include_auth_admin=True,
             execute_request=(
-                lambda request_body, service_config, auth_subject, auth_is_admin: (
+                lambda request_body, service_config, auth_subject, auth_is_admin, lease: (
                     service_runtime_resume.execute_runtime_resume_request(
                         request_body,
                         service_config,
                         auth_subject,
                         request_auth_is_admin=auth_is_admin,
+                        active_run_registry=active_run_registry,
+                        execution_slot_lease=lease,
                     )
                 )
             ),
@@ -269,16 +276,18 @@ def handle_request(
                 idempotency_scope=f"POST /runtime/runs/{cancel_run_id}/cancel",
                 include_auth_admin=True,
                 execute_request=(
-                    lambda request_body, service_config, auth_subject, auth_is_admin: (
+                    lambda request_body, service_config, auth_subject, auth_is_admin, _lease: (
                         service_runtime_cancel.execute_runtime_cancel_request(
                             cancel_run_id,
                             request_body,
                             service_config,
                             auth_subject,
                             request_auth_is_admin=auth_is_admin,
+                            active_run_registry=active_run_registry,
                         )
                     )
                 ),
+                acquire_run_slot=False,
             )
     return 404, service_errors.failure_payload(service_errors.NOT_FOUND, "not found")
 
@@ -513,14 +522,21 @@ def _handle_run_route(
     idempotency_cache: Optional[ServiceIdempotencyCache],
     remote_addr: str,
     agent_runner: Optional[Callable[[str, Any], Dict[str, Any]]],
+    active_run_registry: Optional[ActiveRunRegistry],
 ) -> Tuple[int, Any]:
     def execute_request(
         request_body: bytes,
         service_config: ServiceConfig,
         _auth_subject: str,
         _auth_is_admin: bool,
+        lease: ExecutionSlotLease,
     ) -> Tuple[int, Any]:
-        return service_run.execute_run_request(request_body, service_config, agent_runner)
+        return service_run.execute_run_request(
+            request_body,
+            service_config,
+            agent_runner,
+            execution_slot_lease=lease,
+        )
 
     return _handle_execution_route(
         body,
@@ -529,6 +545,7 @@ def _handle_run_route(
         metrics=metrics,
         rate_limiter=rate_limiter,
         concurrency_limiter=concurrency_limiter,
+        active_run_registry=active_run_registry,
         idempotency_cache=idempotency_cache,
         remote_addr=remote_addr,
         idempotency_scope="POST /run",
@@ -549,7 +566,12 @@ def _handle_execution_route(
     remote_addr: str,
     idempotency_scope: str,
     include_auth_admin: bool,
-    execute_request: Callable[[bytes, ServiceConfig, str, bool], Tuple[int, Any]],
+    execute_request: Callable[
+        [bytes, ServiceConfig, str, bool, ExecutionSlotLease],
+        Tuple[int, Any],
+    ],
+    active_run_registry: Optional[ActiveRunRegistry] = None,
+    acquire_run_slot: bool = True,
 ) -> Tuple[int, Any]:
     if not service_safety.json_content_type(headers):
         return 415, service_errors.failure_payload(
@@ -614,17 +636,28 @@ def _handle_execution_route(
             rate_limiter.retry_after_seconds(rate_limit_key)
         )
         return 429, payload
-    release_run_slot = concurrency_limiter.try_acquire() if concurrency_limiter else None
-    if concurrency_limiter is not None and release_run_slot is None:
+    release_run_slot = (
+        concurrency_limiter.try_acquire()
+        if concurrency_limiter is not None and acquire_run_slot
+        else None
+    )
+    if acquire_run_slot and concurrency_limiter is not None and release_run_slot is None:
         payload = service_errors.failure_payload(
             service_errors.TOO_MANY_CONCURRENT_RUNS,
             "too many concurrent runs",
         )
         payload["retry_after_seconds"] = "1"
         return 503, payload
+    execution_slot_lease = ExecutionSlotLease(release_run_slot)
     try:
         started_at = time.perf_counter()
-        status_code, payload = execute_request(body, config, auth_subject, auth_is_admin)
+        status_code, payload = execute_request(
+            body,
+            config,
+            auth_subject,
+            auth_is_admin,
+            execution_slot_lease,
+        )
         if (
             status_code == 200
             and idempotency_key
@@ -640,8 +673,7 @@ def _handle_execution_route(
             _record_runtime_run_metrics(metrics, status_code, payload)
         return status_code, payload
     finally:
-        if release_run_slot is not None:
-            release_run_slot()
+        execution_slot_lease.release_if_owned()
 
 
 def _scoped_idempotency_key(scope: str, key: str, auth_subject: str = "") -> str:

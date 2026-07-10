@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from kagent.service import errors as service_errors
+from kagent.service.active_runs import ExecutionSlotLease
 from kagent.service.errors import failure_payload
 from kagent.service.runtime import ServiceConfig
 from kagent.service.trace_store import persist_trace
@@ -22,6 +23,7 @@ def execute_run_request(
     body: bytes,
     service_config: ServiceConfig,
     agent_runner: Optional[Callable[[str, Any], Dict[str, Any]]] = None,
+    execution_slot_lease: Optional[ExecutionSlotLease] = None,
 ) -> Tuple[int, Dict[str, Any]]:
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -71,10 +73,15 @@ def execute_run_request(
             return run_agent(goal, config=config)
 
         try:
-            trace = run_with_timeout(
-                run_with_config,
-                timeout_seconds=service_config.run_timeout_seconds,
+            release_worker_slot = (
+                execution_slot_lease.transfer()
+                if execution_slot_lease is not None
+                else None
             )
+            timeout_options = {"timeout_seconds": service_config.run_timeout_seconds}
+            if release_worker_slot is not None:
+                timeout_options["on_complete"] = release_worker_slot
+            trace = run_with_timeout(run_with_config, **timeout_options)
         except TimeoutError:
             return 504, failure_payload(
                 service_errors.AGENT_RUN_TIMEOUT,
@@ -97,11 +104,36 @@ def execute_run_request(
         return 200, json_ready(result)
 
 
-def run_with_timeout(call, *, timeout_seconds: float) -> Dict[str, Any]:
+def run_with_timeout(
+    call,
+    *,
+    timeout_seconds: float,
+    on_timeout: Optional[Callable[[], None]] = None,
+    on_complete: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
     executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(call)
+
+    def run_and_complete() -> Dict[str, Any]:
+        try:
+            return call()
+        finally:
+            if on_complete is not None:
+                try:
+                    on_complete()
+                except Exception:
+                    # Lifecycle cleanup must not replace the worker result or error.
+                    pass
+
+    future = executor.submit(run_and_complete)
     try:
-        return future.result(timeout=timeout_seconds)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except TimeoutError:
+            if future.done():
+                return future.result()
+            if on_timeout is not None:
+                on_timeout()
+            raise
     finally:
         if not future.done():
             future.cancel()

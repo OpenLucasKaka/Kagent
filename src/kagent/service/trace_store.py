@@ -14,7 +14,7 @@ from kagent.service.safety import (
 )
 from kagent.utils.json_output import format_and_write_json, json_ready
 
-DEFAULT_RUNTIME_RETENTION_STATUSES = ("cancelled", "done", "failed")
+DEFAULT_RUNTIME_RETENTION_STATUSES = ("cancelled", "done", "failed", "resumed")
 
 
 def persist_trace(trace: Dict[str, Any], trace_dir: str) -> str:
@@ -237,7 +237,7 @@ def main() -> None:
         default=",".join(DEFAULT_RUNTIME_RETENTION_STATUSES),
         help=(
             "Comma-separated runtime statuses matched with --runtime-only. "
-            "Defaults to cancelled,done,failed."
+            "Defaults to cancelled,done,failed,resumed."
         ),
     )
     parser.add_argument(

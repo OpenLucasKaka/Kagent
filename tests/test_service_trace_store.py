@@ -283,7 +283,7 @@ def test_prune_runtime_traces_dry_run_matches_only_old_terminal_runtime_traces(
         "trace_dir": str(tmp_path),
         "max_age_seconds": 3600,
         "dry_run": True,
-        "statuses": ["cancelled", "done", "failed"],
+        "statuses": ["cancelled", "done", "failed", "resumed"],
         "scanned": 6,
         "runtime_scanned": 5,
         "matched": 3,
@@ -428,7 +428,7 @@ def test_trace_store_module_prunes_runtime_traces_in_dry_run_mode(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["dry_run"] is True
-    assert payload["statuses"] == ["cancelled", "done", "failed"]
+    assert payload["statuses"] == ["cancelled", "done", "failed", "resumed"]
     assert payload["runtime_scanned"] == 1
     assert payload["matched"] == 1
     assert payload["deleted"] == 0

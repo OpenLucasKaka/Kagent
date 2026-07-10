@@ -54,6 +54,7 @@ from kagent.service.runtime import (
     ServiceRateLimiter,
     access_log_record,
 )
+from kagent.service.active_runs import ActiveRunRegistry
 from kagent.utils.json_output import json_ready
 
 _ALLOWED_HTTP_METHODS = service_contract.ALLOWED_HTTP_METHODS
@@ -334,6 +335,7 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
                 metrics=self._metrics(),
                 rate_limiter=self._rate_limiter(),
                 concurrency_limiter=self._concurrency_limiter(),
+                active_run_registry=self._active_run_registry(),
                 idempotency_cache=self._idempotency_cache(),
                 remote_addr=self._remote_addr(),
             )
@@ -356,6 +358,7 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
                 metrics=self._metrics(),
                 rate_limiter=self._rate_limiter(),
                 concurrency_limiter=self._concurrency_limiter(),
+                active_run_registry=self._active_run_registry(),
                 idempotency_cache=self._idempotency_cache(),
                 remote_addr=self._remote_addr(),
             ),
@@ -478,6 +481,7 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
                 metrics=self._metrics(),
                 rate_limiter=self._rate_limiter(),
                 concurrency_limiter=self._concurrency_limiter(),
+                active_run_registry=self._active_run_registry(),
                 idempotency_cache=self._idempotency_cache(),
                 remote_addr=self._remote_addr(),
             )
@@ -600,6 +604,13 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
             self.server,
             "service_idempotency_cache",
             ServiceIdempotencyCache(max_entries=0),
+        )
+
+    def _active_run_registry(self) -> ActiveRunRegistry:
+        return getattr(
+            self.server,
+            "service_active_run_registry",
+            ActiveRunRegistry(),
         )
 
     def _request_id(self) -> str:

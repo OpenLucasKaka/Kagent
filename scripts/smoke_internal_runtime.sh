@@ -242,6 +242,23 @@ assert admin_resume["auth_subject"] == "team-a", admin_resume
 assert admin_resume["resumed_by_auth_subject"] == "default", admin_resume
 assert admin_resume["resumed_from_run_id"] == team_a_pending["run_id"], admin_resume
 
+team_a_queue_pending_status, team_a_queue_pending = post_runtime(
+    team_a_token,
+    {
+        "actions": [
+            {
+                "id": "queue-1",
+                "tool": "transform_text",
+                "input": {"text": "subject-scoped approval queue", "mode": "uppercase"},
+                "reason": "exercise pending approval queue",
+            }
+        ],
+        "final_answer": "queue-pending",
+    },
+)
+assert team_a_queue_pending_status == 200, team_a_queue_pending
+assert team_a_queue_pending["status"] == "requires_approval", team_a_queue_pending
+
 team_a_summary_status, team_a_summary = request_json(
     "/runtime/runs/summary?status=done",
     token=team_a_token,
@@ -311,7 +328,7 @@ team_a_approvals_status, team_a_approvals = request_json(
 )
 assert team_a_approvals_status == 200, team_a_approvals
 assert team_a_approvals["count"] == "1", team_a_approvals
-assert team_a_approvals["approvals"][0]["run_id"] == team_a_pending["run_id"], team_a_approvals
+assert team_a_approvals["approvals"][0]["run_id"] == team_a_queue_pending["run_id"], team_a_approvals
 assert team_a_approvals["approvals"][0]["pending_approval_tool"] == "transform_text", team_a_approvals
 assert int(team_a_approvals["approvals"][0]["pending_age_seconds"]) >= 0, team_a_approvals
 assert "pending_approval" not in team_a_approvals["approvals"][0], team_a_approvals
@@ -364,9 +381,9 @@ assert admin_policy["subject_allowed_tools"]["team-b"] == ["note"], admin_policy
 
 metrics_status, metrics = request_json("/metrics", token=admin_token)
 assert metrics_status == 200, metrics
-assert metrics["runtime_runs_by_auth_subject"]["team-a"] == "5", metrics
+assert metrics["runtime_runs_by_auth_subject"]["team-a"] == "6", metrics
 assert metrics["runtime_runs_by_auth_subject_status"]["team-a:done"] == "2", metrics
-assert metrics["runtime_runs_by_auth_subject_status"]["team-a:requires_approval"] == "2", metrics
+assert metrics["runtime_runs_by_auth_subject_status"]["team-a:requires_approval"] == "3", metrics
 assert metrics["runtime_runs_by_auth_subject_status"]["team-a:cancelled"] == "1", metrics
 assert metrics["runtime_resumes_by_auth_subject"]["default"] == "1", metrics
 assert metrics["runtime_approvals_by_auth_subject"]["default"] == "1", metrics
@@ -455,7 +472,7 @@ print(
             "team_a_policy_source": team_a_policy["effective_policy_source"],
             "admin_policy_subject_count": admin_policy["subject_policy_count"],
             "team_a_run_id": team_a_done["run_id"],
-            "pending_run_id": team_a_pending["run_id"],
+            "pending_run_id": team_a_queue_pending["run_id"],
             "cancelled_run_id": team_a_cancel["run_id"],
             "admin_resumed_run_id": admin_resume["run_id"],
         },

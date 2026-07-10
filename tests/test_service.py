@@ -904,7 +904,7 @@ def test_service_metrics_endpoint_reports_runtime_operational_outcomes():
 def test_service_metrics_endpoint_records_runtime_progress_sink_failures(monkeypatch):
     metrics = ServiceMetrics()
 
-    def runtime_response(_body, _config, _auth_subject):
+    def runtime_response(_body, _config, _auth_subject, **_kwargs):
         return 200, {
             "trace_type": "codex_runtime",
             "status": "done",
@@ -940,7 +940,7 @@ def test_service_metrics_endpoint_records_runtime_progress_sink_failures(monkeyp
 def test_service_metrics_endpoint_records_runtime_llm_provider_request(monkeypatch):
     metrics = ServiceMetrics()
 
-    def runtime_response(_body, _config, _auth_subject):
+    def runtime_response(_body, _config, _auth_subject, **_kwargs):
         return 200, {
             "trace_type": "codex_runtime",
             "status": "failed",

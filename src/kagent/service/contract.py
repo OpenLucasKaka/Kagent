@@ -1553,7 +1553,7 @@ def service_openapi() -> Dict[str, Any]:
                             "name": "status",
                             "in": "query",
                             "required": False,
-                            "description": "Filter persisted runtime runs by terminal status",
+                            "description": "Filter persisted runtime runs by status",
                             "schema": {
                                 "type": "string",
                                 "enum": [
@@ -1561,6 +1561,9 @@ def service_openapi() -> Dict[str, Any]:
                                     "done",
                                     "failed",
                                     "requires_approval",
+                                    "resumed",
+                                    "resuming",
+                                    "running",
                                 ],
                             },
                         },
@@ -1917,7 +1920,7 @@ def service_openapi() -> Dict[str, Any]:
                             "name": "status",
                             "in": "query",
                             "required": False,
-                            "description": "Filter summary by terminal status",
+                            "description": "Filter summary by runtime status",
                             "schema": {
                                 "type": "string",
                                 "enum": [
@@ -1925,6 +1928,9 @@ def service_openapi() -> Dict[str, Any]:
                                     "done",
                                     "failed",
                                     "requires_approval",
+                                    "resumed",
+                                    "resuming",
+                                    "running",
                                 ],
                             },
                         },
@@ -2229,7 +2235,15 @@ def _runtime_run_status_properties(
         "run_id": {"type": "string"},
         "status": {
             "type": "string",
-            "enum": ["cancelled", "done", "failed", "requires_approval"],
+            "enum": [
+                "cancelled",
+                "done",
+                "failed",
+                "requires_approval",
+                "resumed",
+                "resuming",
+                "running",
+            ],
         },
         "lifecycle_state": {
             "type": "string",
@@ -2336,6 +2350,7 @@ def _runtime_run_status_properties(
         "pending_approval_action_id": {"type": "string"},
         "pending_approval_tool": {"type": "string"},
         "resumed_from_run_id": {"type": "string"},
+        "resumed_to_run_id": {"type": "string"},
         "cancelled_at": {"type": "string"},
         "cancelled_by_auth_subject": {"type": "string"},
         "cancel_reason": {"type": "string"},

@@ -5554,7 +5554,7 @@ def test_service_router_runtime_runs_list_filters_by_iteration_budget_remaining(
 def test_service_router_runtime_runs_list_rejects_invalid_status_filter(tmp_path):
     status_code, payload = service_router.handle_request(
         "GET",
-        "/runtime/runs?status=running",
+        "/runtime/runs?status=queued",
         b"",
         config=ServiceConfig(trace_dir=str(tmp_path)),
     )
@@ -6272,11 +6272,10 @@ def test_service_router_runtime_run_times_out_slow_runtime(monkeypatch):
     )
 
     assert status_code == 504
-    assert payload == {
-        "status": "failed",
-        "error_code": "agent_run_timeout",
-        "error": "agent run timed out",
-    }
+    assert payload["status"] == "failed"
+    assert payload["error_code"] == "agent_run_timeout"
+    assert payload["error"] == "agent run timed out"
+    assert payload["run_id"]
 
 
 def test_service_router_runtime_resume_times_out_slow_runtime(tmp_path, monkeypatch):
@@ -6313,11 +6312,22 @@ def test_service_router_runtime_resume_times_out_slow_runtime(tmp_path, monkeypa
     )
 
     assert status_code == 504
-    assert payload == {
-        "status": "failed",
-        "error_code": "agent_run_timeout",
-        "error": "agent run timed out",
-    }
+    assert payload["status"] == "failed"
+    assert payload["error_code"] == "agent_run_timeout"
+    assert payload["error"] == "agent run timed out"
+    assert payload["run_id"]
+    assert payload["resumed_from_run_id"] == "pending-run"
+    assert payload["trace_path"].endswith(f"{payload['run_id']}.json")
+
+    retry_status, retry_payload = service_router.handle_request(
+        "POST",
+        "/runtime/resume",
+        b'{"run_id":"pending-run","approved_action_ids":["step-1"]}',
+        config=ServiceConfig(trace_dir=str(tmp_path), run_timeout_seconds=0.01),
+    )
+
+    assert retry_status == 409
+    assert retry_payload["error"] == "runtime run approval is already being resumed"
 
 
 def test_service_router_runtime_run_rejects_invalid_iteration_limit():

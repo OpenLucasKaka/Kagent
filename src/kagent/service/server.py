@@ -3,6 +3,7 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Type
 
+from kagent.service.active_runs import ActiveRunRegistry
 from kagent.service.runtime import (
     ServiceConcurrencyLimiter,
     ServiceConfig,
@@ -40,6 +41,7 @@ def create_threading_server(
     server.service_concurrency_limiter = ServiceConcurrencyLimiter(  # type: ignore[attr-defined]
         max_concurrent_runs=server.service_config.max_concurrent_runs  # type: ignore[attr-defined]
     )
+    server.service_active_run_registry = ActiveRunRegistry()  # type: ignore[attr-defined]
     if server.service_config.idempotency_cache_path:  # type: ignore[attr-defined]
         server.service_idempotency_cache = SqliteServiceIdempotencyCache(  # type: ignore[attr-defined]
             max_entries=server.service_config.idempotency_cache_size,  # type: ignore[attr-defined]

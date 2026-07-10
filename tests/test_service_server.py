@@ -1,5 +1,6 @@
 from http.server import BaseHTTPRequestHandler
 
+from kagent.service.active_runs import ActiveRunRegistry
 from kagent.service.runtime import (
     ServiceConcurrencyLimiter,
     ServiceConfig,
@@ -34,6 +35,7 @@ def test_create_threading_server_attaches_runtime_dependencies():
         assert server.service_rate_limiter.snapshot()["rate_limit_per_minute"] == "7"
         assert isinstance(server.service_concurrency_limiter, ServiceConcurrencyLimiter)
         assert server.service_concurrency_limiter.snapshot()["max_concurrent_runs"] == "2"
+        assert isinstance(server.service_active_run_registry, ActiveRunRegistry)
         assert isinstance(server.service_idempotency_cache, ServiceIdempotencyCache)
         assert server.service_idempotency_cache.snapshot()["idempotency_cache_size"] == "5"
     finally:

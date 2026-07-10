@@ -17,7 +17,15 @@ from kagent.service.trace_store import load_trace_by_run_id
 from kagent.utils.json_output import json_ready
 
 _TRACE_READ_ERRORS = (OSError, ValueError)
-_RUNTIME_STATUS_FILTER_VALUES = {"cancelled", "done", "failed", "requires_approval"}
+_RUNTIME_STATUS_FILTER_VALUES = {
+    "cancelled",
+    "done",
+    "failed",
+    "requires_approval",
+    "resumed",
+    "resuming",
+    "running",
+}
 _RUNTIME_LIFECYCLE_STATE_FILTER_VALUES = {
     "cancelled",
     "failed",
@@ -513,6 +521,7 @@ def runtime_status_summary(
         "error_code",
         "error",
         "resumed_from_run_id",
+        "resumed_to_run_id",
         "resumed_by_auth_subject",
         "approved_by_auth_subject",
         "approved_at",
@@ -898,6 +907,10 @@ def _runtime_lifecycle_state(trace: Dict[str, Any]) -> str:
         return "failed"
     if status == "requires_approval":
         return "waiting_approval"
+    if status in {"running", "resuming"}:
+        return "running"
+    if status == "resumed":
+        return "succeeded"
     if status == "done":
         return "succeeded"
     if _trace_pending_approval(trace):
@@ -945,6 +958,10 @@ def _lifecycle_state_from_status(status: str) -> str:
         return "failed"
     if status == "requires_approval":
         return "waiting_approval"
+    if status in {"running", "resuming"}:
+        return "running"
+    if status == "resumed":
+        return "succeeded"
     return "unknown"
 
 
@@ -1567,7 +1584,8 @@ def _runtime_list_filters(query: str) -> Dict[str, Any]:
     status = _single_query_value(values, "status")
     if status is not None and status not in _RUNTIME_STATUS_FILTER_VALUES:
         raise ValueError(
-            "status must be one of: cancelled, done, failed, requires_approval"
+            "status must be one of: cancelled, done, failed, requires_approval, "
+            "resumed, resuming, running"
         )
     lifecycle_state = _single_query_value(values, "lifecycle_state")
     if (

@@ -4,17 +4,30 @@ import json
 from concurrent.futures import TimeoutError
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
+from uuid import uuid4
 
 from kagent.integrations.audit import KafkaRestProgressEventSink
 from kagent.providers.llm import FakeLLMProvider
-from kagent.runtime import run_runtime_agent
+from kagent.runtime import RuntimeCancellationToken, run_runtime_agent
 from kagent.runtime.policy import RuntimePolicy
 from kagent.service import errors as service_errors
+from kagent.service.active_runs import ActiveRunRegistry, ExecutionSlotLease
 from kagent.service.errors import failure_payload
 from kagent.service.run import run_with_timeout
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_approval import (
     validate_approved_action_ids,
+)
+from kagent.service.runtime_lifecycle import (
+    persist_cancelled_runtime_trace,
+    persist_failed_runtime_trace,
+    running_runtime_trace,
+)
+from kagent.service.runtime_resume_claim import (
+    RuntimeResumeClaimConflict,
+    claim_runtime_resume,
+    complete_runtime_resume_claim,
+    release_runtime_resume_claim,
 )
 from kagent.service.runtime_status import is_runtime_trace
 from kagent.service.trace_store import (
@@ -32,6 +45,8 @@ def execute_runtime_resume_request(
     auth_subject: str = "",
     *,
     request_auth_is_admin: bool = False,
+    active_run_registry: ActiveRunRegistry | None = None,
+    execution_slot_lease: ExecutionSlotLease | None = None,
 ) -> Tuple[int, Dict[str, Any]]:
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -92,7 +107,13 @@ def execute_runtime_resume_request(
         and owner_auth_subject != auth_subject
     ):
         return 404, failure_payload(service_errors.NOT_FOUND, "runtime run trace not found")
-    if previous_trace.get("status") != "requires_approval" or not isinstance(
+    previous_status = str(previous_trace.get("status", ""))
+    if previous_status in {"resuming", "resumed"}:
+        return 409, failure_payload(
+            service_errors.INVALID_REQUEST_BODY,
+            "runtime run approval is already being resumed",
+        )
+    if previous_status != "requires_approval" or not isinstance(
         previous_trace.get("pending_approval"),
         dict,
     ):
@@ -131,17 +152,100 @@ def execute_runtime_resume_request(
             "runtime run trace is missing pending approval action plan",
         )
 
+    resumed_run_id = str(uuid4())
+    claim_id = str(uuid4())
     try:
+        claim_runtime_resume(
+            trace_dir=service_config.trace_dir,
+            run_id=run_id,
+            pending_action_id=pending_action_id,
+            claim_id=claim_id,
+            resumed_run_id=resumed_run_id,
+            claimed_by_auth_subject=auth_subject,
+        )
+    except RuntimeResumeClaimConflict as exc:
+        return 409, failure_payload(service_errors.INVALID_REQUEST_BODY, str(exc))
+    except (OSError, ValueError) as exc:
+        return 500, failure_payload(
+            service_errors.TRACE_PERSISTENCE_FAILED,
+            f"could not claim runtime approval: {exc}",
+        )
+
+    registry = active_run_registry or ActiveRunRegistry()
+    cancellation_token = RuntimeCancellationToken()
+    approved_at = _utc_timestamp()
+    initial_trace = running_runtime_trace(
+        run_id=resumed_run_id,
+        goal=goal,
+        max_iterations=max_iterations,
+        auth_subject=owner_auth_subject,
+        resumed_from_run_id=run_id,
+    )
+    initial_trace["approved_at"] = approved_at
+    if auth_subject:
+        initial_trace["resumed_by_auth_subject"] = auth_subject
+        initial_trace["approved_by_auth_subject"] = auth_subject
+    if isinstance(previous_trace.get("metadata"), dict):
+        initial_trace["metadata"] = dict(previous_trace["metadata"])
+    if isinstance(previous_trace.get("tags"), list):
+        initial_trace["tags"] = list(previous_trace["tags"])
+
+    trace_path = ""
+    release_worker_slot = None
+    try:
+        trace_path = persist_trace(initial_trace, service_config.trace_dir)
         allowed_tools = service_config.runtime_allowed_tools_for_subject(owner_auth_subject)
         policy = (
             RuntimePolicy(allowed_tools=set(allowed_tools))
             if allowed_tools is not None
             else RuntimePolicy()
         )
-        result = run_with_timeout(
-            lambda: run_runtime_agent(
+        release_worker_slot = (
+            execution_slot_lease.transfer()
+            if execution_slot_lease is not None
+            else None
+        )
+        registry.register(
+            resumed_run_id,
+            owner_auth_subject,
+            cancellation_token,
+            release=release_worker_slot,
+        )
+    except (OSError, ValueError) as exc:
+        if release_worker_slot is not None:
+            release_worker_slot()
+        try:
+            release_runtime_resume_claim(
+                trace_dir=service_config.trace_dir,
+                run_id=run_id,
+                claim_id=claim_id,
+            )
+        except (OSError, ValueError):
+            pass
+        return 500, failure_payload(
+            service_errors.TRACE_PERSISTENCE_FAILED,
+            f"could not initialize resumed runtime run: {exc}",
+        )
+    except Exception:
+        if release_worker_slot is not None:
+            release_worker_slot()
+        try:
+            release_runtime_resume_claim(
+                trace_dir=service_config.trace_dir,
+                run_id=run_id,
+                claim_id=claim_id,
+            )
+        except (OSError, ValueError):
+            pass
+        return 500, failure_payload(service_errors.AGENT_RUN_FAILED, "agent run failed")
+
+    def execute_runtime_worker() -> Dict[str, Any]:
+        try:
+            result = run_runtime_agent(
                 goal,
                 provider=FakeLLMProvider(json.dumps(resumable_plan, sort_keys=True)),
+                run_id=resumed_run_id,
+                cancellation_token=cancellation_token,
                 policy=policy,
                 max_iterations=max_iterations,
                 event_sink=_runtime_event_sink(service_config),
@@ -160,32 +264,92 @@ def execute_runtime_resume_request(
                 external_backend_timeout_seconds=(
                     service_config.external_backend_timeout_seconds
                 ),
-            ),
+            )
+            result["run_id"] = resumed_run_id
+            if owner_auth_subject:
+                result["auth_subject"] = owner_auth_subject
+            if auth_subject:
+                result["resumed_by_auth_subject"] = auth_subject
+                result["approved_by_auth_subject"] = auth_subject
+            result["approved_at"] = approved_at
+            if isinstance(previous_trace.get("metadata"), dict):
+                result["metadata"] = dict(previous_trace["metadata"])
+            if isinstance(previous_trace.get("tags"), list):
+                result["tags"] = list(previous_trace["tags"])
+            result["resumed_from_run_id"] = run_id
+            if registry.result_may_persist(resumed_run_id):
+                result["trace_path"] = persist_trace(result, service_config.trace_dir)
+            elif trace_path:
+                result["trace_path"] = trace_path
+            return result
+        except Exception as exc:
+            if registry.result_may_persist(resumed_run_id):
+                try:
+                    persist_failed_runtime_trace(
+                        run_id=resumed_run_id,
+                        trace_dir=service_config.trace_dir,
+                        error_code=service_errors.AGENT_RUN_FAILED,
+                        error=f"agent run failed: {exc}",
+                    )
+                except (OSError, ValueError):
+                    pass
+            raise
+
+    def cancel_timed_out_worker() -> None:
+        active_run = registry.mark_timed_out(
+            resumed_run_id,
+            reason="runtime run timed out",
+        )
+        if active_run is None:
+            return
+        try:
+            persist_cancelled_runtime_trace(
+                run_id=resumed_run_id,
+                trace_dir=service_config.trace_dir,
+                active_run=active_run,
+                error_code=service_errors.AGENT_RUN_TIMEOUT,
+                error="agent run timed out",
+            )
+        except (OSError, ValueError):
+            pass
+
+    def complete_resumed_worker() -> None:
+        try:
+            complete_runtime_resume_claim(
+                trace_dir=service_config.trace_dir,
+                run_id=run_id,
+                claim_id=claim_id,
+                resumed_run_id=resumed_run_id,
+            )
+        except (OSError, ValueError):
+            pass
+        finally:
+            registry.complete(resumed_run_id)
+
+    try:
+        result = run_with_timeout(
+            execute_runtime_worker,
             timeout_seconds=service_config.run_timeout_seconds,
+            on_timeout=cancel_timed_out_worker,
+            on_complete=complete_resumed_worker,
         )
     except TimeoutError:
-        return 504, failure_payload(
+        timeout_payload = failure_payload(
             service_errors.AGENT_RUN_TIMEOUT,
             "agent run timed out",
         )
-    if owner_auth_subject:
-        result["auth_subject"] = owner_auth_subject
-    if auth_subject:
-        result["resumed_by_auth_subject"] = auth_subject
-        result["approved_by_auth_subject"] = auth_subject
-    result["approved_at"] = _utc_timestamp()
-    if isinstance(previous_trace.get("metadata"), dict):
-        result["metadata"] = dict(previous_trace["metadata"])
-    if isinstance(previous_trace.get("tags"), list):
-        result["tags"] = list(previous_trace["tags"])
-    result["resumed_from_run_id"] = run_id
-    try:
-        result["trace_path"] = persist_trace(result, service_config.trace_dir)
-    except OSError as exc:
-        return 500, failure_payload(
-            service_errors.TRACE_PERSISTENCE_FAILED,
-            f"could not persist trace: {exc}",
-        )
+        timeout_payload["run_id"] = resumed_run_id
+        timeout_payload["resumed_from_run_id"] = run_id
+        if trace_path:
+            timeout_payload["trace_path"] = trace_path
+        return 504, timeout_payload
+    except Exception:
+        failure = failure_payload(service_errors.AGENT_RUN_FAILED, "agent run failed")
+        failure["run_id"] = resumed_run_id
+        failure["resumed_from_run_id"] = run_id
+        if trace_path:
+            failure["trace_path"] = trace_path
+        return 500, failure
     return 200, json_ready(result)
 
 

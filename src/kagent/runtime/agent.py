@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Set, TypedDict
 from uuid import uuid4
 
+from kagent.runtime.cancellation import RuntimeCancellationToken
 from kagent.runtime.context import RuntimeContextManager
 from kagent.runtime.hooks import RuntimeHookChain
 from kagent.runtime.metadata import (
@@ -82,6 +83,8 @@ RuntimeEventSink = Callable[[Dict[str, Any]], None]
 
 class RuntimeGraphState(TypedDict, total=False):
     goal: str
+    run_id: str
+    cancellation_token: RuntimeCancellationToken
     provider: Any
     policy: RuntimePolicy
     tools: Dict[str, RuntimeToolSpec]
@@ -169,6 +172,8 @@ def run_runtime_agent(
     goal: str,
     *,
     provider: Any,
+    run_id: str = "",
+    cancellation_token: Optional[RuntimeCancellationToken] = None,
     policy: Optional[RuntimePolicy] = None,
     tools: Optional[Dict[str, RuntimeToolSpec]] = None,
     max_iterations: int = 1,
@@ -192,6 +197,7 @@ def run_runtime_agent(
     graph = build_runtime_graph()
     state: RuntimeGraphState = {
         "goal": goal,
+        "run_id": run_id,
         "provider": provider,
         "max_iterations": max_iterations,
         "runtime_workspace_dir": runtime_workspace_dir,
@@ -206,6 +212,8 @@ def run_runtime_agent(
         "external_backend_timeout_seconds": external_backend_timeout_seconds,
         "stream_answers": stream_answers,
     }
+    if cancellation_token is not None:
+        state["cancellation_token"] = cancellation_token
     if policy is not None:
         state["policy"] = policy
     if tools is not None:
@@ -248,6 +256,8 @@ def _runtime_loop_graph_node(state: RuntimeGraphState) -> RuntimeGraphState:
     result = _run_runtime_agent_loop(
         str(state.get("goal", "")),
         provider=state["provider"],
+        run_id=state.get("run_id", ""),
+        cancellation_token=state.get("cancellation_token"),
         policy=state.get("policy"),
         tools=state.get("tools"),
         max_iterations=state.get("max_iterations", 1),
@@ -321,6 +331,8 @@ def _run_runtime_agent_loop(
     goal: str,
     *,
     provider: Any,
+    run_id: str = "",
+    cancellation_token: Optional[RuntimeCancellationToken] = None,
     policy: Optional[RuntimePolicy] = None,
     tools: Optional[Dict[str, RuntimeToolSpec]] = None,
     max_iterations: int = 1,
@@ -349,7 +361,7 @@ def _run_runtime_agent_loop(
     normalized_tags, tags_error = validate_runtime_tags(tags)
     if tags_error:
         raise ValueError(tags_error)
-    run_id = str(uuid4())
+    run_id = run_id.strip() or str(uuid4())
     events = []
     started_at = _utc_timestamp()
     started_timer = time.perf_counter()
@@ -359,6 +371,7 @@ def _run_runtime_agent_loop(
         return run_runtime_agent(
             child_goal,
             provider=provider,
+            cancellation_token=cancellation_token,
             policy=active_policy,
             tools=default_runtime_tools(
                 runtime_workspace_dir=runtime_workspace_dir,
@@ -412,6 +425,8 @@ def _run_runtime_agent_loop(
     pending_approval: Dict[str, Any] = {}
     terminal_error_code = ""
     terminal_error = ""
+    cancelled_at = ""
+    cancel_reason = ""
     iteration_count = 0
     progress_events: List[Dict[str, Any]] = []
     progress_event_sink_failure_count = 0
@@ -431,6 +446,38 @@ def _run_runtime_agent_loop(
                 event_sink(event_with_run_id)
             except Exception:
                 progress_event_sink_failure_count += 1
+
+    def mark_cancelled() -> bool:
+        nonlocal status, terminal_error_code, terminal_error
+        nonlocal cancelled_at, cancel_reason
+        if cancellation_token is None or not cancellation_token.is_cancelled():
+            return False
+        if status == "cancelled":
+            return True
+        token_snapshot = cancellation_token.snapshot()
+        cancelled_at = token_snapshot["cancelled_at"] or _utc_timestamp()
+        cancel_reason = token_snapshot["reason"]
+        status = "cancelled"
+        terminal_error_code = "run_cancelled"
+        terminal_error = cancel_reason or "runtime run cancelled"
+        event: Dict[str, Any] = {
+            "node": "control",
+            "status": "cancelled",
+            "started_at": cancelled_at,
+            "completed_at": cancelled_at,
+            "duration_seconds": "0.0000",
+        }
+        if cancel_reason:
+            event["reason"] = cancel_reason
+        events.append(event)
+        _emit_runtime_progress(
+            emit_progress,
+            "run_cancelled",
+            node="control",
+            status="cancelled",
+            reason=cancel_reason,
+        )
+        return True
 
     def record_hook_failure(
         *,
@@ -485,6 +532,8 @@ def _run_runtime_agent_loop(
             )
 
     for iteration in range(1, max_iterations + 1):
+        if mark_cancelled():
+            break
         iteration_count = iteration
         iteration_label = str(iteration)
         user_prompt = _runtime_user_prompt(
@@ -523,9 +572,13 @@ def _run_runtime_agent_loop(
                     and not _is_runtime_deployment_question(goal.lower())
                 ),
             )
+            if mark_cancelled():
+                break
             answer_streamed = answer_streamed or streamed_this_plan
             plan = parse_agent_plan(plan_text)
         except Exception as exc:
+            if mark_cancelled():
+                break
             planner_error_code = _planner_failure_error_code(exc)
             timing = _timing_fields(planner_started_at, planner_timer)
             events[-1] = {
@@ -595,6 +648,8 @@ def _run_runtime_agent_loop(
         should_replan = False
         iteration_observations: Dict[str, AgentObservation] = {}
         for action in plan.actions:
+            if mark_cancelled():
+                break
             policy_started_at = _utc_timestamp()
             policy_timer = time.perf_counter()
             decision = active_policy.authorize(action.tool, action.input)
@@ -734,6 +789,8 @@ def _run_runtime_agent_loop(
                     )
                     status = "failed"
                     break
+            if mark_cancelled():
+                break
             _emit_runtime_progress(
                 emit_progress,
                 "tool_started",
@@ -751,6 +808,7 @@ def _run_runtime_agent_loop(
             )
             observations.append(observation)
             iteration_observations[action.id] = observation
+            cancelled_after_tool = mark_cancelled()
             if hook_chain:
                 hook_started_at = _utc_timestamp()
                 hook_timer = time.perf_counter()
@@ -802,6 +860,8 @@ def _run_runtime_agent_loop(
                 error_code=observation.error_code,
                 duration_seconds=observation.duration_seconds,
             )
+            if cancelled_after_tool:
+                break
             if observation.status != "ok":
                 if iteration < max_iterations:
                     should_replan = True
@@ -869,6 +929,12 @@ def _run_runtime_agent_loop(
     elif status == "failed" and terminal_error_code:
         result["error_code"] = terminal_error_code
         result["error"] = terminal_error
+    elif status == "cancelled":
+        result["error_code"] = terminal_error_code
+        result["error"] = terminal_error
+        result["cancelled_at"] = cancelled_at or result["completed_at"]
+        if cancel_reason:
+            result["cancel_reason"] = cancel_reason
     _emit_runtime_progress(
         emit_progress,
         "run_completed",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import TimeoutError
 from typing import Any, Dict, Tuple
+from uuid import uuid4
 
 from kagent.integrations.audit import KafkaRestAuditHook, KafkaRestProgressEventSink
 from kagent.providers.llm import (
@@ -11,14 +12,20 @@ from kagent.providers.llm import (
     OpenAICompatibleProvider,
     SequentialFakeLLMProvider,
 )
-from kagent.runtime import run_runtime_agent
+from kagent.runtime import RuntimeCancellationToken, run_runtime_agent
 from kagent.runtime.policy import RuntimePolicy
 from kagent.service import errors as service_errors
+from kagent.service.active_runs import ActiveRunRegistry, ExecutionSlotLease
 from kagent.service.errors import failure_payload
 from kagent.service.run import run_with_timeout
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_approval import (
     validate_approved_action_ids,
+)
+from kagent.service.runtime_lifecycle import (
+    persist_cancelled_runtime_trace,
+    persist_failed_runtime_trace,
+    running_runtime_trace,
 )
 from kagent.service.runtime_metadata import (
     validate_runtime_metadata,
@@ -32,6 +39,9 @@ def execute_runtime_run_request(
     body: bytes,
     _service_config: ServiceConfig,
     auth_subject: str = "",
+    *,
+    active_run_registry: ActiveRunRegistry | None = None,
+    execution_slot_lease: ExecutionSlotLease | None = None,
 ) -> Tuple[int, Dict[str, Any]]:
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -138,17 +148,52 @@ def execute_runtime_run_request(
             provider = OpenAICompatibleProvider(LLMProviderConfig.from_sources())
         except ValueError as exc:
             return 400, failure_payload(service_errors.INVALID_AGENT_CONFIG, str(exc))
-    try:
-        allowed_tools = _service_config.runtime_allowed_tools_for_subject(auth_subject)
-        policy = (
-            RuntimePolicy(allowed_tools=set(allowed_tools))
-            if allowed_tools is not None
-            else RuntimePolicy()
+    allowed_tools = _service_config.runtime_allowed_tools_for_subject(auth_subject)
+    policy = (
+        RuntimePolicy(allowed_tools=set(allowed_tools))
+        if allowed_tools is not None
+        else RuntimePolicy()
+    )
+    run_id = str(uuid4())
+    cancellation_token = RuntimeCancellationToken()
+    registry = active_run_registry or ActiveRunRegistry()
+    trace_path = ""
+    if _service_config.trace_dir:
+        initial_trace = running_runtime_trace(
+            run_id=run_id,
+            goal=goal,
+            max_iterations=max_iterations,
+            auth_subject=auth_subject,
         )
-        result = run_with_timeout(
-            lambda: run_runtime_agent(
+        try:
+            trace_path = persist_trace(initial_trace, _service_config.trace_dir)
+        except OSError as exc:
+            return 500, failure_payload(
+                service_errors.TRACE_PERSISTENCE_FAILED,
+                f"could not persist trace: {exc}",
+            )
+    release_worker_slot = (
+        execution_slot_lease.transfer() if execution_slot_lease is not None else None
+    )
+    try:
+        registry.register(
+            run_id,
+            auth_subject,
+            cancellation_token,
+            release=release_worker_slot,
+        )
+    except Exception:
+        if release_worker_slot is not None:
+            release_worker_slot()
+        raise
+
+    def execute_runtime_worker() -> Dict[str, Any]:
+        try:
+            result = run_runtime_agent(
                 goal,
                 provider=provider,
+                run_id=run_id,
+                cancellation_token=cancellation_token,
                 policy=policy,
                 max_iterations=max_iterations,
                 approved_action_ids=set(approved_action_ids),
@@ -170,24 +215,68 @@ def execute_runtime_run_request(
                 external_backend_timeout_seconds=(
                     _service_config.external_backend_timeout_seconds
                 ),
-            ),
+            )
+            result["run_id"] = run_id
+            if auth_subject:
+                result["auth_subject"] = auth_subject
+            if _service_config.trace_dir and registry.result_may_persist(run_id):
+                result["trace_path"] = persist_trace(result, _service_config.trace_dir)
+            elif trace_path:
+                result["trace_path"] = trace_path
+            return result
+        except Exception as exc:
+            if _service_config.trace_dir and registry.result_may_persist(run_id):
+                try:
+                    persist_failed_runtime_trace(
+                        run_id=run_id,
+                        trace_dir=_service_config.trace_dir,
+                        error_code=service_errors.AGENT_RUN_FAILED,
+                        error=f"agent run failed: {exc}",
+                    )
+                except (OSError, ValueError):
+                    pass
+            raise
+
+    def cancel_timed_out_worker() -> None:
+        active_run = registry.mark_timed_out(
+            run_id,
+            reason="runtime run timed out",
+        )
+        if active_run is None or not _service_config.trace_dir:
+            return
+        try:
+            persist_cancelled_runtime_trace(
+                run_id=run_id,
+                trace_dir=_service_config.trace_dir,
+                active_run=active_run,
+                error_code=service_errors.AGENT_RUN_TIMEOUT,
+                error="agent run timed out",
+            )
+        except (OSError, ValueError):
+            return
+
+    try:
+        result = run_with_timeout(
+            execute_runtime_worker,
             timeout_seconds=_service_config.run_timeout_seconds,
+            on_timeout=cancel_timed_out_worker,
+            on_complete=lambda: registry.complete(run_id),
         )
     except TimeoutError:
-        return 504, failure_payload(
+        timeout_payload = failure_payload(
             service_errors.AGENT_RUN_TIMEOUT,
             "agent run timed out",
         )
-    if auth_subject:
-        result["auth_subject"] = auth_subject
-    if _service_config.trace_dir:
-        try:
-            result["trace_path"] = persist_trace(result, _service_config.trace_dir)
-        except OSError as exc:
-            return 500, failure_payload(
-                service_errors.TRACE_PERSISTENCE_FAILED,
-                f"could not persist trace: {exc}",
-            )
+        timeout_payload["run_id"] = run_id
+        if trace_path:
+            timeout_payload["trace_path"] = trace_path
+        return 504, timeout_payload
+    except Exception:
+        failure = failure_payload(service_errors.AGENT_RUN_FAILED, "agent run failed")
+        failure["run_id"] = run_id
+        if trace_path:
+            failure["trace_path"] = trace_path
+        return 500, failure
     return 200, json_ready(result)
 
 

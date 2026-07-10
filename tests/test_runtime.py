@@ -5,7 +5,12 @@ import sys
 import pytest
 
 from kagent.providers.llm import FakeLLMProvider
-from kagent.runtime import build_runtime_graph, run_runtime_agent, runtime_topology
+from kagent.runtime import (
+    RuntimeCancellationToken,
+    build_runtime_graph,
+    run_runtime_agent,
+    runtime_topology,
+)
 from kagent.runtime import tools as runtime_tools
 from kagent.runtime.policy import RuntimePolicy
 from kagent.runtime.tools import (
@@ -1145,6 +1150,45 @@ def test_runtime_agent_emits_redacted_progress_events():
     assert progress_events[-1]["duration_seconds"] == result["duration_seconds"]
     assert {event["run_id"] for event in progress_events} == {result["run_id"]}
     assert "secret progress body" not in json.dumps(progress_events)
+
+
+def test_runtime_agent_stops_before_tool_execution_when_cancelled_after_planner():
+    token = RuntimeCancellationToken()
+    tool_calls = []
+
+    class CancellingProvider:
+        def complete(self, _system, _user):
+            token.cancel("operator stopped the run")
+            return (
+                '{"actions":[{"id":"step-1","tool":"probe",'
+                '"input":{},"reason":"must not execute"}]}'
+            )
+
+    tools = {
+        "probe": RuntimeToolSpec(
+            name="probe",
+            description="records execution",
+            handler=lambda _payload: tool_calls.append("called") or {"ok": True},
+        )
+    }
+
+    result = run_runtime_agent(
+        "stop after planning",
+        provider=CancellingProvider(),
+        tools=tools,
+        policy=RuntimePolicy(allowed_tools={"probe"}),
+        cancellation_token=token,
+    )
+
+    assert result["status"] == "cancelled"
+    assert result["error_code"] == "run_cancelled"
+    assert result["cancel_reason"] == "operator stopped the run"
+    assert result["observations"] == []
+    assert tool_calls == []
+    assert any(
+        event["node"] == "control" and event["status"] == "cancelled"
+        for event in result["events"]
+    )
 
 
 def test_runtime_agent_streams_direct_final_answer_progress_events():

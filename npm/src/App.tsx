@@ -34,8 +34,9 @@ type AppProps = {
 };
 
 type Message = {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "command" | "system";
   text: string;
+  title?: string;
 };
 
 type Status = "starting" | "idle" | "thinking" | "approval" | "error";
@@ -258,8 +259,30 @@ export function KagentInkApp({
     setMessages((current) => current.concat({ role: "user", text: goal }));
     setEditor({ value: "", cursor: 0 });
     setStatus("thinking");
+    if (isSessionCommandInput(goal)) {
+      setStatusText("Running command");
+      runtime.command(goal, handleCommandEvent);
+      return;
+    }
     setStatusText("Thinking");
     runtime.run(goal, handleRuntimeEvent);
+  }
+
+  function handleCommandEvent(event: RuntimeClientEvent): void {
+    if (event.type === "session_command_completed") {
+      setStatus("idle");
+      setStatusText("");
+      const message: Message = {
+        role: "command",
+        title: event.title,
+        text: event.message,
+      };
+      setMessages((current) => (event.clear_messages ? [message] : current.concat(message)));
+      return;
+    }
+    if (event.type === "session_command_failed" || event.type === "client_failed") {
+      showError(event.message);
+    }
   }
 
   function handleApprovalInput(value: string): void {
@@ -491,13 +514,34 @@ function MessageList({ React, Box, Text, messages }: RenderProps & { messages: M
     Box,
     { flexDirection: "column" },
     ...recent.map((message, index) => {
-      const marker = message.role === "user" ? "›" : message.role === "assistant" ? "•" : "!";
-      const color = message.role === "user" ? "cyan" : message.role === "assistant" ? undefined : "red";
+      const marker =
+        message.role === "user"
+          ? "›"
+          : message.role === "assistant"
+            ? "•"
+            : message.role === "command"
+              ? "·"
+              : "!";
+      const color =
+        message.role === "user"
+          ? "cyan"
+          : message.role === "system"
+            ? "red"
+            : message.role === "command"
+              ? "gray"
+              : undefined;
       return React.createElement(
         Box,
         { key: `${message.role}-${index}`, flexDirection: "row", marginBottom: 1 },
         React.createElement(Text, { color, bold: message.role === "user" }, `${marker} `),
-        React.createElement(Text, { color, wrap: "wrap" }, message.text),
+        React.createElement(
+          Box,
+          { flexDirection: "column", flexGrow: 1 },
+          message.title
+            ? React.createElement(Text, { bold: true, color }, message.title)
+            : null,
+          React.createElement(Text, { color, wrap: "wrap" }, message.text),
+        ),
       );
     }),
   );
@@ -648,4 +692,8 @@ export function moveCursor(state: EditorState, offset: number): EditorState {
 
 export function splitGraphemes(value: string): string[] {
   return Array.from(GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);
+}
+
+export function isSessionCommandInput(value: string): boolean {
+  return value.trimStart().startsWith("/");
 }

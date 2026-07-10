@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -431,11 +432,13 @@ def _reject_symlink_memory_file(path: Path) -> None:
 
 def _ensure_owner_only_memory_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+    if _is_shared_system_temp_directory(path):
+        return
     path.chmod(0o700)
 
 
 def _tighten_existing_owner_only_memory_dir(path: Path) -> None:
-    if path.exists():
+    if path.exists() and not _is_shared_system_temp_directory(path):
         path.chmod(0o700)
 
 
@@ -450,3 +453,17 @@ def _reject_symlink_memory_path_parts(path: Path) -> None:
 
 def _is_platform_path_alias(path: Path) -> bool:
     return str(path) in {"/tmp", "/var"}
+
+
+def _is_shared_system_temp_directory(path: Path) -> bool:
+    try:
+        resolved_path = path.resolve(strict=True)
+        resolved_system_tmp = Path("/tmp").resolve(strict=True)
+        metadata = resolved_path.stat()
+    except OSError:
+        return False
+    return (
+        resolved_path == resolved_system_tmp
+        and metadata.st_uid == 0
+        and bool(metadata.st_mode & stat.S_ISVTX)
+    )

@@ -11,6 +11,8 @@ const EVENT_TYPES = new Set([
     "run_failed",
     "provider_configured",
     "provider_configuration_failed",
+    "session_command_completed",
+    "session_command_failed",
 ]);
 function parseRuntimeProtocolLine(line) {
     const trimmed = line.trim();

@@ -122,6 +122,112 @@ def test_stdio_runtime_reports_invalid_iteration_budget_without_crashing(tmp_pat
     assert completed.stderr == ""
 
 
+def test_stdio_runtime_session_commands_share_cwd_memory_and_runtime_state(tmp_path):
+    workspace = tmp_path / "workspace with spaces"
+    workspace.mkdir()
+    memory_path = tmp_path / "session-memory.json"
+    history_path = tmp_path / "history"
+    history_path.write_text("old prompt\n", encoding="utf-8")
+    history_path.chmod(0o600)
+    requests = [
+        {"type": "session_command", "command": "/status"},
+        {"type": "session_command", "command": f'/cd "{workspace}"'},
+        {"type": "session_command", "command": "/pwd"},
+        {
+            "type": "run_request",
+            "goal": "remember kaka",
+            "runtime_plan": json.dumps(
+                {"actions": [], "final_answer": "I will remember kaka."}
+            ),
+        },
+        {"type": "session_command", "command": "/memory"},
+        {"type": "session_command", "command": "/clear"},
+        {"type": "session_command", "command": "/memory"},
+        {"type": "session_command", "command": "/tools"},
+        {"type": "session_command", "command": "/stats"},
+        {"type": "session_command", "command": "/reset"},
+    ]
+    env = _runtime_env(tmp_path)
+    env["KAGENT_SESSION_MEMORY_PATH"] = str(memory_path)
+    env["KAGENT_HISTORY_PATH"] = str(history_path)
+
+    completed = subprocess.run(
+        [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
+        input="".join(f"{json.dumps(request)}\n" for request in requests),
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+
+    events = _jsonl(completed.stdout)
+    commands = [
+        event
+        for event in events
+        if event["type"]
+        in {"session_command_completed", "session_command_failed"}
+    ]
+    assert commands[0]["command"] == "/status"
+    assert commands[0]["data"]["memory"]["recent_turns"] == 0
+    assert commands[1]["title"] == "Working directory"
+    assert commands[1]["data"]["cwd"] == str(workspace)
+    assert commands[2]["message"] == str(workspace)
+    assert "remember kaka" in commands[3]["message"]
+    assert commands[4]["title"] == "Memory cleared"
+    assert commands[5]["message"] == "Memory is empty."
+    assert commands[6]["title"] == "Capabilities"
+    assert "apply_patch" not in commands[6]["message"]
+    assert "open_url" not in commands[6]["message"]
+    assert commands[7]["type"] == "session_command_failed"
+    assert commands[7]["error_code"] == "unknown_command"
+    assert "/status" in commands[7]["message"]
+    assert commands[8]["clear_messages"] is True
+    assert json.loads(memory_path.read_text(encoding="utf-8"))["turns"] == []
+    assert history_path.read_text(encoding="utf-8") == ""
+    assert completed.stderr == ""
+
+
+def test_stdio_runtime_session_config_is_redacted_and_help_is_local(tmp_path):
+    secret = "sk-session-command-secret"
+    requests = [
+        {
+            "type": "provider_configure",
+            "provider": "openai_compatible",
+            "base_url": "https://provider.example.test/v1",
+            "model": "model-id",
+            "api_key": secret,
+        },
+        {"type": "session_command", "command": "/config"},
+        {"type": "session_command", "command": "/help"},
+    ]
+
+    completed = subprocess.run(
+        [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
+        input="".join(f"{json.dumps(request)}\n" for request in requests),
+        capture_output=True,
+        text=True,
+        check=True,
+        env=_runtime_env(tmp_path),
+    )
+
+    events = _jsonl(completed.stdout)
+    config = next(
+        event for event in events if event["type"] == "session_command_completed"
+    )
+    help_event = [
+        event for event in events if event["type"] == "session_command_completed"
+    ][1]
+    assert config["command"] == "/config"
+    assert config["data"]["api_key_configured"] is True
+    assert config["data"]["base_url_configured"] is True
+    assert secret not in completed.stdout
+    assert "provider.example.test" not in completed.stdout
+    assert help_event["command"] == "/help"
+    assert "/status" in help_event["message"]
+    assert "/compact-memory" in help_event["message"]
+    assert "/json" not in help_event["message"]
+
+
 def test_stdio_runtime_reports_missing_provider_as_structured_error(tmp_path):
     env = {
         "KAGENT_LLM_CONFIG_PATH": str(tmp_path / "missing-provider.json"),

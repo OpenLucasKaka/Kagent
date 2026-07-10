@@ -67,6 +67,9 @@ def test_npm_ink_source_uses_jsonl_runtime_protocol():
     assert "provider_configure" in combined
     assert "provider_configured" in combined
     assert "provider_configuration_failed" in combined
+    assert "session_command" in combined
+    assert "session_command_completed" in combined
+    assert "session_command_failed" in combined
     assert "run_completed" in combined
     assert "kagent.cli.stdio_runtime" in combined
     assert "--classic" not in Path("npm/src/runtime-client.ts").read_text(encoding="utf-8")
@@ -78,6 +81,7 @@ def test_npm_ink_runtime_keeps_one_session_and_hides_internal_tool_names():
 
     assert "createRuntimeSessionClient" in app
     assert "respondToApproval" in app
+    assert "runtime.command" in app
     assert "Permission required" in app
     assert "approval.title" in app
     assert "approval.target" in app
@@ -97,6 +101,7 @@ const assert = require("node:assert/strict");
 const {
   applyInput,
   deleteBeforeCursor,
+  isSessionCommandInput,
   moveCursor,
   splitGraphemes,
 } = require("./npm/lib/App");
@@ -115,6 +120,10 @@ assert.deepEqual(state, {value: "你好👍🏽", cursor: 2});
 
 state = applyInput(state, "e\u0301\x7fA");
 assert.deepEqual(state, {value: "你好A👍🏽", cursor: 3});
+
+assert.equal(isSessionCommandInput("/status"), true);
+assert.equal(isSessionCommandInput("  /memory"), true);
+assert.equal(isSessionCommandInput("tell me /status"), false);
 """
     subprocess.run([node, "-e", script], check=True)
 
@@ -228,6 +237,21 @@ function run(goal, plan) {
   });
 }
 
+function command(value) {
+  return new Promise((resolve, reject) => {
+    const events = [];
+    client.command(value, (event) => {
+      events.push(event);
+      if (event.type === "client_failed") {
+        reject(new Error(event.message));
+      }
+      if (event.type === "session_command_completed" || event.type === "session_command_failed") {
+        resolve(events);
+      }
+    });
+  });
+}
+
 async function main() {
   const ready = await new Promise((resolve, reject) => {
     client.subscribe((event) => {
@@ -259,6 +283,15 @@ async function main() {
   });
   assert.equal(configured.provider.display_name, "Ollama");
   assert.equal(configured.provider.api_key_configured, false);
+
+  const status = await command("/status");
+  assert.equal(status.at(-1).type, "session_command_completed");
+  assert.equal(status.at(-1).title, "Session");
+  assert.equal(status.at(-1).data.provider.display_name, "Ollama");
+
+  const unknown = await command("/stats");
+  assert.equal(unknown.at(-1).type, "session_command_failed");
+  assert.equal(unknown.at(-1).error_code, "unknown_command");
 
   const first = await run("first", {actions: [], final_answer: "first answer"});
   const second = await run("second", {actions: [], final_answer: "second answer"});

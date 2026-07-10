@@ -19,7 +19,16 @@ export type ProviderConfigureRequest = {
   api_key: string;
 };
 
-export type RuntimeRequest = RunRequest | ApprovalResponseRequest | ProviderConfigureRequest;
+export type SessionCommandRequest = {
+  type: "session_command";
+  command: string;
+};
+
+export type RuntimeRequest =
+  | RunRequest
+  | ApprovalResponseRequest
+  | ProviderConfigureRequest
+  | SessionCommandRequest;
 
 export type ProviderSnapshot = {
   configured: boolean;
@@ -93,6 +102,22 @@ export type ProviderConfigurationFailedEvent = {
   field?: "base_url" | "model" | "api_key";
 };
 
+export type SessionCommandCompletedEvent = {
+  type: "session_command_completed";
+  command: string;
+  title: string;
+  message: string;
+  data: Record<string, unknown>;
+  clear_messages: boolean;
+};
+
+export type SessionCommandFailedEvent = {
+  type: "session_command_failed";
+  command: string;
+  error_code: string;
+  message: string;
+};
+
 export type RuntimeProtocolEvent =
   | RuntimeReadyEvent
   | RuntimeUnavailableEvent
@@ -102,7 +127,9 @@ export type RuntimeProtocolEvent =
   | RunCompletedEvent
   | RunFailedEvent
   | ProviderConfiguredEvent
-  | ProviderConfigurationFailedEvent;
+  | ProviderConfigurationFailedEvent
+  | SessionCommandCompletedEvent
+  | SessionCommandFailedEvent;
 
 const EVENT_TYPES = new Set([
   "runtime_ready",
@@ -114,6 +141,8 @@ const EVENT_TYPES = new Set([
   "run_failed",
   "provider_configured",
   "provider_configuration_failed",
+  "session_command_completed",
+  "session_command_failed",
 ]);
 
 export function parseRuntimeProtocolLine(line: string): RuntimeProtocolEvent | null {

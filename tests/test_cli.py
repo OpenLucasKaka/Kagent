@@ -2916,6 +2916,31 @@ def test_cli_session_memory_rejects_group_or_world_readable_file(tmp_path):
         raise AssertionError("unsafe session memory file was loaded")
 
 
+def test_cli_session_memory_can_use_shared_system_tmp_without_changing_its_mode():
+    from uuid import uuid4
+
+    from kagent.cli.memory import load_runtime_session_memory, save_runtime_session_memory
+
+    system_tmp = Path("/tmp")
+    if not system_tmp.exists() or not os.access(system_tmp, os.W_OK):
+        return
+    before_mode = system_tmp.stat().st_mode & 0o7777
+    memory_path = system_tmp / f"kagent-memory-{uuid4().hex}.json"
+    try:
+        save_runtime_session_memory(
+            str(memory_path),
+            [{"user": "kaka", "assistant": "ready"}],
+        )
+
+        memory = load_runtime_session_memory(str(memory_path), max_turns=12)
+
+        assert memory.turns == [{"user": "kaka", "assistant": "ready"}]
+        assert memory_path.stat().st_mode & 0o777 == 0o600
+        assert system_tmp.stat().st_mode & 0o7777 == before_mode
+    finally:
+        memory_path.unlink(missing_ok=True)
+
+
 def test_cli_session_memory_rejects_symlink_file(tmp_path):
     from kagent.cli.memory import load_runtime_session_memory
 

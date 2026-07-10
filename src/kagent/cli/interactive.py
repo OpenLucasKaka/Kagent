@@ -15,11 +15,15 @@ from kagent.cli.commands import (
     runtime_interactive_command_usage,
     runtime_interactive_completion_words,
 )
-from kagent.cli.conversation import remember_runtime_turn, runtime_goal_with_memory
+from kagent.cli.conversation import (
+    RUNTIME_MEMORY_MAX_TURNS,
+    compact_runtime_conversation_memory,
+    remember_runtime_turn,
+    runtime_goal_with_memory,
+)
 from kagent.cli.memory import (
     RuntimeSessionMemory,
     clear_runtime_history,
-    compact_runtime_session_memory,
     default_runtime_history_path,
     load_runtime_session_memory,
     runtime_prompt_history,
@@ -49,12 +53,6 @@ from kagent.cli.ui import (
 )
 from kagent.utils.json_output import format_and_write_json, json_ready
 
-_INTERACTIVE_MEMORY_MAX_TURNS = 12
-_INTERACTIVE_MEMORY_RECENT_TURNS = 6
-_INTERACTIVE_MEMORY_SUMMARY_CHARS = 2400
-_INTERACTIVE_MEMORY_MAX_FACTS = 16
-_INTERACTIVE_MEMORY_MAX_OPEN_ITEMS = 16
-
 
 def run_runtime_interactive(
     *,
@@ -74,7 +72,7 @@ def run_runtime_interactive(
     full_json_mode = full_trace_output
     session_memory = load_runtime_session_memory(
         session_memory_path,
-        max_turns=_INTERACTIVE_MEMORY_MAX_TURNS,
+        max_turns=RUNTIME_MEMORY_MAX_TURNS,
     )
     last_payload: Any = None
     line_reader: Any = None
@@ -694,16 +692,8 @@ def _handle_runtime_interactive_command(
         print(format_runtime_session_memory(session_memory))
         return True, full_json_mode
     if normalized in {"/compact-memory", "/compress-memory"}:
-        before_count = session_memory.compacted_turn_count
-        compact_runtime_session_memory(
-            session_memory,
-            max_recent_turns=_INTERACTIVE_MEMORY_RECENT_TURNS,
-            max_summary_chars=_INTERACTIVE_MEMORY_SUMMARY_CHARS,
-            max_facts=_INTERACTIVE_MEMORY_MAX_FACTS,
-            max_open_items=_INTERACTIVE_MEMORY_MAX_OPEN_ITEMS,
-        )
+        compacted_now = compact_runtime_conversation_memory(session_memory)
         save_runtime_session_memory(session_memory_path, session_memory)
-        compacted_now = session_memory.compacted_turn_count - before_count
         detail = (
             f"{compacted_now} turn{'s' if compacted_now != 1 else ''} compacted"
             if compacted_now

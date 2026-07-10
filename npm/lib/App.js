@@ -5,6 +5,7 @@ exports.deleteBeforeCursor = deleteBeforeCursor;
 exports.applyInput = applyInput;
 exports.moveCursor = moveCursor;
 exports.splitGraphemes = splitGraphemes;
+exports.isSessionCommandInput = isSessionCommandInput;
 const runtime_client_1 = require("./runtime-client");
 const provider_setup_1 = require("./provider-setup");
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -203,8 +204,29 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         setMessages((current) => current.concat({ role: "user", text: goal }));
         setEditor({ value: "", cursor: 0 });
         setStatus("thinking");
+        if (isSessionCommandInput(goal)) {
+            setStatusText("Running command");
+            runtime.command(goal, handleCommandEvent);
+            return;
+        }
         setStatusText("Thinking");
         runtime.run(goal, handleRuntimeEvent);
+    }
+    function handleCommandEvent(event) {
+        if (event.type === "session_command_completed") {
+            setStatus("idle");
+            setStatusText("");
+            const message = {
+                role: "command",
+                title: event.title,
+                text: event.message,
+            };
+            setMessages((current) => (event.clear_messages ? [message] : current.concat(message)));
+            return;
+        }
+        if (event.type === "session_command_failed" || event.type === "client_failed") {
+            showError(event.message);
+        }
     }
     function handleApprovalInput(value) {
         if (!approval) {
@@ -348,9 +370,23 @@ function setupField(setup) {
 function MessageList({ React, Box, Text, messages }) {
     const recent = messages.slice(-10);
     return React.createElement(Box, { flexDirection: "column" }, ...recent.map((message, index) => {
-        const marker = message.role === "user" ? "›" : message.role === "assistant" ? "•" : "!";
-        const color = message.role === "user" ? "cyan" : message.role === "assistant" ? undefined : "red";
-        return React.createElement(Box, { key: `${message.role}-${index}`, flexDirection: "row", marginBottom: 1 }, React.createElement(Text, { color, bold: message.role === "user" }, `${marker} `), React.createElement(Text, { color, wrap: "wrap" }, message.text));
+        const marker = message.role === "user"
+            ? "›"
+            : message.role === "assistant"
+                ? "•"
+                : message.role === "command"
+                    ? "·"
+                    : "!";
+        const color = message.role === "user"
+            ? "cyan"
+            : message.role === "system"
+                ? "red"
+                : message.role === "command"
+                    ? "gray"
+                    : undefined;
+        return React.createElement(Box, { key: `${message.role}-${index}`, flexDirection: "row", marginBottom: 1 }, React.createElement(Text, { color, bold: message.role === "user" }, `${marker} `), React.createElement(Box, { flexDirection: "column", flexGrow: 1 }, message.title
+            ? React.createElement(Text, { bold: true, color }, message.title)
+            : null, React.createElement(Text, { color, wrap: "wrap" }, message.text)));
     }));
 }
 function ApprovalPanel({ React, Box, Text, approval, showDetails, }) {
@@ -433,4 +469,7 @@ function moveCursor(state, offset) {
 }
 function splitGraphemes(value) {
     return Array.from(GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);
+}
+function isSessionCommandInput(value) {
+    return value.trimStart().startsWith("/");
 }

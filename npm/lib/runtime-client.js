@@ -65,7 +65,9 @@ function createRuntimeSessionClient() {
                 if (event.type === "run_completed" ||
                     event.type === "run_failed" ||
                     event.type === "provider_configured" ||
-                    event.type === "provider_configuration_failed") {
+                    event.type === "provider_configuration_failed" ||
+                    event.type === "session_command_completed" ||
+                    event.type === "session_command_failed") {
                     busy = false;
                     currentHandler = null;
                 }
@@ -208,6 +210,28 @@ function createRuntimeSessionClient() {
             if (options.runtimePlan) {
                 request.runtime_plan = options.runtimePlan;
             }
+            try {
+                send(request);
+            }
+            catch (error) {
+                failCurrent(errorMessage(error));
+            }
+        },
+        command(command, onEvent) {
+            if (closed) {
+                onEvent({ type: "client_failed", message: "runtime session is closed" });
+                return;
+            }
+            if (busy) {
+                onEvent({ type: "client_failed", message: "runtime session is busy" });
+                return;
+            }
+            busy = true;
+            currentHandler = onEvent;
+            const request = {
+                type: "session_command",
+                command,
+            };
             try {
                 send(request);
             }

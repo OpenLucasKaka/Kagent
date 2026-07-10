@@ -66,6 +66,14 @@ def remember_runtime_turn(
             "assistant": _compact_runtime_memory_text(answer),
         }
     )
+    compact_runtime_conversation_memory(session_memory)
+
+
+def compact_runtime_conversation_memory(
+    session_memory: RuntimeSessionMemory,
+) -> int:
+    """Compact a runtime conversation using the same limits as automatic memory."""
+    before_count = session_memory.compacted_turn_count
     compact_runtime_session_memory(
         session_memory,
         max_recent_turns=_MEMORY_RECENT_TURNS,
@@ -73,6 +81,7 @@ def remember_runtime_turn(
         max_facts=_MEMORY_MAX_FACTS,
         max_open_items=_MEMORY_MAX_OPEN_ITEMS,
     )
+    return session_memory.compacted_turn_count - before_count
 
 
 def _runtime_compact_memory_lines(session_memory: RuntimeSessionMemory) -> list[str]:
@@ -112,6 +121,7 @@ def _compact_runtime_memory_text(text: str) -> str:
 
 __all__ = [
     "RUNTIME_MEMORY_MAX_TURNS",
+    "compact_runtime_conversation_memory",
     "remember_runtime_turn",
     "runtime_goal_with_memory",
 ]

@@ -18,12 +18,16 @@ from kagent.cli.memory import (
     save_runtime_session_memory,
 )
 from kagent.cli.provider import RuntimeProviderConfigError, runtime_provider_config_message
+from kagent.cli.session_commands import (
+    SessionCommandError,
+    execute_session_command,
+    redacted_provider_snapshot,
+)
 from kagent.providers.llm import (
     FakeLLMProvider,
     LLMProviderConfig,
     build_llm_provider,
     missing_provider_config_fields,
-    provider_display_name,
     provider_setup_options,
     save_provider_config,
     validate_provider_setup_config,
@@ -55,6 +59,7 @@ class StdioRuntimeSession:
         )
         self.provider_config = LLMProviderConfig.from_sources()
         self.pending_approval: PendingApproval | None = None
+        self.last_payload: Dict[str, Any] | None = None
 
     def handle(self, request: Request) -> None:
         request_type = str(request.get("type", ""))
@@ -67,15 +72,19 @@ class StdioRuntimeSession:
         if request_type == "provider_configure":
             self._handle_provider_configure(request)
             return
+        if request_type == "session_command":
+            self._handle_session_command(request)
+            return
         self._fail(
             "invalid_request_type",
-            "request type must be run_request, approval_response, or provider_configure",
+            "request type must be run_request, approval_response, provider_configure, "
+            "or session_command",
         )
 
     def ready_event(self) -> Dict[str, Any]:
         return {
             "type": "runtime_ready",
-            "provider": _provider_snapshot(self.provider_config),
+            "provider": redacted_provider_snapshot(self.provider_config),
             "provider_options": provider_setup_options(),
         }
 
@@ -151,9 +160,38 @@ class StdioRuntimeSession:
             self.stdout,
             {
                 "type": "provider_configured",
-                "provider": _provider_snapshot(config),
+                "provider": redacted_provider_snapshot(config),
             },
         )
+
+    def _handle_session_command(self, request: Request) -> None:
+        command = str(request.get("command", "")).strip()
+        if self.pending_approval is not None:
+            self._session_command_failed(
+                command,
+                "approval_pending",
+                "Respond to the pending approval before running a command.",
+            )
+            return
+        try:
+            result = execute_session_command(
+                command,
+                memory=self.memory,
+                memory_path=self.memory_path,
+                provider_config=self.provider_config,
+                last_payload=self.last_payload,
+            )
+        except SessionCommandError as exc:
+            self._session_command_failed(
+                exc.command or command,
+                exc.error_code,
+                str(exc),
+            )
+            return
+        except (OSError, TypeError, ValueError) as exc:
+            self._session_command_failed(command, "command_failed", str(exc))
+            return
+        _emit(self.stdout, result.event())
 
     def _handle_approval_response(self, request: Request) -> None:
         pending = self.pending_approval
@@ -218,6 +256,7 @@ class StdioRuntimeSession:
     def _complete(self, goal: str, payload: Dict[str, Any]) -> None:
         remember_runtime_turn(self.memory, goal, payload)
         save_runtime_session_memory(self.memory_path, self.memory)
+        self.last_payload = dict(payload)
         _emit(
             self.stdout,
             {
@@ -252,6 +291,22 @@ class StdioRuntimeSession:
         if field:
             payload["field"] = field
         _emit(self.stdout, payload)
+
+    def _session_command_failed(
+        self,
+        command: str,
+        error_code: str,
+        message: str,
+    ) -> None:
+        _emit(
+            self.stdout,
+            {
+                "type": "session_command_failed",
+                "command": command,
+                "error_code": error_code,
+                "message": message,
+            },
+        )
 
 
 def main() -> None:
@@ -377,18 +432,6 @@ def _provider_from_request(request: Request, config: LLMProviderConfig) -> Any:
     if missing:
         raise RuntimeProviderConfigError(runtime_provider_config_message(missing))
     return build_llm_provider(config)
-
-
-def _provider_snapshot(config: LLMProviderConfig) -> Dict[str, Any]:
-    configured = not missing_provider_config_fields(config)
-    return {
-        "configured": configured,
-        "provider": config.provider.value if configured else "unconfigured",
-        "display_name": provider_display_name(config.provider) if configured else "Unconfigured",
-        "base_url_configured": bool(config.base_url),
-        "model": config.model,
-        "api_key_configured": bool(config.api_key),
-    }
 
 
 def _provider_error_field(message: str) -> str:

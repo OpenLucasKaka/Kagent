@@ -517,6 +517,152 @@ assert.equal(maskSecret("s你👍🏽"), "•••");
     subprocess.run([node, "-e", script], check=True)
 
 
+def test_npm_command_palette_filters_navigates_stably_and_completes():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const {
+  commandCompletion,
+  moveCommandSelection,
+  updateCommandMenu,
+} = require("./npm/lib/commands");
+
+const catalog = [
+  {command: "/status", description: "show shell state", aliases: ["/stat"]},
+  {command: "/config", description: "show provider config", aliases: ["/provider"]},
+  {command: "/cd PATH", description: "change working directory", aliases: ["/cd"]},
+  {command: "/clear", description: "clear remembered turns", aliases: ["/clear-memory"]},
+];
+
+let menu = updateCommandMenu(catalog, "/", null);
+assert.deepEqual(menu.options.map((item) => item.command), [
+  "/status", "/config", "/cd PATH", "/clear",
+]);
+assert.equal(menu.selectedCommand, "/status");
+
+menu = moveCommandSelection(menu, 1);
+assert.equal(menu.selectedCommand, "/config");
+menu = updateCommandMenu(catalog, "/c", menu);
+assert.deepEqual(menu.options.map((item) => item.command), [
+  "/config", "/cd PATH", "/clear",
+]);
+assert.equal(menu.selectedCommand, "/config");
+
+menu = moveCommandSelection(menu, -1);
+assert.equal(menu.selectedCommand, "/clear");
+assert.equal(commandCompletion(menu), "/clear");
+
+const aliasMenu = updateCommandMenu(catalog, "/sta", null);
+assert.equal(aliasMenu.selectedCommand, "/status");
+assert.equal(commandCompletion(aliasMenu), "/status");
+
+const argumentMenu = updateCommandMenu(catalog, "/cd", null);
+assert.equal(commandCompletion(argumentMenu), "/cd ");
+assert.equal(updateCommandMenu(catalog, "/cd /tmp", argumentMenu), null);
+assert.equal(updateCommandMenu(catalog, "hello", null), null);
+"""
+    subprocess.run([node, "-e", script], check=True)
+
+
+def test_npm_ink_app_routes_command_menu_keys_before_prompt_history():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const {EventEmitter} = require("node:events");
+const {KagentInkApp} = require("./npm/lib/App");
+
+const states = [];
+const refs = [];
+let effects = [];
+let stateCursor = 0;
+let refCursor = 0;
+let lifecycleHandler;
+let commandValue = "";
+
+const React = {
+  createElement(type, props, ...children) { return {type, props, children}; },
+  useEffect(effect) { effects.push(effect); },
+  useRef(value) {
+    const index = refCursor++;
+    if (!refs[index]) refs[index] = {current: value};
+    return refs[index];
+  },
+  useState(initial) {
+    const index = stateCursor++;
+    if (!(index in states)) states[index] = typeof initial === "function" ? initial() : initial;
+    return [states[index], (update) => {
+      states[index] = typeof update === "function" ? update(states[index]) : update;
+    }];
+  },
+};
+const inputEvents = new EventEmitter();
+const Ink = {
+  Box: "Box",
+  Text: "Text",
+  useApp() { return {exit() {}}; },
+  useStdin() {
+    return {internal_eventEmitter: inputEvents, setRawMode() {}};
+  },
+};
+const runtime = {
+  subscribe(handler) { lifecycleHandler = handler; return () => {}; },
+  command(value) { commandValue = value; },
+  close() {},
+  cancel() {},
+};
+
+function render() {
+  stateCursor = 0;
+  refCursor = 0;
+  effects = [];
+  return KagentInkApp({React, Ink, runtimeSessionFactory: () => runtime});
+}
+
+render();
+const inputCleanup = effects[0]();
+const runtimeCleanup = effects[1]();
+lifecycleHandler({
+  type: "runtime_ready",
+  provider: {
+    configured: true,
+    provider: "test",
+    display_name: "Test",
+    base_url_configured: true,
+    model: "model",
+    api_key_configured: true,
+  },
+  provider_options: [],
+  session_commands: [
+    {command: "/status", description: "show status", aliases: ["/stat"]},
+    {command: "/config", description: "show config", aliases: ["/provider"]},
+    {command: "/cd PATH", description: "change directory", aliases: ["/cd"]},
+  ],
+});
+render();
+
+inputEvents.emit("input", "/");
+render();
+inputEvents.emit("input", "\x1b[B");
+render();
+assert.equal(states[11], "/config");
+inputEvents.emit("input", "\t");
+render();
+assert.deepEqual([states[1].value, states[1].cursor], ["/config", 7]);
+inputEvents.emit("input", "\r");
+assert.equal(commandValue, "/config");
+
+inputCleanup();
+runtimeCleanup();
+"""
+    subprocess.run([node, "-e", script], check=True)
+
+
 def test_npm_runtime_client_reuses_python_session_and_handles_approval(tmp_path):
     node = shutil.which("node")
     if node is None:

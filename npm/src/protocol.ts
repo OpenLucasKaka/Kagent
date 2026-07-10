@@ -47,6 +47,12 @@ export type ProviderOption = {
   api_key_required: boolean;
 };
 
+export type SessionCommandOption = {
+  command: string;
+  description: string;
+  aliases: string[];
+};
+
 export type RunStartedEvent = {
   type: "run_started";
   goal: string;
@@ -57,6 +63,7 @@ export type RuntimeReadyEvent = {
   type: "runtime_ready";
   provider: ProviderSnapshot;
   provider_options: ProviderOption[];
+  session_commands: SessionCommandOption[];
 };
 
 export type RuntimeUnavailableEvent = {

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KagentInkApp = KagentInkApp;
 exports.isSessionCommandInput = isSessionCommandInput;
+const commands_1 = require("./commands");
 const editor_1 = require("./editor");
 const runtime_client_1 = require("./runtime-client");
 const provider_setup_1 = require("./provider-setup");
@@ -21,6 +22,9 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     const [showApprovalDetails, setShowApprovalDetails] = React.useState(false);
     const [provider, setProvider] = React.useState(null);
     const [setup, setSetup] = React.useState(null);
+    const [commandCatalog, setCommandCatalog] = React.useState([]);
+    const [selectedCommand, setSelectedCommand] = React.useState(null);
+    const commandMenu = (0, commands_1.updateCommandMenu)(commandCatalog, editor.value, selectedCommand);
     const terminalInputHandler = React.useRef(() => undefined);
     terminalInputHandler.current = handleTerminalInput;
     React.useEffect(() => {
@@ -88,6 +92,18 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             submit();
             return;
         }
+        if (key.name === "tab" && commandMenu) {
+            const completion = (0, commands_1.commandCompletion)(commandMenu);
+            setEditor((current) => ({
+                ...current,
+                value: completion,
+                cursor: (0, editor_1.splitGraphemes)(completion).length,
+                historyIndex: null,
+                draft: "",
+            }));
+            setSelectedCommand(null);
+            return;
+        }
         if (key.name === "backspace") {
             setEditor(editor_1.deleteBeforeCursor);
             return;
@@ -113,10 +129,18 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             return;
         }
         if (key.name === "up") {
+            if (commandMenu) {
+                setSelectedCommand((0, commands_1.moveCommandSelection)(commandMenu, -1).selectedCommand);
+                return;
+            }
             setEditor((current) => (0, editor_1.navigateHistory)(current, -1));
             return;
         }
         if (key.name === "down") {
+            if (commandMenu) {
+                setSelectedCommand((0, commands_1.moveCommandSelection)(commandMenu, 1).selectedCommand);
+                return;
+            }
             setEditor((current) => (0, editor_1.navigateHistory)(current, 1));
             return;
         }
@@ -135,6 +159,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     }
     function applyRuntimeReady(event) {
         setProvider(event.provider);
+        setCommandCatalog(event.session_commands || []);
         if (event.provider.configured) {
             setSetup(null);
             setStatus("idle");
@@ -249,6 +274,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         }
         setMessages((current) => current.concat({ role: "user", text: goal }));
         setEditor(submission.state);
+        setSelectedCommand(null);
         setStatus("thinking");
         if (isSessionCommandInput(goal)) {
             setStatusText("Running command");
@@ -350,7 +376,9 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             approval,
             showDetails: showApprovalDetails,
         })
-        : null, React.createElement(StatusLine, { React, Text, frame, status, statusText }), status === "starting"
+        : null, React.createElement(StatusLine, { React, Text, frame, status, statusText }), commandMenu && status === "idle"
+        ? React.createElement(CommandPalette, { React, Box, Text, menu: commandMenu })
+        : null, status === "starting"
         ? null
         : React.createElement(PromptLine, {
             React,
@@ -441,6 +469,17 @@ function ApprovalPanel({ React, Box, Text, approval, showDetails, }) {
         : null, showDetails && approval.reason
         ? React.createElement(Text, { color: "gray", wrap: "wrap" }, approval.reason)
         : null, React.createElement(Text, { color: "gray" }, "y allow   n deny   d details"));
+}
+function CommandPalette({ React, Box, Text, menu, }) {
+    const visibleStart = Math.min(Math.max(menu.selectedIndex - 5, 0), Math.max(menu.options.length - 6, 0));
+    const visibleOptions = menu.options.slice(visibleStart, visibleStart + 6);
+    return React.createElement(Box, { flexDirection: "column", paddingLeft: 2, marginTop: 1 }, ...visibleOptions.map((option, index) => {
+        const selected = visibleStart + index === menu.selectedIndex;
+        return React.createElement(Box, { key: option.command, flexDirection: "row" }, React.createElement(Text, {
+            bold: selected,
+            color: selected ? "cyan" : "gray",
+        }, `${selected ? "›" : " "} ${option.command}`), React.createElement(Text, { color: "gray" }, `  ${option.description}`));
+    }), React.createElement(Text, { color: "gray" }, "↑↓ choose  tab complete  enter run"));
 }
 function StatusLine({ React, Text, frame, status, statusText, }) {
     if (status !== "thinking" && status !== "starting") {

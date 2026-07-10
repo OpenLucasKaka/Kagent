@@ -228,6 +228,29 @@ def test_stdio_runtime_session_config_is_redacted_and_help_is_local(tmp_path):
     assert "/json" not in help_event["message"]
 
 
+def test_stdio_runtime_ready_event_exposes_only_executable_session_commands(tmp_path):
+    completed = subprocess.run(
+        [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
+        input="",
+        capture_output=True,
+        text=True,
+        check=True,
+        env=_runtime_env(tmp_path),
+    )
+
+    ready = _jsonl(completed.stdout)[0]
+    commands = ready["session_commands"]
+    by_command = {item["command"]: item for item in commands}
+
+    assert ready["type"] == "runtime_ready"
+    assert "/status" in by_command
+    assert by_command["/status"]["aliases"] == ["/stat"]
+    assert by_command["/cd PATH"]["aliases"] == ["/cd"]
+    assert "/json" not in by_command
+    assert "/save-trace PATH" not in by_command
+    assert all(set(item) == {"command", "description", "aliases"} for item in commands)
+
+
 def test_stdio_runtime_reports_missing_provider_as_structured_error(tmp_path):
     env = {
         "KAGENT_LLM_CONFIG_PATH": str(tmp_path / "missing-provider.json"),

@@ -22,6 +22,7 @@ from kagent.cli.session_commands import (
     SessionCommandError,
     execute_session_command,
     redacted_provider_snapshot,
+    runtime_session_command_catalog,
 )
 from kagent.providers.llm import (
     FakeLLMProvider,
@@ -86,6 +87,7 @@ class StdioRuntimeSession:
             "type": "runtime_ready",
             "provider": redacted_provider_snapshot(self.provider_config),
             "provider_options": provider_setup_options(),
+            "session_commands": runtime_session_command_catalog(),
         }
 
     def _handle_run_request(self, request: Request) -> None:

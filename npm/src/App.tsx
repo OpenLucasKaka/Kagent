@@ -1,6 +1,12 @@
 import type ReactNamespace from "react";
 
 import {
+  commandCompletion,
+  moveCommandSelection,
+  updateCommandMenu,
+  type CommandMenuState,
+} from "./commands";
+import {
   createEditorState,
   deleteAtCursor,
   deleteBeforeCursor,
@@ -32,6 +38,7 @@ import type {
   ApprovalRequiredEvent,
   ProviderSnapshot,
   RuntimeReadyEvent,
+  SessionCommandOption,
 } from "./protocol";
 import {
   createTerminalInputBridge,
@@ -86,6 +93,9 @@ export function KagentInkApp({
   const [showApprovalDetails, setShowApprovalDetails] = React.useState(false);
   const [provider, setProvider] = React.useState<ProviderSnapshot | null>(null);
   const [setup, setSetup] = React.useState<ProviderSetupState | null>(null);
+  const [commandCatalog, setCommandCatalog] = React.useState<SessionCommandOption[]>([]);
+  const [selectedCommand, setSelectedCommand] = React.useState<string | null>(null);
+  const commandMenu = updateCommandMenu(commandCatalog, editor.value, selectedCommand);
   const terminalInputHandler = React.useRef<TerminalInputHandler>(() => undefined);
   terminalInputHandler.current = handleTerminalInput;
 
@@ -159,6 +169,18 @@ export function KagentInkApp({
       submit();
       return;
     }
+    if (key.name === "tab" && commandMenu) {
+      const completion = commandCompletion(commandMenu);
+      setEditor((current) => ({
+        ...current,
+        value: completion,
+        cursor: splitGraphemes(completion).length,
+        historyIndex: null,
+        draft: "",
+      }));
+      setSelectedCommand(null);
+      return;
+    }
     if (key.name === "backspace") {
       setEditor(deleteBeforeCursor);
       return;
@@ -184,10 +206,18 @@ export function KagentInkApp({
       return;
     }
     if (key.name === "up") {
+      if (commandMenu) {
+        setSelectedCommand(moveCommandSelection(commandMenu, -1).selectedCommand);
+        return;
+      }
       setEditor((current) => navigateHistory(current, -1));
       return;
     }
     if (key.name === "down") {
+      if (commandMenu) {
+        setSelectedCommand(moveCommandSelection(commandMenu, 1).selectedCommand);
+        return;
+      }
       setEditor((current) => navigateHistory(current, 1));
       return;
     }
@@ -208,6 +238,7 @@ export function KagentInkApp({
 
   function applyRuntimeReady(event: RuntimeReadyEvent): void {
     setProvider(event.provider);
+    setCommandCatalog(event.session_commands || []);
     if (event.provider.configured) {
       setSetup(null);
       setStatus("idle");
@@ -327,6 +358,7 @@ export function KagentInkApp({
     }
     setMessages((current) => current.concat({ role: "user", text: goal }));
     setEditor(submission.state);
+    setSelectedCommand(null);
     setStatus("thinking");
     if (isSessionCommandInput(goal)) {
       setStatusText("Running command");
@@ -447,6 +479,9 @@ export function KagentInkApp({
         })
       : null,
     React.createElement(StatusLine, { React, Text, frame, status, statusText }),
+    commandMenu && status === "idle"
+      ? React.createElement(CommandPalette, { React, Box, Text, menu: commandMenu })
+      : null,
     status === "starting"
       ? null
       : React.createElement(PromptLine, {
@@ -635,6 +670,40 @@ function ApprovalPanel({
       ? React.createElement(Text, { color: "gray", wrap: "wrap" }, approval.reason)
       : null,
     React.createElement(Text, { color: "gray" }, "y allow   n deny   d details"),
+  );
+}
+
+function CommandPalette({
+  React,
+  Box,
+  Text,
+  menu,
+}: RenderProps & { menu: CommandMenuState }) {
+  const visibleStart = Math.min(
+    Math.max(menu.selectedIndex - 5, 0),
+    Math.max(menu.options.length - 6, 0),
+  );
+  const visibleOptions = menu.options.slice(visibleStart, visibleStart + 6);
+  return React.createElement(
+    Box,
+    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
+    ...visibleOptions.map((option, index) => {
+      const selected = visibleStart + index === menu.selectedIndex;
+      return React.createElement(
+        Box,
+        { key: option.command, flexDirection: "row" },
+        React.createElement(
+          Text,
+          {
+            bold: selected,
+            color: selected ? "cyan" : "gray",
+          },
+          `${selected ? "›" : " "} ${option.command}`,
+        ),
+        React.createElement(Text, { color: "gray" }, `  ${option.description}`),
+      );
+    }),
+    React.createElement(Text, { color: "gray" }, "↑↓ choose  tab complete  enter run"),
   );
 }
 

@@ -206,6 +206,18 @@ def redacted_provider_snapshot(config: LLMProviderConfig) -> dict[str, Any]:
     }
 
 
+def runtime_session_command_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "command": command.primary,
+            "description": command.description,
+            "aliases": list(command.aliases),
+        }
+        for command in runtime_interactive_commands()
+        if command.primary.split()[0] in _SUPPORTED_COMMANDS
+    ]
+
+
 def _canonical_command(command_name: str) -> str:
     for command in runtime_interactive_commands():
         primary = command.primary.split()[0]

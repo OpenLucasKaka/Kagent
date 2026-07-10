@@ -1,20 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KagentInkApp = KagentInkApp;
-exports.deleteBeforeCursor = deleteBeforeCursor;
-exports.applyInput = applyInput;
-exports.moveCursor = moveCursor;
-exports.splitGraphemes = splitGraphemes;
 exports.isSessionCommandInput = isSessionCommandInput;
+const editor_1 = require("./editor");
 const runtime_client_1 = require("./runtime-client");
 const provider_setup_1 = require("./provider-setup");
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.createRuntimeSessionClient, }) {
     const { Box, Text } = Ink;
     const app = Ink.useApp();
     const [runtime] = React.useState(() => runtimeSessionFactory());
-    const [editor, setEditor] = React.useState({ value: "", cursor: 0 });
+    const [editor, setEditor] = React.useState(editor_1.createEditorState);
     const [messages, setMessages] = React.useState([]);
     const [status, setStatus] = React.useState("starting");
     const [statusText, setStatusText] = React.useState("");
@@ -75,20 +71,40 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             submit();
             return;
         }
-        if (key.backspace || key.delete || value === "\b" || value === "\x7f") {
-            setEditor(deleteBeforeCursor);
+        if (key.backspace || value === "\b" || value === "\x7f") {
+            setEditor(editor_1.deleteBeforeCursor);
+            return;
+        }
+        if (key.delete) {
+            setEditor(editor_1.deleteAtCursor);
             return;
         }
         if (key.leftArrow) {
-            setEditor((current) => moveCursor(current, -1));
+            setEditor((current) => (0, editor_1.moveCursor)(current, -1));
             return;
         }
         if (key.rightArrow) {
-            setEditor((current) => moveCursor(current, 1));
+            setEditor((current) => (0, editor_1.moveCursor)(current, 1));
+            return;
+        }
+        if (key.home || (key.ctrl && value === "a")) {
+            setEditor(editor_1.moveCursorToStart);
+            return;
+        }
+        if (key.end || (key.ctrl && value === "e")) {
+            setEditor(editor_1.moveCursorToEnd);
+            return;
+        }
+        if (key.upArrow) {
+            setEditor((current) => (0, editor_1.navigateHistory)(current, -1));
+            return;
+        }
+        if (key.downArrow) {
+            setEditor((current) => (0, editor_1.navigateHistory)(current, 1));
             return;
         }
         if (value && !key.ctrl && !key.meta) {
-            setEditor((current) => applyInput(current, value));
+            setEditor((current) => (0, editor_1.insertInput)(current, value));
         }
     });
     function handleLifecycleEvent(event) {
@@ -148,20 +164,32 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             }
             return;
         }
-        if (key.backspace || key.delete || value === "\b" || value === "\x7f") {
-            updateSetupEditor(deleteBeforeCursor);
+        if (key.backspace || value === "\b" || value === "\x7f") {
+            updateSetupEditor(editor_1.deleteBeforeCursor);
+            return;
+        }
+        if (key.delete) {
+            updateSetupEditor(editor_1.deleteAtCursor);
             return;
         }
         if (key.leftArrow) {
-            updateSetupEditor((current) => moveCursor(current, -1));
+            updateSetupEditor((current) => (0, editor_1.moveCursor)(current, -1));
             return;
         }
         if (key.rightArrow) {
-            updateSetupEditor((current) => moveCursor(current, 1));
+            updateSetupEditor((current) => (0, editor_1.moveCursor)(current, 1));
+            return;
+        }
+        if (key.home || (key.ctrl && value === "a")) {
+            updateSetupEditor(editor_1.moveCursorToStart);
+            return;
+        }
+        if (key.end || (key.ctrl && value === "e")) {
+            updateSetupEditor(editor_1.moveCursorToEnd);
             return;
         }
         if (value && !key.ctrl && !key.meta) {
-            updateSetupEditor((current) => applyInput(current, value));
+            updateSetupEditor((current) => (0, editor_1.insertInput)(current, value));
         }
     }
     function updateSetupEditor(update) {
@@ -193,16 +221,17 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         }
     }
     function submit() {
-        const goal = editor.value.trim();
-        if (!goal) {
+        const submission = (0, editor_1.submitInput)(editor);
+        if (!submission.value) {
             return;
         }
+        const goal = submission.value;
         if (["exit", "quit", ":q"].includes(goal.toLowerCase())) {
             app.exit();
             return;
         }
         setMessages((current) => current.concat({ role: "user", text: goal }));
-        setEditor({ value: "", cursor: 0 });
+        setEditor(submission.state);
         setStatus("thinking");
         if (isSessionCommandInput(goal)) {
             setStatusText("Running command");
@@ -404,7 +433,7 @@ function StatusLine({ React, Text, frame, status, statusText, }) {
     return React.createElement(Text, { color: "cyan" }, `${FRAMES[frame]} ${label}`);
 }
 function PromptLine({ React, Box, Text, cursor, disabled, input, placeholder = "Ask kagent", compact = false, }) {
-    const characters = splitGraphemes(input);
+    const characters = (0, editor_1.splitGraphemes)(input);
     const safeCursor = Math.min(Math.max(cursor, 0), characters.length);
     const before = characters.slice(0, safeCursor).join("");
     const active = characters[safeCursor] || " ";
@@ -428,47 +457,6 @@ function progressLabel(event) {
 }
 function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);
-}
-function deleteBeforeCursor(state) {
-    const characters = splitGraphemes(state.value);
-    const cursor = Math.min(Math.max(state.cursor, 0), characters.length);
-    if (cursor <= 0) {
-        return state;
-    }
-    characters.splice(cursor - 1, 1);
-    return {
-        value: characters.join(""),
-        cursor: cursor - 1,
-    };
-}
-function applyInput(state, rawInput) {
-    const characters = splitGraphemes(state.value);
-    let cursor = Math.min(Math.max(state.cursor, 0), characters.length);
-    for (const character of splitGraphemes(rawInput)) {
-        if (character === "\b" || character === "\x7f") {
-            if (cursor > 0) {
-                characters.splice(cursor - 1, 1);
-                cursor -= 1;
-            }
-            continue;
-        }
-        if ((character.codePointAt(0) || 0) < 32) {
-            continue;
-        }
-        characters.splice(cursor, 0, character);
-        cursor += 1;
-    }
-    return { value: characters.join(""), cursor };
-}
-function moveCursor(state, offset) {
-    const length = splitGraphemes(state.value).length;
-    return {
-        ...state,
-        cursor: Math.min(Math.max(state.cursor + offset, 0), length),
-    };
-}
-function splitGraphemes(value) {
-    return Array.from(GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);
 }
 function isSessionCommandInput(value) {
     return value.trimStart().startsWith("/");

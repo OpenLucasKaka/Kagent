@@ -91,7 +91,7 @@ def test_npm_ink_runtime_keeps_one_session_and_hides_internal_tool_names():
     assert "runtime session is busy" in client
 
 
-def test_npm_ink_editor_handles_unicode_graphemes():
+def test_npm_ink_editor_model_handles_graphemes_navigation_deletion_and_history():
     node = shutil.which("node")
     if node is None:
         return
@@ -99,27 +99,73 @@ def test_npm_ink_editor_handles_unicode_graphemes():
     script = r"""
 const assert = require("node:assert/strict");
 const {
-  applyInput,
+  createEditorState,
   deleteBeforeCursor,
-  isSessionCommandInput,
+  deleteAtCursor,
+  insertInput,
   moveCursor,
+  moveCursorToEnd,
+  moveCursorToStart,
+  navigateHistory,
   splitGraphemes,
-} = require("./npm/lib/App");
+  submitInput,
+} = require("./npm/lib/editor");
+const {isSessionCommandInput} = require("./npm/lib/App");
 
 assert.deepEqual(splitGraphemes("你👍🏽e\u0301"), ["你", "👍🏽", "e\u0301"]);
 
-let state = applyInput({value: "", cursor: 0}, "你好👍🏽");
-assert.deepEqual(state, {value: "你好👍🏽", cursor: 3});
+let state = insertInput(createEditorState(), "你👍🏽e\u0301");
+assert.equal(state.value, "你👍🏽e\u0301");
+assert.equal(state.cursor, 3);
 
 state = moveCursor(state, -1);
-state = applyInput(state, "，");
-assert.deepEqual(state, {value: "你好，👍🏽", cursor: 3});
+assert.equal(state.cursor, 2);
+state = moveCursor(state, 1);
+assert.equal(state.cursor, 3);
+
+state = moveCursorToStart(state);
+assert.equal(state.cursor, 0);
+state = moveCursorToEnd(state);
+assert.equal(state.cursor, 3);
 
 state = deleteBeforeCursor(state);
-assert.deepEqual(state, {value: "你好👍🏽", cursor: 2});
+assert.equal(state.value, "你👍🏽");
+assert.equal(state.cursor, 2);
 
-state = applyInput(state, "e\u0301\x7fA");
-assert.deepEqual(state, {value: "你好A👍🏽", cursor: 3});
+state = moveCursorToStart(state);
+state = deleteAtCursor(state);
+assert.equal(state.value, "👍🏽");
+assert.equal(state.cursor, 0);
+
+state = insertInput(state, "A");
+assert.equal(state.value, "A👍🏽");
+assert.equal(state.cursor, 1);
+
+let submitted = submitInput(insertInput(createEditorState(), "first"));
+assert.equal(submitted.value, "first");
+state = submitted.state;
+
+submitted = submitInput(insertInput(state, "second"));
+assert.equal(submitted.value, "second");
+state = insertInput(submitted.state, "draft");
+
+state = navigateHistory(state, -1);
+assert.equal(state.value, "second");
+assert.equal(state.cursor, 6);
+state = navigateHistory(state, -1);
+assert.equal(state.value, "first");
+state = navigateHistory(state, -1);
+assert.equal(state.value, "first");
+
+state = navigateHistory(state, 1);
+assert.equal(state.value, "second");
+state = navigateHistory(state, 1);
+assert.equal(state.value, "draft");
+assert.equal(state.cursor, 5);
+state = navigateHistory(state, 1);
+assert.equal(state.value, "draft");
+
+assert.equal(submitInput(createEditorState()).value, null);
 
 assert.equal(isSessionCommandInput("/status"), true);
 assert.equal(isSessionCommandInput("  /memory"), true);

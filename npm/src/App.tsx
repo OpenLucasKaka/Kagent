@@ -1,6 +1,20 @@
 import type ReactNamespace from "react";
 
 import {
+  createEditorState,
+  deleteAtCursor,
+  deleteBeforeCursor,
+  insertInput,
+  moveCursor,
+  moveCursorToEnd,
+  moveCursorToStart,
+  navigateHistory,
+  splitGraphemes,
+  submitInput,
+  type EditorBuffer,
+  type EditorState,
+} from "./editor";
+import {
   createRuntimeSessionClient,
   type RuntimeClientEvent,
   type RuntimeSessionClient,
@@ -41,13 +55,7 @@ type Message = {
 
 type Status = "starting" | "idle" | "thinking" | "approval" | "error";
 
-export type EditorState = {
-  value: string;
-  cursor: number;
-};
-
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 export function KagentInkApp({
   React,
@@ -57,7 +65,7 @@ export function KagentInkApp({
   const { Box, Text } = Ink;
   const app = Ink.useApp();
   const [runtime] = React.useState<RuntimeSessionClient>(() => runtimeSessionFactory());
-  const [editor, setEditor] = React.useState<EditorState>({ value: "", cursor: 0 });
+  const [editor, setEditor] = React.useState<EditorState>(createEditorState);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [status, setStatus] = React.useState<Status>("starting");
   const [statusText, setStatusText] = React.useState("");
@@ -123,8 +131,12 @@ export function KagentInkApp({
       submit();
       return;
     }
-    if (key.backspace || key.delete || value === "\b" || value === "\x7f") {
+    if (key.backspace || value === "\b" || value === "\x7f") {
       setEditor(deleteBeforeCursor);
+      return;
+    }
+    if (key.delete) {
+      setEditor(deleteAtCursor);
       return;
     }
     if (key.leftArrow) {
@@ -135,8 +147,24 @@ export function KagentInkApp({
       setEditor((current) => moveCursor(current, 1));
       return;
     }
+    if (key.home || (key.ctrl && value === "a")) {
+      setEditor(moveCursorToStart);
+      return;
+    }
+    if (key.end || (key.ctrl && value === "e")) {
+      setEditor(moveCursorToEnd);
+      return;
+    }
+    if (key.upArrow) {
+      setEditor((current) => navigateHistory(current, -1));
+      return;
+    }
+    if (key.downArrow) {
+      setEditor((current) => navigateHistory(current, 1));
+      return;
+    }
     if (value && !key.ctrl && !key.meta) {
-      setEditor((current) => applyInput(current, value));
+      setEditor((current) => insertInput(current, value));
     }
   });
 
@@ -198,8 +226,12 @@ export function KagentInkApp({
       }
       return;
     }
-    if (key.backspace || key.delete || value === "\b" || value === "\x7f") {
+    if (key.backspace || value === "\b" || value === "\x7f") {
       updateSetupEditor(deleteBeforeCursor);
+      return;
+    }
+    if (key.delete) {
+      updateSetupEditor(deleteAtCursor);
       return;
     }
     if (key.leftArrow) {
@@ -210,12 +242,20 @@ export function KagentInkApp({
       updateSetupEditor((current) => moveCursor(current, 1));
       return;
     }
+    if (key.home || (key.ctrl && value === "a")) {
+      updateSetupEditor(moveCursorToStart);
+      return;
+    }
+    if (key.end || (key.ctrl && value === "e")) {
+      updateSetupEditor(moveCursorToEnd);
+      return;
+    }
     if (value && !key.ctrl && !key.meta) {
-      updateSetupEditor((current) => applyInput(current, value));
+      updateSetupEditor((current) => insertInput(current, value));
     }
   }
 
-  function updateSetupEditor(update: (current: EditorState) => EditorState): void {
+  function updateSetupEditor(update: (current: EditorBuffer) => EditorBuffer): void {
     setSetup((current) => {
       if (!current || !isInputStage(current.stage)) {
         return current;
@@ -248,16 +288,17 @@ export function KagentInkApp({
   }
 
   function submit(): void {
-    const goal = editor.value.trim();
-    if (!goal) {
+    const submission = submitInput(editor);
+    if (!submission.value) {
       return;
     }
+    const goal = submission.value;
     if (["exit", "quit", ":q"].includes(goal.toLowerCase())) {
       app.exit();
       return;
     }
     setMessages((current) => current.concat({ role: "user", text: goal }));
-    setEditor({ value: "", cursor: 0 });
+    setEditor(submission.state);
     setStatus("thinking");
     if (isSessionCommandInput(goal)) {
       setStatusText("Running command");
@@ -647,51 +688,6 @@ function progressLabel(event: Record<string, unknown>): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function deleteBeforeCursor(state: EditorState): EditorState {
-  const characters = splitGraphemes(state.value);
-  const cursor = Math.min(Math.max(state.cursor, 0), characters.length);
-  if (cursor <= 0) {
-    return state;
-  }
-  characters.splice(cursor - 1, 1);
-  return {
-    value: characters.join(""),
-    cursor: cursor - 1,
-  };
-}
-
-export function applyInput(state: EditorState, rawInput: string): EditorState {
-  const characters = splitGraphemes(state.value);
-  let cursor = Math.min(Math.max(state.cursor, 0), characters.length);
-  for (const character of splitGraphemes(rawInput)) {
-    if (character === "\b" || character === "\x7f") {
-      if (cursor > 0) {
-        characters.splice(cursor - 1, 1);
-        cursor -= 1;
-      }
-      continue;
-    }
-    if ((character.codePointAt(0) || 0) < 32) {
-      continue;
-    }
-    characters.splice(cursor, 0, character);
-    cursor += 1;
-  }
-  return { value: characters.join(""), cursor };
-}
-
-export function moveCursor(state: EditorState, offset: number): EditorState {
-  const length = splitGraphemes(state.value).length;
-  return {
-    ...state,
-    cursor: Math.min(Math.max(state.cursor + offset, 0), length),
-  };
-}
-
-export function splitGraphemes(value: string): string[] {
-  return Array.from(GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);
 }
 
 export function isSessionCommandInput(value: string): boolean {

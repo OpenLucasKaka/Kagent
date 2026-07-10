@@ -963,6 +963,7 @@ def test_service_metrics_endpoint_records_runtime_llm_provider_request(monkeypat
                 "duration_seconds": "1.2500",
                 "error_type": "http_error",
                 "http_status": "429",
+                "retryable_reason": "model_unloaded",
                 "api_key": "must-not-leak",
             },
         }
@@ -994,6 +995,9 @@ def test_service_metrics_endpoint_records_runtime_llm_provider_request(monkeypat
         "http_error": "1"
     }
     assert metrics_payload["runtime_llm_provider_request_http_status"] == {"429": "1"}
+    assert metrics_payload["runtime_llm_provider_request_retryable_reason"] == {
+        "model_unloaded": "1"
+    }
     assert "must-not-leak" not in json.dumps(metrics_payload)
 
 

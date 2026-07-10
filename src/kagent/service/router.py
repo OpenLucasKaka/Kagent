@@ -725,6 +725,7 @@ def _runtime_llm_provider_request(value: Mapping[str, Any]) -> Dict[str, str]:
         "duration_seconds",
         "error_type",
         "http_status",
+        "retryable_reason",
     }
     return {
         key: str(diagnostics[key])

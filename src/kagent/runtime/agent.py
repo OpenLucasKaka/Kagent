@@ -86,6 +86,16 @@ Use only tools that are available to you.
     'If the goal is complete, return {"actions":[]}.'
 )
 
+_CHECKPOINT_SECRET_KEY_PARTS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "password",
+    "secret",
+    "token",
+)
+
 RUNTIME_TRACE_TYPE = "codex_runtime"
 MAX_PLANNER_OBSERVATION_STRING_CHARS = 500
 MAX_STEERING_APPLIED_PER_RUN = 8
@@ -99,6 +109,12 @@ class RuntimeGraphState(TypedDict, total=False):
     approved_action_ids: List[str]
     metadata: Dict[str, str]
     tags: List[str]
+    started_at: str
+    initial_events: List[Dict[str, Any]]
+    initial_hook_failure_count: int
+    initial_planner: Dict[str, Any]
+    initial_progress_events: List[Dict[str, Any]]
+    initial_progress_event_sink_failure_count: int
     result: Dict[str, Any]
     graph_phases: List[Dict[str, str]]
 
@@ -123,9 +139,14 @@ class RuntimeGraphContext(TypedDict, total=False):
     embedding_retry_backoff_seconds: float
     external_backend_timeout_seconds: float
     stream_answers: bool
+    planner_plan_cache: Dict[str, Dict[str, Any]]
 
 
-def build_runtime_graph(*, checkpointer: Any = None):
+def build_runtime_graph(
+    *,
+    checkpointer: Any = None,
+    interrupt_after: List[str] | None = None,
+):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         try:
@@ -139,13 +160,19 @@ def build_runtime_graph(*, checkpointer: Any = None):
 
     graph = StateGraph(RuntimeGraphState, context_schema=RuntimeGraphContext)
     graph.add_node("prepare", _runtime_prepare_graph_node)
+    graph.add_node("planner", _runtime_planner_graph_node)
     graph.add_node("runtime_loop", _runtime_loop_graph_node)
     graph.add_node("finalize", _runtime_finalize_graph_node)
     graph.set_entry_point("prepare")
-    graph.add_edge("prepare", "runtime_loop")
+    graph.add_edge("prepare", "planner")
+    graph.add_edge("planner", "runtime_loop")
     graph.add_edge("runtime_loop", "finalize")
     graph.add_edge("finalize", END)
-    return graph.compile(checkpointer=checkpointer, name="kagent-runtime")
+    return graph.compile(
+        checkpointer=checkpointer,
+        interrupt_after=interrupt_after,
+        name="kagent-runtime",
+    )
 
 
 def runtime_topology() -> Dict[str, List[str] | str]:
@@ -153,13 +180,17 @@ def runtime_topology() -> Dict[str, List[str] | str]:
         "runtime_engine": "langgraph",
         "entry_point": "prepare",
         "terminal": "END",
-        "nodes": ["prepare", "runtime_loop", "finalize"],
+        "nodes": ["prepare", "planner", "runtime_loop", "finalize"],
         "edges": [
-            "prepare -> runtime_loop",
+            "prepare -> planner",
+            "planner -> runtime_loop",
             "runtime_loop -> finalize",
             "finalize -> END",
         ],
-        "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "loop": (
+            "planner checkpoints the first plan; runtime_loop handles bounded "
+            "policy-executor iterations and replanning"
+        ),
         "runtime_loop_nodes": [
             "planner",
             "plan_parser",
@@ -172,8 +203,7 @@ def runtime_topology() -> Dict[str, List[str] | str]:
             "cli_goal_input",
             "provider_and_memory_context",
             "langgraph_prepare",
-            "planner",
-            "plan_parser",
+            "langgraph_planner",
             "policy",
             "executor",
             "observation",
@@ -212,6 +242,8 @@ def run_runtime_agent(
     stream_answers: bool = False,
     checkpointer: Any = None,
 ) -> Dict[str, Any]:
+    if max_iterations < 1:
+        raise ValueError("max_iterations must be at least 1")
     resolved_run_id = run_id.strip() or str(uuid4())
     normalized_metadata, metadata_error = validate_runtime_metadata(metadata)
     if metadata_error:
@@ -277,13 +309,216 @@ def _runtime_prepare_graph_node(
     started_timer = time.perf_counter()
     if not runtime.context or "provider" not in runtime.context:
         raise ValueError("provider is required")
+    context: RuntimeGraphContext = runtime.context
+    initial_events: List[Dict[str, Any]] = []
+    hook_failure_count = 0
+    hooks = context.get("hooks") or []
+    if hooks:
+        hook_started_at = _utc_timestamp()
+        hook_timer = time.perf_counter()
+        try:
+            RuntimeHookChain(hooks).on_run_start(
+                {
+                    "run_id": state.get("run_id", ""),
+                    "goal": context.get("goal", state.get("goal", "")),
+                    "started_at": started_at,
+                    "metadata": state.get("metadata", {}),
+                    "tags": state.get("tags", []),
+                }
+            )
+        except Exception as exc:
+            hook_failure_count = 1
+            initial_events.append(
+                {
+                    "node": "hook",
+                    "stage": "on_run_start",
+                    "status": "failed",
+                    "error_code": "runtime_hook_failed",
+                    "error": redact_runtime_text(str(exc)),
+                    **_timing_fields(hook_started_at, hook_timer),
+                }
+            )
     return {
+        "started_at": started_at,
+        "initial_events": initial_events,
+        "initial_hook_failure_count": hook_failure_count,
         "graph_phases": _append_graph_phase(
             state.get("graph_phases"),
             "prepare",
             started_at,
             started_timer,
         )
+    }
+
+
+def _runtime_planner_graph_node(
+    state: RuntimeGraphState,
+    runtime: Any,
+) -> RuntimeGraphState:
+    graph_started_at = _utc_timestamp()
+    graph_timer = time.perf_counter()
+    context: RuntimeGraphContext = runtime.context or {}
+    run_id = str(state.get("run_id", ""))
+    cancellation_token = context.get("cancellation_token")
+    if cancellation_token is not None and cancellation_token.is_cancelled():
+        return {
+            "initial_planner": {"status": "cancelled"},
+            "initial_progress_events": [],
+            "initial_progress_event_sink_failure_count": 0,
+            "graph_phases": _append_graph_phase(
+                state.get("graph_phases"),
+                "planner",
+                graph_started_at,
+                graph_timer,
+            ),
+        }
+
+    active_tools = context.get("tools") or default_runtime_tools(
+        runtime_workspace_dir=context.get("runtime_workspace_dir", ""),
+        redis_url=context.get("redis_url", ""),
+        milvus_url=context.get("milvus_url", ""),
+        embedding_base_url=context.get("embedding_base_url", ""),
+        embedding_api_key=context.get("embedding_api_key", ""),
+        embedding_model=context.get("embedding_model", ""),
+        embedding_timeout_seconds=context.get("embedding_timeout_seconds", 30.0),
+        embedding_max_retries=context.get("embedding_max_retries", 2),
+        embedding_retry_backoff_seconds=context.get(
+            "embedding_retry_backoff_seconds",
+            0.25,
+        ),
+        external_backend_timeout_seconds=context.get(
+            "external_backend_timeout_seconds",
+            2.0,
+        ),
+    )
+    progress_events: List[Dict[str, Any]] = []
+    sink_failure_count = 0
+
+    def emit_progress(event: Dict[str, Any]) -> None:
+        nonlocal sink_failure_count
+        event_with_run_id = {"run_id": run_id, **event}
+        progress_events.append(event_with_run_id)
+        event_sink = context.get("event_sink")
+        if event_sink is not None:
+            try:
+                event_sink(event_with_run_id)
+            except Exception:
+                sink_failure_count += 1
+
+    planner_started_at = _utc_timestamp()
+    planner_timer = time.perf_counter()
+    _emit_runtime_progress(
+        emit_progress,
+        "planner_started",
+        iteration="1",
+        node="planner",
+        status="started",
+    )
+    try:
+        plan_text, streamed = _complete_plan_text(
+            context["provider"],
+            _SYSTEM_PROMPT,
+            _runtime_user_prompt(
+                str(context.get("goal", state.get("goal", ""))),
+                active_tools,
+                [],
+                context_manager=RuntimeContextManager(
+                    max_string_chars=MAX_PLANNER_OBSERVATION_STRING_CHARS
+                ),
+            ),
+            emit_progress=emit_progress,
+            stream_answer=(
+                context.get("stream_answers", False)
+                and not _is_runtime_identity_question(
+                    str(context.get("goal", state.get("goal", ""))).lower()
+                )
+                and not _is_runtime_deployment_question(
+                    str(context.get("goal", state.get("goal", ""))).lower()
+                )
+            ),
+        )
+        plan = parse_agent_plan(plan_text)
+    except Exception as exc:
+        error_code = _planner_failure_error_code(exc)
+        timing = _timing_fields(planner_started_at, planner_timer)
+        event = {
+            "node": "planner",
+            "status": "failed",
+            "iteration": "1",
+            **timing,
+        }
+        _emit_runtime_progress(
+            emit_progress,
+            "planner_failed",
+            iteration="1",
+            node="planner",
+            status="failed",
+            error_code=error_code,
+            duration_seconds=timing["duration_seconds"],
+        )
+        return {
+            "initial_events": [*(state.get("initial_events") or []), event],
+            "initial_planner": {
+                "status": "failed",
+                "error_code": error_code,
+                "error": redact_runtime_text(str(exc)),
+                "started_at": planner_started_at,
+                **timing,
+            },
+            "initial_progress_events": _checkpoint_safe_value(progress_events),
+            "initial_progress_event_sink_failure_count": sink_failure_count,
+            "graph_phases": _append_graph_phase(
+                state.get("graph_phases"),
+                "planner",
+                graph_started_at,
+                graph_timer,
+            ),
+        }
+
+    timing = _timing_fields(planner_started_at, planner_timer)
+    raw_plan = plan.to_dict()
+    checkpoint_plan, plan_redacted = _checkpoint_plan_projection(raw_plan)
+    plan_cache_token = str(uuid4())
+    planner_plan_cache = context.setdefault("planner_plan_cache", {})
+    planner_plan_cache[run_id] = {
+        "token": plan_cache_token,
+        "plan": copy.deepcopy(raw_plan),
+    }
+    event = {
+        "node": "planner",
+        "status": "ok",
+        "action_count": str(len(plan.actions)),
+        "iteration": "1",
+        **timing,
+    }
+    _emit_runtime_progress(
+        emit_progress,
+        "planner_completed",
+        iteration="1",
+        node="planner",
+        status="ok",
+        action_count=str(len(plan.actions)),
+        duration_seconds=timing["duration_seconds"],
+    )
+    return {
+        "initial_events": [*(state.get("initial_events") or []), event],
+        "initial_planner": {
+            "status": "ok",
+            "plan": checkpoint_plan,
+            "plan_redacted": plan_redacted,
+            "plan_cache_token": plan_cache_token,
+            "answer_streamed": bool(streamed),
+            "started_at": planner_started_at,
+            **timing,
+        },
+        "initial_progress_events": _checkpoint_safe_value(progress_events),
+        "initial_progress_event_sink_failure_count": sink_failure_count,
+        "graph_phases": _append_graph_phase(
+            state.get("graph_phases"),
+            "planner",
+            graph_started_at,
+            graph_timer,
+        ),
     }
 
 
@@ -294,6 +529,43 @@ def _runtime_loop_graph_node(
     started_at = _utc_timestamp()
     started_timer = time.perf_counter()
     context: RuntimeGraphContext = runtime.context or {}
+    initial_planner = copy.deepcopy(state.get("initial_planner"))
+    initial_events = list(state.get("initial_events") or [])
+    if initial_planner and initial_planner.get("status") == "ok":
+        run_id = str(state.get("run_id", ""))
+        cache_entry = (context.get("planner_plan_cache") or {}).get(run_id)
+        expected_cache_token = str(initial_planner.get("plan_cache_token", ""))
+        if (
+            isinstance(cache_entry, dict)
+            and cache_entry.get("token") == expected_cache_token
+            and isinstance(cache_entry.get("plan"), dict)
+        ):
+            initial_planner["plan"] = copy.deepcopy(cache_entry["plan"])
+        elif initial_planner.get("plan_redacted"):
+            initial_planner = {
+                "status": "failed",
+                "error_code": "planner_checkpoint_sensitive_input",
+                "error": (
+                    "planner checkpoint contains sensitive tool input; "
+                    "the original in-memory plan is unavailable"
+                ),
+                "started_at": initial_planner.get("started_at", started_at),
+                "completed_at": _utc_timestamp(),
+                "duration_seconds": "0.0000",
+            }
+            checkpoint_time = _utc_timestamp()
+            initial_events.append(
+                {
+                    "node": "checkpoint",
+                    "status": "failed",
+                    "error_code": "planner_checkpoint_sensitive_input",
+                    "started_at": checkpoint_time,
+                    "completed_at": checkpoint_time,
+                    "duration_seconds": "0.0000",
+                }
+            )
+        if isinstance(context.get("planner_plan_cache"), dict):
+            context["planner_plan_cache"].pop(run_id, None)
     result = _checkpoint_safe_value(
         _run_runtime_agent_loop(
             str(context.get("goal", state.get("goal", ""))),
@@ -329,6 +601,16 @@ def _runtime_loop_graph_node(
                 2.0,
             ),
             stream_answers=context.get("stream_answers", False),
+            initial_planner=initial_planner,
+            initial_events=initial_events,
+            initial_progress_events=state.get("initial_progress_events"),
+            initial_progress_event_sink_failure_count=state.get(
+                "initial_progress_event_sink_failure_count",
+                0,
+            ),
+            initial_hook_failure_count=state.get("initial_hook_failure_count", 0),
+            started_at=state.get("started_at", ""),
+            run_start_hook_completed=True,
         )
     )
     return {
@@ -355,6 +637,37 @@ def _checkpoint_safe_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_checkpoint_safe_value(item) for item in value]
     return f"[unsupported {type(value).__name__}]"
+
+
+def _checkpoint_plan_projection(value: Any, *, key: str = "") -> tuple[Any, bool]:
+    if key and any(part in key.lower() for part in _CHECKPOINT_SECRET_KEY_PARTS):
+        return "[REDACTED]", True
+    if value is None or isinstance(value, (bool, int, float)):
+        return value, False
+    if isinstance(value, str):
+        redacted = redact_runtime_text(value)
+        return redacted, redacted != value
+    if isinstance(value, dict):
+        projection: Dict[str, Any] = {}
+        changed = False
+        for raw_key, item in value.items():
+            projected_key = str(raw_key)
+            projected_item, item_changed = _checkpoint_plan_projection(
+                item,
+                key=projected_key,
+            )
+            projection[projected_key] = projected_item
+            changed = changed or item_changed
+        return projection, changed
+    if isinstance(value, (list, tuple)):
+        projection = []
+        changed = False
+        for item in value:
+            projected_item, item_changed = _checkpoint_plan_projection(item)
+            projection.append(projected_item)
+            changed = changed or item_changed
+        return projection, changed
+    return f"[unsupported {type(value).__name__}]", True
 
 
 def _runtime_finalize_graph_node(state: RuntimeGraphState) -> RuntimeGraphState:
@@ -415,6 +728,13 @@ def _run_runtime_agent_loop(
     embedding_retry_backoff_seconds: float = 0.25,
     external_backend_timeout_seconds: float = 2.0,
     stream_answers: bool = False,
+    initial_planner: Dict[str, Any] | None = None,
+    initial_events: List[Dict[str, Any]] | None = None,
+    initial_progress_events: List[Dict[str, Any]] | None = None,
+    initial_progress_event_sink_failure_count: int = 0,
+    initial_hook_failure_count: int = 0,
+    started_at: str = "",
+    run_start_hook_completed: bool = False,
 ) -> Dict[str, Any]:
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least 1")
@@ -426,8 +746,8 @@ def _run_runtime_agent_loop(
         raise ValueError(tags_error)
     run_id = run_id.strip() or str(uuid4())
     original_goal = goal
-    events = []
-    started_at = _utc_timestamp()
+    events = list(initial_events or [])
+    started_at = started_at or _utc_timestamp()
     started_timer = time.perf_counter()
     active_policy = policy or RuntimePolicy()
 
@@ -492,10 +812,12 @@ def _run_runtime_agent_loop(
     cancelled_at = ""
     cancel_reason = ""
     iteration_count = 0
-    progress_events: List[Dict[str, Any]] = []
-    progress_event_sink_failure_count = 0
-    hook_failure_count = 0
-    answer_streamed = False
+    progress_events: List[Dict[str, Any]] = list(initial_progress_events or [])
+    progress_event_sink_failure_count = initial_progress_event_sink_failure_count
+    hook_failure_count = initial_hook_failure_count
+    answer_streamed = bool(
+        initial_planner and initial_planner.get("answer_streamed")
+    )
     steering_applied_count = 0
     steering_iteration_budget_added = 0
     hook_chain = RuntimeHookChain(hooks or [])
@@ -612,7 +934,7 @@ def _run_runtime_agent_loop(
             event.update(dependency_metadata)
         events.append(event)
 
-    if hook_chain:
+    if hook_chain and not run_start_hook_completed:
         hook_started_at = _utc_timestamp()
         hook_timer = time.perf_counter()
         try:
@@ -641,101 +963,148 @@ def _run_runtime_agent_loop(
             break
         iteration_count = iteration
         iteration_label = str(iteration)
-        user_prompt = _runtime_user_prompt(
-            goal,
-            active_tools,
-            observations,
-            context_manager=context_manager,
-        )
-        planner_started_at = _utc_timestamp()
-        planner_timer = time.perf_counter()
-        events.append(
-            {
-                "node": "planner",
-                "status": "started",
-                "iteration": iteration_label,
-                "started_at": planner_started_at,
-            }
-        )
-        _emit_runtime_progress(
-            emit_progress,
-            "planner_started",
-            iteration=iteration_label,
-            node="planner",
-            status="started",
-        )
-        try:
-            plan_text, streamed_this_plan = _complete_plan_text(
-                provider,
-                _SYSTEM_PROMPT,
-                user_prompt,
-                emit_progress=emit_progress,
-                stream_answer=(
-                    stream_answers
-                    and not observations
-                    and not _is_runtime_identity_question(goal.lower())
-                    and not _is_runtime_deployment_question(goal.lower())
-                ),
+        use_initial_planner = iteration == 1 and initial_planner is not None
+        if use_initial_planner:
+            planner_status = str(initial_planner.get("status", ""))
+            if planner_status == "cancelled":
+                status = "cancelled"
+                terminal_error_code = "run_cancelled"
+                terminal_error = "runtime run cancelled"
+                cancelled_at = _utc_timestamp()
+                break
+            planner_started_at = str(
+                initial_planner.get("started_at", _utc_timestamp())
             )
-            if mark_cancelled():
-                break
-            answer_streamed = answer_streamed or streamed_this_plan
-            plan = parse_agent_plan(plan_text)
-        except Exception as exc:
-            if mark_cancelled():
-                break
-            planner_error_code = _planner_failure_error_code(exc)
-            timing = _timing_fields(planner_started_at, planner_timer)
-            events[-1] = {
-                "node": "planner",
-                "status": "failed",
-                "iteration": iteration_label,
-                **timing,
+            timing = {
+                "completed_at": str(
+                    initial_planner.get("completed_at", _utc_timestamp())
+                ),
+                "duration_seconds": str(
+                    initial_planner.get("duration_seconds", "0.0000")
+                ),
             }
-            observations.append(
-                AgentObservation(
-                    action_id="",
-                    tool="planner",
-                    status="failed",
-                    output={},
-                    error_code=planner_error_code,
-                    error=str(exc),
-                    started_at=planner_started_at,
-                    completed_at=timing["completed_at"],
-                    duration_seconds=timing["duration_seconds"],
+            if planner_status == "failed":
+                planner_error_code = str(
+                    initial_planner.get("error_code", "invalid_plan")
                 )
+                planner_error = str(initial_planner.get("error", "planner failed"))
+                observations.append(
+                    AgentObservation(
+                        action_id="",
+                        tool="planner",
+                        status="failed",
+                        output={},
+                        error_code=planner_error_code,
+                        error=planner_error,
+                        started_at=planner_started_at,
+                        completed_at=timing["completed_at"],
+                        duration_seconds=timing["duration_seconds"],
+                    )
+                )
+                if iteration < iteration_limit:
+                    continue
+                status = "failed"
+                break
+            plan_payload = initial_planner.get("plan")
+            if not isinstance(plan_payload, dict):
+                raise RuntimeError("planner checkpoint is missing plan state")
+            plan = parse_agent_plan(json.dumps(plan_payload, ensure_ascii=False))
+        else:
+            user_prompt = _runtime_user_prompt(
+                goal,
+                active_tools,
+                observations,
+                context_manager=context_manager,
+            )
+            planner_started_at = _utc_timestamp()
+            planner_timer = time.perf_counter()
+            events.append(
+                {
+                    "node": "planner",
+                    "status": "started",
+                    "iteration": iteration_label,
+                    "started_at": planner_started_at,
+                }
             )
             _emit_runtime_progress(
                 emit_progress,
-                "planner_failed",
+                "planner_started",
                 iteration=iteration_label,
                 node="planner",
-                status="failed",
-                error_code=planner_error_code,
-                duration_seconds=timing["duration_seconds"],
+                status="started",
             )
-            if iteration < iteration_limit:
-                continue
-            status = "failed"
-            break
+            try:
+                plan_text, streamed_this_plan = _complete_plan_text(
+                    provider,
+                    _SYSTEM_PROMPT,
+                    user_prompt,
+                    emit_progress=emit_progress,
+                    stream_answer=(
+                        stream_answers
+                        and not observations
+                        and not _is_runtime_identity_question(goal.lower())
+                        and not _is_runtime_deployment_question(goal.lower())
+                    ),
+                )
+                if mark_cancelled():
+                    break
+                answer_streamed = answer_streamed or streamed_this_plan
+                plan = parse_agent_plan(plan_text)
+            except Exception as exc:
+                if mark_cancelled():
+                    break
+                planner_error_code = _planner_failure_error_code(exc)
+                timing = _timing_fields(planner_started_at, planner_timer)
+                events[-1] = {
+                    "node": "planner",
+                    "status": "failed",
+                    "iteration": iteration_label,
+                    **timing,
+                }
+                observations.append(
+                    AgentObservation(
+                        action_id="",
+                        tool="planner",
+                        status="failed",
+                        output={},
+                        error_code=planner_error_code,
+                        error=str(exc),
+                        started_at=planner_started_at,
+                        completed_at=timing["completed_at"],
+                        duration_seconds=timing["duration_seconds"],
+                    )
+                )
+                _emit_runtime_progress(
+                    emit_progress,
+                    "planner_failed",
+                    iteration=iteration_label,
+                    node="planner",
+                    status="failed",
+                    error_code=planner_error_code,
+                    duration_seconds=timing["duration_seconds"],
+                )
+                if iteration < iteration_limit:
+                    continue
+                status = "failed"
+                break
+            events[-1] = {
+                "node": "planner",
+                "status": "ok",
+                "action_count": str(len(plan.actions)),
+                "iteration": iteration_label,
+                **_timing_fields(planner_started_at, planner_timer),
+            }
+            _emit_runtime_progress(
+                emit_progress,
+                "planner_completed",
+                iteration=iteration_label,
+                node="planner",
+                status="ok",
+                action_count=str(len(plan.actions)),
+                duration_seconds=events[-1]["duration_seconds"],
+            )
         latest_plan = plan.to_dict()
         plans.append(latest_plan)
-        events[-1] = {
-            "node": "planner",
-            "status": "ok",
-            "action_count": str(len(plan.actions)),
-            "iteration": iteration_label,
-            **_timing_fields(planner_started_at, planner_timer),
-        }
-        _emit_runtime_progress(
-            emit_progress,
-            "planner_completed",
-            iteration=iteration_label,
-            node="planner",
-            status="ok",
-            action_count=str(len(plan.actions)),
-            duration_seconds=events[-1]["duration_seconds"],
-        )
         if apply_pending_steering("after_planner", iteration_label):
             if steering_iteration_budget_added < MAX_STEERING_APPLIED_PER_RUN:
                 iteration_limit += 1

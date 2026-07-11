@@ -154,6 +154,204 @@ def test_runtime_checkpointer_rejects_implicit_thread_reuse():
         )
 
 
+def test_runtime_graph_resumes_after_planner_without_repeating_provider_call():
+    checkpointer = InMemorySaver()
+
+    class CountingProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, _system, _user):
+            self.calls += 1
+            return '{"actions":[],"final_answer":"planned once"}'
+
+    class CountingHook:
+        def __init__(self):
+            self.run_starts = 0
+
+        def on_run_start(self, _context):
+            self.run_starts += 1
+
+    provider = CountingProvider()
+    hook = CountingHook()
+    graph = build_runtime_graph(
+        checkpointer=checkpointer,
+        interrupt_after=["planner"],
+    )
+    config = {"configurable": {"thread_id": "planner-resume-run"}}
+    state = {
+        "goal": "plan once",
+        "run_id": "planner-resume-run",
+        "max_iterations": 1,
+        "approved_action_ids": [],
+        "metadata": {},
+        "tags": [],
+    }
+    context = {"goal": "plan once", "provider": provider, "hooks": [hook]}
+
+    interrupted = graph.invoke(state, config=config, context=context)
+
+    assert "result" not in interrupted
+    assert graph.get_state(config).next == ("runtime_loop",)
+    assert provider.calls == 1
+    assert hook.run_starts == 1
+
+    resumed = graph.invoke(None, config=config, context=context)
+
+    assert resumed["result"]["status"] == "done"
+    assert resumed["result"]["answer"] == "planned once"
+    assert provider.calls == 1
+    assert hook.run_starts == 1
+    progress_types = [
+        event["type"] for event in resumed["result"]["progress_events"]
+    ]
+    assert progress_types.count("planner_started") == 1
+    assert progress_types.count("planner_completed") == 1
+
+
+def test_planner_checkpoint_keeps_sensitive_input_out_of_state_without_corruption():
+    executed_values = []
+    tools = {
+        "sensitive": RuntimeToolSpec(
+            name="sensitive",
+            description="consume sensitive input",
+            handler=lambda payload: (
+                executed_values.append(payload["api_key"])
+                or {"accepted": True}
+            ),
+            input_schema={
+                "type": "object",
+                "required": ["api_key"],
+                "properties": {"api_key": {"type": "string"}},
+                "additionalProperties": False,
+            },
+            output_schema={"type": "object"},
+        )
+    }
+    provider = FakeLLMProvider(
+        '{"actions":[{"id":"step-1","tool":"sensitive",'
+        '"input":{"api_key":"checkpoint-secret"},"reason":"consume"}],'
+        '"final_answer":"done"}'
+    )
+    checkpointer = InMemorySaver()
+    graph = build_runtime_graph(
+        checkpointer=checkpointer,
+        interrupt_after=["planner"],
+    )
+    config = {"configurable": {"thread_id": "sensitive-plan-run"}}
+    state = {
+        "goal": "consume value",
+        "run_id": "sensitive-plan-run",
+        "max_iterations": 1,
+        "approved_action_ids": [],
+        "metadata": {},
+        "tags": [],
+    }
+    context = {
+        "goal": "consume value",
+        "provider": provider,
+        "tools": tools,
+        "policy": RuntimePolicy(allowed_tools={"sensitive"}),
+    }
+
+    graph.invoke(state, config=config, context=context)
+
+    for checkpoint_tuple in checkpointer.list(config):
+        serialized = json.dumps(
+            checkpoint_tuple.checkpoint["channel_values"],
+            default=str,
+        )
+        assert "checkpoint-secret" not in serialized
+
+    resumed = graph.invoke(None, config=config, context=context)
+
+    assert resumed["result"]["status"] == "done"
+    assert executed_values == ["checkpoint-secret"]
+    assert context.get("planner_plan_cache") == {}
+
+
+def test_planner_checkpoint_refuses_sensitive_resume_without_original_plan_cache():
+    executed_values = []
+    tools = {
+        "sensitive": RuntimeToolSpec(
+            name="sensitive",
+            description="consume sensitive input",
+            handler=lambda payload: (
+                executed_values.append(payload["api_key"])
+                or {"accepted": True}
+            ),
+            input_schema={"type": "object"},
+            output_schema={"type": "object"},
+        )
+    }
+    provider = FakeLLMProvider(
+        '{"actions":[{"id":"step-1","tool":"sensitive",'
+        '"input":{"api_key":"checkpoint-secret"},"reason":"consume"}]}'
+    )
+    checkpointer = InMemorySaver()
+    graph = build_runtime_graph(
+        checkpointer=checkpointer,
+        interrupt_after=["planner"],
+    )
+    config = {"configurable": {"thread_id": "fresh-context-sensitive-run"}}
+    state = {
+        "goal": "consume value",
+        "run_id": "fresh-context-sensitive-run",
+        "max_iterations": 1,
+        "approved_action_ids": [],
+        "metadata": {},
+        "tags": [],
+    }
+    graph.invoke(
+        state,
+        config=config,
+        context={
+            "goal": "consume value",
+            "provider": provider,
+            "tools": tools,
+            "policy": RuntimePolicy(allowed_tools={"sensitive"}),
+        },
+    )
+
+    resumed = graph.invoke(
+        None,
+        config=config,
+        context={
+            "goal": "consume value",
+            "provider": provider,
+            "tools": tools,
+            "policy": RuntimePolicy(allowed_tools={"sensitive"}),
+        },
+    )
+
+    assert resumed["result"]["status"] == "failed"
+    assert resumed["result"]["error_code"] == "planner_checkpoint_sensitive_input"
+    assert executed_values == []
+
+
+def test_runtime_rejects_invalid_iteration_budget_before_provider_or_hooks():
+    calls = []
+
+    class Provider:
+        def complete(self, _system, _user):
+            calls.append("provider")
+            return '{"actions":[]}'
+
+    class Hook:
+        def on_run_start(self, _context):
+            calls.append("hook")
+
+    with pytest.raises(ValueError, match="max_iterations must be at least 1"):
+        run_runtime_agent(
+            "invalid budget",
+            provider=Provider(),
+            hooks=[Hook()],
+            max_iterations=0,
+        )
+
+    assert calls == []
+
+
 def test_runtime_steering_replans_with_latest_user_instruction():
     steering = RuntimeSteeringBuffer()
 
@@ -208,13 +406,17 @@ def test_runtime_topology_exposes_production_graph_phases():
         "runtime_engine": "langgraph",
         "entry_point": "prepare",
         "terminal": "END",
-        "nodes": ["prepare", "runtime_loop", "finalize"],
+        "nodes": ["prepare", "planner", "runtime_loop", "finalize"],
         "edges": [
-            "prepare -> runtime_loop",
+            "prepare -> planner",
+            "planner -> runtime_loop",
             "runtime_loop -> finalize",
             "finalize -> END",
         ],
-        "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "loop": (
+            "planner checkpoints the first plan; runtime_loop handles bounded "
+            "policy-executor iterations and replanning"
+        ),
         "runtime_loop_nodes": [
             "planner",
             "plan_parser",
@@ -227,8 +429,7 @@ def test_runtime_topology_exposes_production_graph_phases():
             "cli_goal_input",
             "provider_and_memory_context",
             "langgraph_prepare",
-            "planner",
-            "plan_parser",
+            "langgraph_planner",
             "policy",
             "executor",
             "observation",
@@ -246,8 +447,7 @@ def test_runtime_topology_explains_user_goal_execution_flow():
         "cli_goal_input",
         "provider_and_memory_context",
         "langgraph_prepare",
-        "planner",
-        "plan_parser",
+        "langgraph_planner",
         "policy",
         "executor",
         "observation",
@@ -275,6 +475,7 @@ def test_runtime_agent_result_includes_graph_phase_timings():
 
     assert [phase["node"] for phase in result["graph_phases"]] == [
         "prepare",
+        "planner",
         "runtime_loop",
         "finalize",
     ]

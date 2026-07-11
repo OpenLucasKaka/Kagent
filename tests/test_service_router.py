@@ -183,13 +183,17 @@ def test_service_router_can_report_runtime_graph_topology():
         "runtime_engine": "langgraph",
         "entry_point": "prepare",
         "terminal": "END",
-        "nodes": ["prepare", "runtime_loop", "finalize"],
+        "nodes": ["prepare", "planner", "runtime_loop", "finalize"],
         "edges": [
-            "prepare -> runtime_loop",
+            "prepare -> planner",
+            "planner -> runtime_loop",
             "runtime_loop -> finalize",
             "finalize -> END",
         ],
-        "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "loop": (
+            "planner checkpoints the first plan; runtime_loop handles bounded "
+            "policy-executor iterations and replanning"
+        ),
         "runtime_loop_nodes": [
             "planner",
             "plan_parser",
@@ -202,8 +206,7 @@ def test_service_router_can_report_runtime_graph_topology():
             "cli_goal_input",
             "provider_and_memory_context",
             "langgraph_prepare",
-            "planner",
-            "plan_parser",
+            "langgraph_planner",
             "policy",
             "executor",
             "observation",
@@ -772,10 +775,11 @@ def test_service_router_runtime_timeline_returns_compact_run_timeline(tmp_path):
     assert payload["event_count"] == "3"
     assert payload["step_count"] == "1"
     assert payload["progress_event_count"] == "6"
-    assert payload["graph_phase_count"] == "3"
+    assert payload["graph_phase_count"] == "4"
     assert payload["observation_count"] == "1"
     assert [phase["node"] for phase in payload["graph_phases"]] == [
         "prepare",
+        "planner",
         "runtime_loop",
         "finalize",
     ]
@@ -2925,7 +2929,7 @@ def test_service_router_runtime_status_reports_persisted_run_summary(tmp_path):
     ]
     assert payload["observation_count"] == "1"
     assert payload["event_count"] == "2"
-    assert payload["graph_phase_count"] == "3"
+    assert payload["graph_phase_count"] == "4"
     assert payload["failed_observation_count"] == "0"
     assert payload["approval_required_count"] == "1"
     assert payload["pending_approval_action_id"] == "step-1"

@@ -430,13 +430,17 @@ def test_cli_can_print_runtime_graph_topology_without_goal():
         "runtime_engine": "langgraph",
         "entry_point": "prepare",
         "terminal": "END",
-        "nodes": ["prepare", "runtime_loop", "finalize"],
+        "nodes": ["prepare", "planner", "runtime_loop", "finalize"],
         "edges": [
-            "prepare -> runtime_loop",
+            "prepare -> planner",
+            "planner -> runtime_loop",
             "runtime_loop -> finalize",
             "finalize -> END",
         ],
-        "loop": "runtime_loop handles bounded planner-policy-executor iterations",
+        "loop": (
+            "planner checkpoints the first plan; runtime_loop handles bounded "
+            "policy-executor iterations and replanning"
+        ),
         "runtime_loop_nodes": [
             "planner",
             "plan_parser",
@@ -449,8 +453,7 @@ def test_cli_can_print_runtime_graph_topology_without_goal():
             "cli_goal_input",
             "provider_and_memory_context",
             "langgraph_prepare",
-            "planner",
-            "plan_parser",
+            "langgraph_planner",
             "policy",
             "executor",
             "observation",

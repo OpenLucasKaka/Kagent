@@ -1334,6 +1334,224 @@ main().catch((error) => {
     assert completed.returncode == 0, completed.stderr
 
 
+def test_npm_runtime_client_recovers_once_from_an_idle_child_crash():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const {EventEmitter} = require("node:events");
+const {PassThrough} = require("node:stream");
+
+const children = [];
+const writes = [];
+const runnerPath = require.resolve("./npm/lib/python-runner");
+require.cache[runnerPath] = {
+  id: runnerPath,
+  filename: runnerPath,
+  loaded: true,
+  exports: {
+    spawnPythonModule() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.stdin.on("data", (chunk) => {
+        writes.push({child: children.indexOf(child), request: JSON.parse(chunk.toString("utf8"))});
+      });
+      child.killed = false;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = () => { child.killed = true; };
+      children.push(child);
+      setImmediate(() => child.stdout.write(JSON.stringify({
+        type: "runtime_ready",
+        provider: {
+          configured: true,
+          provider: "test",
+          display_name: "Test",
+          base_url_configured: true,
+          model: "model",
+          api_key_configured: true,
+        },
+        provider_options: [],
+        session_commands: [],
+      }) + "\n"));
+      return child;
+    },
+  },
+};
+
+const {createRuntimeSessionClient} = require("./npm/lib/runtime-client");
+const client = createRuntimeSessionClient();
+const lifecycle = [];
+client.subscribe((event) => lifecycle.push(event));
+
+async function waitFor(predicate) {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(predicate(), "condition did not become true");
+}
+
+async function main() {
+  await waitFor(() => lifecycle.filter((event) => event.type === "runtime_ready").length === 1);
+  children[0].emit("close", 9);
+  await waitFor(() => children.length === 2);
+  await waitFor(() => lifecycle.filter((event) => event.type === "runtime_ready").length === 2);
+
+  const runEvents = [];
+  client.run("after recovery", (event) => runEvents.push(event));
+  await waitFor(() => writes.length === 1);
+  assert.equal(writes[0].child, 1);
+  assert.equal(writes[0].request.goal, "after recovery");
+
+  children[1].stdout.write(JSON.stringify({
+    type: "run_completed",
+    status: "done",
+    answer: "ok",
+    payload: {},
+  }) + "\n");
+  await waitFor(() => runEvents.at(-1)?.type === "run_completed");
+
+  children[1].stderr.write("second crash\n");
+  children[1].emit("close", 9);
+  await waitFor(() => lifecycle.some((event) => event.type === "client_failed"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(children.length, 2);
+  assert.match(lifecycle.at(-1).message, /second crash/);
+  client.close();
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_npm_runtime_client_fails_active_run_then_recovers_child():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const {EventEmitter} = require("node:events");
+const {PassThrough} = require("node:stream");
+
+const children = [];
+const writes = [];
+const runnerPath = require.resolve("./npm/lib/python-runner");
+require.cache[runnerPath] = {
+  id: runnerPath,
+  filename: runnerPath,
+  loaded: true,
+  exports: {
+    spawnPythonModule() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.stdin.on("data", (chunk) => {
+        writes.push({child: children.indexOf(child), request: JSON.parse(chunk.toString("utf8"))});
+      });
+      child.killed = false;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = () => { child.killed = true; };
+      children.push(child);
+      setImmediate(() => child.stdout.write(JSON.stringify({
+        type: "runtime_ready",
+        provider: {
+          configured: true,
+          provider: "test",
+          display_name: "Test",
+          base_url_configured: true,
+          model: "model",
+          api_key_configured: true,
+        },
+        provider_options: [],
+        session_commands: [],
+      }) + "\n"));
+      return child;
+    },
+  },
+};
+
+const {createRuntimeSessionClient} = require("./npm/lib/runtime-client");
+const client = createRuntimeSessionClient();
+const lifecycle = [];
+client.subscribe((event) => lifecycle.push(event));
+
+async function waitFor(predicate) {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(predicate(), "condition did not become true");
+}
+
+async function main() {
+  await waitFor(() => lifecycle.some((event) => event.type === "runtime_ready"));
+  const firstEvents = [];
+  client.run("crashing run", (event) => firstEvents.push(event));
+  await waitFor(() => writes.length === 1);
+  children[0].stderr.write("runtime worker crashed\n");
+  children[0].emit("close", 17);
+
+  await waitFor(() => firstEvents.some((event) => event.type === "client_failed"));
+  assert.match(firstEvents.at(-1).message, /runtime worker crashed/);
+  await waitFor(() => children.length === 2);
+  await waitFor(() => lifecycle.filter((event) => event.type === "runtime_ready").length === 2);
+
+  const secondEvents = [];
+  client.run("retry after crash", (event) => secondEvents.push(event));
+  await waitFor(() => writes.length === 2);
+  assert.equal(writes[1].child, 1);
+  assert.equal(writes[1].request.goal, "retry after crash");
+  children[1].stdout.write(JSON.stringify({
+    type: "run_completed",
+    status: "done",
+    answer: "recovered",
+    payload: {},
+  }) + "\n");
+  await waitFor(() => secondEvents.at(-1)?.type === "run_completed");
+  assert.equal(secondEvents.at(-1).answer, "recovered");
+  client.close();
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_npm_bin_scripts_are_executable_node_wrappers():
     for script in (Path("npm/bin/kagent.js"), Path("npm/bin/kagent-serve.js")):
         text = script.read_text(encoding="utf-8")

@@ -15,6 +15,7 @@ function createRuntimeSessionClient() {
     let closed = false;
     let generation = 0;
     let ready = false;
+    let restartUsed = false;
     let queuedRequest = null;
     let startupFailure = "";
     let lastStderrLine = "";
@@ -23,7 +24,16 @@ function createRuntimeSessionClient() {
     function spawn() {
         generation += 1;
         const childGeneration = generation;
-        const nextChild = pythonRunner.spawnPythonModule("kagent.cli.stdio_runtime", []);
+        ready = false;
+        lastStderrLine = "";
+        let nextChild;
+        try {
+            nextChild = pythonRunner.spawnPythonModule("kagent.cli.stdio_runtime", []);
+        }
+        catch (error) {
+            recoverFromChildFailure(childGeneration, errorMessage(error));
+            return;
+        }
         const nextStdout = node_readline_1.default.createInterface({ input: nextChild.stdout });
         child = nextChild;
         stdout = nextStdout;
@@ -82,20 +92,35 @@ function createRuntimeSessionClient() {
             currentHandler?.({ type: "client_stderr", text });
         });
         nextChild.on("error", (error) => {
-            if (childGeneration === generation) {
-                failCurrent(error.message);
-            }
+            recoverFromChildFailure(childGeneration, error.message);
         });
         nextChild.on("close", (code) => {
-            if (childGeneration !== generation || closed) {
-                return;
-            }
-            if (busy) {
-                failCurrent(lastStderrLine || `runtime exited with code ${code ?? 1}`);
-            }
-            else {
-                ready = false;
-                startupFailure = lastStderrLine || `runtime exited with code ${code ?? 1}`;
+            recoverFromChildFailure(childGeneration, lastStderrLine || `runtime exited with code ${code ?? 1}`);
+        });
+    }
+    function recoverFromChildFailure(childGeneration, message) {
+        if (childGeneration !== generation || closed) {
+            return;
+        }
+        generation += 1;
+        ready = false;
+        lifecycleEvent = null;
+        stdout?.close();
+        child = null;
+        stdout = null;
+        if (busy) {
+            failCurrent(message);
+        }
+        if (restartUsed) {
+            startupFailure = message;
+            notify({ type: "client_failed", message });
+            return;
+        }
+        restartUsed = true;
+        startupFailure = "";
+        setImmediate(() => {
+            if (!closed) {
+                spawn();
             }
         });
     }

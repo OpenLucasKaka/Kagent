@@ -180,7 +180,13 @@ function reduceRunEvent(state, event) {
             }),
         };
     }
-    if (event.type === "run_failed" || event.type === "client_failed") {
+    if (event.type === "run_failed") {
+        const message = event.error_code === "approval_execution_interrupted"
+            ? "Action outcome is uncertain. kagent did not retry it. Check the target before trying again."
+            : event.message;
+        return failureState({ ...state, approval: null }, message);
+    }
+    if (event.type === "client_failed") {
         return failureState({ ...state, approval: null }, event.message);
     }
     return state;

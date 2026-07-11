@@ -1305,6 +1305,20 @@ assert.equal(failed.status, "error");
 assert.equal(failed.approval, null);
 assert.equal(failed.transcript.entries.at(-1).text, "runtime stopped");
 
+const uncertain = appRuntimeReducer(state, {
+  type: "runtime_event",
+  channel: "run",
+  event: {
+    type: "run_failed",
+    error_code: "approval_execution_interrupted",
+    message: "internal recovery detail",
+  },
+});
+assert.equal(
+  uncertain.transcript.entries.at(-1).text,
+  "Action outcome is uncertain. kagent did not retry it. Check the target before trying again.",
+);
+
 const invalidReady = appRuntimeReducer(createAppRuntimeState(), {
   type: "runtime_event",
   channel: "lifecycle",

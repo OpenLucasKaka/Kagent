@@ -329,6 +329,7 @@ const {
   moveCursor,
   moveCursorToEnd,
   moveCursorToStart,
+  moveCursorVertical,
   navigateHistory,
   splitGraphemes,
   submitInput,
@@ -380,6 +381,12 @@ assert.deepEqual([multiline.value, multiline.cursor], ["第一行\n第二行", 7
 multiline = moveCursor(multiline, -3);
 multiline = deleteBeforeCursor(multiline);
 assert.equal(multiline.value, "第一行第二行");
+let vertical = insertInput(createEditorState(), "第一行\n第二行");
+vertical = moveCursor(vertical, -1);
+vertical = moveCursorVertical(vertical, -1);
+assert.equal(vertical.cursor, 2);
+vertical = moveCursorVertical(vertical, 1);
+assert.equal(vertical.cursor, 6);
 assert.equal(submitInput(insertInput(createEditorState(), "a\nb")).value, "a\nb");
 
 let submitted = submitInput(insertInput(createEditorState(), "first"));
@@ -913,7 +920,17 @@ const Ink = {
 };
 const runtime = {
   subscribe(handler) { lifecycleHandler = handler; return () => {}; },
-  command(value) { commandValue = value; },
+  command(value, handler) {
+    commandValue = value;
+    handler({
+      type: "session_command_completed",
+      command: value,
+      title: "Done",
+      message: "done",
+      data: {},
+      clear_messages: false,
+    });
+  },
   close() {},
   cancel() {},
 };
@@ -952,10 +969,14 @@ render();
 inputEvents.emit("input", "\x1b[B");
 render();
 assert.equal(states[6], "/config");
-inputEvents.emit("input", "\t");
-render();
-assert.deepEqual([states[1].value, states[1].cursor], ["/config", 7]);
 inputEvents.emit("input", "\r");
+assert.equal(commandValue, "/config");
+render();
+inputEvents.emit("input", "/cd");
+render();
+inputEvents.emit("input", "\r");
+render();
+assert.deepEqual([states[1].value, states[1].cursor], ["/cd ", 4]);
 assert.equal(commandValue, "/config");
 
 inputCleanup();

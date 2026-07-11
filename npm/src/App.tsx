@@ -18,6 +18,7 @@ import {
   moveCursor,
   moveCursorToEnd,
   moveCursorToStart,
+  moveCursorVertical,
   navigateHistory,
   splitGraphemes,
   submitInput,
@@ -238,6 +239,20 @@ export function KagentInkApp({
       }
       if (status === "thinking") {
         submitSteering();
+      } else if (commandMenu) {
+        const completion = commandCompletion(commandMenu);
+        if (completion.endsWith(" ")) {
+          setEditor((current) => ({
+            ...current,
+            value: completion,
+            cursor: splitGraphemes(completion).length,
+            historyIndex: null,
+            draft: "",
+          }));
+          setSelectedCommand(null);
+        } else {
+          submit(completion);
+        }
       } else {
         submit();
       }
@@ -284,12 +299,20 @@ export function KagentInkApp({
         setSelectedCommand(moveCommandSelection(commandMenu, -1).selectedCommand);
         return;
       }
+      if (editor.value.includes("\n")) {
+        setEditor((current) => moveCursorVertical(current, -1));
+        return;
+      }
       setEditor((current) => navigateHistory(current, -1));
       return;
     }
     if (key.name === "down") {
       if (commandMenu) {
         setSelectedCommand(moveCommandSelection(commandMenu, 1).selectedCommand);
+        return;
+      }
+      if (editor.value.includes("\n")) {
+        setEditor((current) => moveCursorVertical(current, 1));
         return;
       }
       setEditor((current) => navigateHistory(current, 1));
@@ -384,8 +407,15 @@ export function KagentInkApp({
     dispatchRuntime({ type: "runtime_event", channel: "provider", event });
   }
 
-  function submit(): void {
-    const submission = submitInput(editor);
+  function submit(value = ""): void {
+    const source = value
+      ? {
+          ...editor,
+          value,
+          cursor: splitGraphemes(value).length,
+        }
+      : editor;
+    const submission = submitInput(source);
     if (!submission.value) {
       return;
     }

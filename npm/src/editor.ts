@@ -65,6 +65,37 @@ export function moveCursor<T extends EditorBuffer>(state: T, offset: number): T 
   };
 }
 
+export function moveCursorVertical<T extends EditorBuffer>(
+  state: T,
+  direction: -1 | 1,
+): T {
+  const characters = splitGraphemes(state.value);
+  const cursor = clampCursor(state.cursor, characters.length);
+  const lineStart = previousLineBreak(characters, cursor - 1) + 1;
+  const column = cursor - lineStart;
+  if (direction < 0) {
+    const previousEnd = lineStart - 1;
+    if (previousEnd < 0) {
+      return state;
+    }
+    const previousStart = previousLineBreak(characters, previousEnd - 1) + 1;
+    return {
+      ...state,
+      cursor: Math.min(previousStart + column, previousEnd),
+    };
+  }
+  const currentEnd = nextLineBreak(characters, cursor);
+  if (currentEnd === characters.length) {
+    return state;
+  }
+  const nextStart = currentEnd + 1;
+  const nextEnd = nextLineBreak(characters, nextStart);
+  return {
+    ...state,
+    cursor: Math.min(nextStart + column, nextEnd),
+  };
+}
+
 export function moveCursorToStart<T extends EditorBuffer>(state: T): T {
   return { ...state, cursor: 0 };
 }
@@ -148,6 +179,24 @@ function isEditorState(state: EditorBuffer): state is EditorState {
 
 function clampCursor(cursor: number, length: number): number {
   return Math.min(Math.max(cursor, 0), length);
+}
+
+function previousLineBreak(characters: string[], start: number): number {
+  for (let index = start; index >= 0; index -= 1) {
+    if (characters[index] === "\n") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function nextLineBreak(characters: string[], start: number): number {
+  for (let index = start; index < characters.length; index += 1) {
+    if (characters[index] === "\n") {
+      return index;
+    }
+  }
+  return characters.length;
 }
 
 function isPrintableGrapheme(character: string): boolean {

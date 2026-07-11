@@ -150,6 +150,22 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             if (status === "thinking") {
                 submitSteering();
             }
+            else if (commandMenu) {
+                const completion = (0, commands_1.commandCompletion)(commandMenu);
+                if (completion.endsWith(" ")) {
+                    setEditor((current) => ({
+                        ...current,
+                        value: completion,
+                        cursor: (0, editor_1.splitGraphemes)(completion).length,
+                        historyIndex: null,
+                        draft: "",
+                    }));
+                    setSelectedCommand(null);
+                }
+                else {
+                    submit(completion);
+                }
+            }
             else {
                 submit();
             }
@@ -196,12 +212,20 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
                 setSelectedCommand((0, commands_1.moveCommandSelection)(commandMenu, -1).selectedCommand);
                 return;
             }
+            if (editor.value.includes("\n")) {
+                setEditor((current) => (0, editor_1.moveCursorVertical)(current, -1));
+                return;
+            }
             setEditor((current) => (0, editor_1.navigateHistory)(current, -1));
             return;
         }
         if (key.name === "down") {
             if (commandMenu) {
                 setSelectedCommand((0, commands_1.moveCommandSelection)(commandMenu, 1).selectedCommand);
+                return;
+            }
+            if (editor.value.includes("\n")) {
+                setEditor((current) => (0, editor_1.moveCursorVertical)(current, 1));
                 return;
             }
             setEditor((current) => (0, editor_1.navigateHistory)(current, 1));
@@ -291,8 +315,15 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     function handleProviderEvent(event) {
         dispatchRuntime({ type: "runtime_event", channel: "provider", event });
     }
-    function submit() {
-        const submission = (0, editor_1.submitInput)(editor);
+    function submit(value = "") {
+        const source = value
+            ? {
+                ...editor,
+                value,
+                cursor: (0, editor_1.splitGraphemes)(value).length,
+            }
+            : editor;
+        const submission = (0, editor_1.submitInput)(source);
         if (!submission.value) {
             return;
         }

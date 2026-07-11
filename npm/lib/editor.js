@@ -5,6 +5,7 @@ exports.insertInput = insertInput;
 exports.deleteBeforeCursor = deleteBeforeCursor;
 exports.deleteAtCursor = deleteAtCursor;
 exports.moveCursor = moveCursor;
+exports.moveCursorVertical = moveCursorVertical;
 exports.moveCursorToStart = moveCursorToStart;
 exports.moveCursorToEnd = moveCursorToEnd;
 exports.submitInput = submitInput;
@@ -52,6 +53,33 @@ function moveCursor(state, offset) {
     return {
         ...state,
         cursor: clampCursor(state.cursor + offset, length),
+    };
+}
+function moveCursorVertical(state, direction) {
+    const characters = splitGraphemes(state.value);
+    const cursor = clampCursor(state.cursor, characters.length);
+    const lineStart = previousLineBreak(characters, cursor - 1) + 1;
+    const column = cursor - lineStart;
+    if (direction < 0) {
+        const previousEnd = lineStart - 1;
+        if (previousEnd < 0) {
+            return state;
+        }
+        const previousStart = previousLineBreak(characters, previousEnd - 1) + 1;
+        return {
+            ...state,
+            cursor: Math.min(previousStart + column, previousEnd),
+        };
+    }
+    const currentEnd = nextLineBreak(characters, cursor);
+    if (currentEnd === characters.length) {
+        return state;
+    }
+    const nextStart = currentEnd + 1;
+    const nextEnd = nextLineBreak(characters, nextStart);
+    return {
+        ...state,
+        cursor: Math.min(nextStart + column, nextEnd),
     };
 }
 function moveCursorToStart(state) {
@@ -120,6 +148,22 @@ function isEditorState(state) {
 }
 function clampCursor(cursor, length) {
     return Math.min(Math.max(cursor, 0), length);
+}
+function previousLineBreak(characters, start) {
+    for (let index = start; index >= 0; index -= 1) {
+        if (characters[index] === "\n") {
+            return index;
+        }
+    }
+    return -1;
+}
+function nextLineBreak(characters, start) {
+    for (let index = start; index < characters.length; index += 1) {
+        if (characters[index] === "\n") {
+            return index;
+        }
+    }
+    return characters.length;
 }
 function isPrintableGrapheme(character) {
     if (character === "\n") {

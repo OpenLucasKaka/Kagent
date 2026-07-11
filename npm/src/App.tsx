@@ -4,7 +4,6 @@ import {
   commandCompletion,
   moveCommandSelection,
   updateCommandMenu,
-  type CommandMenuState,
 } from "./commands";
 import {
   createEditorState,
@@ -28,10 +27,8 @@ import {
 import {
   createProviderSetupState,
   isInputStage,
-  maskSecret,
   providerConfiguration,
   providerSetupReducer,
-  selectedProvider,
   type ProviderSetupState,
 } from "./provider-setup";
 import type {
@@ -50,8 +47,19 @@ import {
   progressTranscriptAction,
   selectTranscriptViewport,
   transcriptReducer,
-  type TranscriptEntry,
 } from "./transcript";
+import {
+  ApprovalPanel,
+  CommandPalette,
+  Header,
+  MessageList,
+  PromptLine,
+  ProviderSetupPanel,
+  StatusLine,
+  TERMINAL_SPINNER_FRAMES,
+  createTerminalLayout,
+  type AgentStatus,
+} from "./ui-components";
 
 type InkApi = {
   Box: ReactNamespace.ElementType;
@@ -72,10 +80,6 @@ type AppProps = {
   runtimeSessionFactory?: typeof createRuntimeSessionClient;
 };
 
-type Status = "starting" | "idle" | "thinking" | "cancelling" | "approval" | "error";
-
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
 export function KagentInkApp({
   React,
   Ink,
@@ -87,7 +91,7 @@ export function KagentInkApp({
   const [runtime] = React.useState<RuntimeSessionClient>(() => runtimeSessionFactory());
   const [editor, setEditor] = React.useState<EditorState>(createEditorState);
   const [transcript, setTranscript] = React.useState(createTranscriptState);
-  const [status, setStatus] = React.useState<Status>("starting");
+  const [status, setStatus] = React.useState<AgentStatus>("starting");
   const [statusText, setStatusText] = React.useState("");
   const [frame, setFrame] = React.useState(0);
   const [approval, setApproval] = React.useState<ApprovalRequiredEvent | null>(null);
@@ -96,6 +100,7 @@ export function KagentInkApp({
   const [setup, setSetup] = React.useState<ProviderSetupState | null>(null);
   const [commandCatalog, setCommandCatalog] = React.useState<SessionCommandOption[]>([]);
   const [selectedCommand, setSelectedCommand] = React.useState<string | null>(null);
+  const [terminalSize, setTerminalSize] = React.useState(() => currentTerminalSize());
   const commandMenu = updateCommandMenu(commandCatalog, editor.value, selectedCommand);
   const terminalInputHandler = React.useRef<TerminalInputHandler>(() => undefined);
   terminalInputHandler.current = handleTerminalInput;
@@ -123,6 +128,14 @@ export function KagentInkApp({
   }, [React, runtime]);
 
   React.useEffect(() => {
+    const handleResize = (): void => setTerminalSize(currentTerminalSize());
+    process.stdout.on("resize", handleResize);
+    return () => {
+      process.stdout.removeListener("resize", handleResize);
+    };
+  }, [React]);
+
+  React.useEffect(() => {
     if (
       status !== "thinking" &&
       status !== "cancelling" &&
@@ -132,7 +145,7 @@ export function KagentInkApp({
       return undefined;
     }
     const timer = setInterval(() => {
-      setFrame((current) => (current + 1) % FRAMES.length);
+      setFrame((current) => (current + 1) % TERMINAL_SPINNER_FRAMES.length);
     }, 90);
     return () => clearInterval(timer);
   }, [React, setup?.stage, status]);
@@ -481,10 +494,21 @@ export function KagentInkApp({
   }
 
   if (setup) {
+    const layout = createTerminalLayout(terminalSize.columns, terminalSize.rows, {
+      approval: false,
+      commandMenu: false,
+    });
     return React.createElement(
       Box,
-      { flexDirection: "column", paddingX: 1 },
-      React.createElement(Header, { React, Box, Text, provider: null, setup: true }),
+      { flexDirection: "column", paddingX: layout.horizontalPadding },
+      React.createElement(Header, {
+        React,
+        Box,
+        Text,
+        compact: layout.compact,
+        provider: null,
+        setup: true,
+      }),
       React.createElement(ProviderSetupPanel, {
         React,
         Box,
@@ -495,16 +519,27 @@ export function KagentInkApp({
     );
   }
 
+  const layout = createTerminalLayout(terminalSize.columns, terminalSize.rows, {
+    approval: approval !== null,
+    commandMenu: commandMenu !== null && status === "idle",
+  });
   const visibleTranscript = selectTranscriptViewport(transcript.entries, {
-    columns: process.stdout.columns || 80,
-    rows: process.stdout.rows || 24,
-    reservedRows: 6 + (approval ? 6 : 0) + (commandMenu ? 7 : 0),
+    columns: layout.columns,
+    rows: layout.rows,
+    reservedRows: layout.reservedRows,
   });
 
   return React.createElement(
     Box,
-    { flexDirection: "column", paddingX: 1 },
-    React.createElement(Header, { React, Box, Text, provider, setup: false }),
+    { flexDirection: "column", paddingX: layout.horizontalPadding },
+    React.createElement(Header, {
+      React,
+      Box,
+      Text,
+      compact: layout.compact,
+      provider,
+      setup: false,
+    }),
     React.createElement(MessageList, { React, Box, Text, messages: visibleTranscript }),
     approval
       ? React.createElement(ApprovalPanel, {
@@ -512,12 +547,20 @@ export function KagentInkApp({
           Box,
           Text,
           approval,
+          compact: layout.compact,
           showDetails: showApprovalDetails,
         })
       : null,
     React.createElement(StatusLine, { React, Text, frame, status, statusText }),
     commandMenu && status === "idle"
-      ? React.createElement(CommandPalette, { React, Box, Text, menu: commandMenu })
+      ? React.createElement(CommandPalette, {
+          React,
+          Box,
+          Text,
+          compact: layout.compact,
+          limit: layout.commandLimit,
+          menu: commandMenu,
+        })
       : null,
     status === "starting"
       ? null
@@ -527,288 +570,17 @@ export function KagentInkApp({
           Text,
           cursor: editor.cursor,
           input: editor.value,
-          disabled: status === "thinking" || status === "approval",
+          disabled: status === "thinking" || status === "cancelling" || status === "approval",
         }),
   );
 }
 
-function Header({
-  React,
-  Box,
-  Text,
-  provider,
-  setup,
-}: RenderProps & { provider: ProviderSnapshot | null; setup: boolean }): ReactNamespace.ReactElement {
-  return React.createElement(
-    Box,
-    { flexDirection: "column", marginBottom: 1 },
-    React.createElement(
-      Box,
-      { flexDirection: "row" },
-      React.createElement(Text, { bold: true, color: "cyan" }, "◆ kagent"),
-      React.createElement(Text, { color: "gray" }, setup ? "  setup" : "  agent"),
-    ),
-    provider?.configured
-      ? React.createElement(
-          Text,
-          { color: "gray" },
-          `${provider.display_name}${provider.model ? ` · ${provider.model}` : ""}`,
-        )
-      : null,
-  );
-}
-
-function ProviderSetupPanel({
-  React,
-  Box,
-  Text,
-  frame,
-  setup,
-}: RenderProps & { frame: number; setup: ProviderSetupState }): ReactNamespace.ReactElement {
-  const option = selectedProvider(setup);
-  if (setup.stage === "provider") {
-    return React.createElement(
-      Box,
-      { flexDirection: "column" },
-      React.createElement(Text, { bold: true }, "Connect a model provider"),
-      React.createElement(Text, { color: "gray" }, "Choose where kagent should think."),
-      React.createElement(
-        Box,
-        { flexDirection: "column", marginTop: 1 },
-        ...setup.options.map((candidate, index) =>
-          React.createElement(
-            Text,
-            {
-              key: candidate.provider,
-              bold: index === setup.selectedIndex,
-              color: index === setup.selectedIndex ? "cyan" : undefined,
-            },
-            `${index === setup.selectedIndex ? "›" : " "} ${candidate.label}`,
-          ),
-        ),
-      ),
-      React.createElement(Text, { color: "gray" }, "↑↓ choose  enter continue  esc quit"),
-    );
-  }
-  if (setup.stage === "saving") {
-    return React.createElement(
-      Box,
-      { flexDirection: "column" },
-      React.createElement(Text, { bold: true }, `Connect ${option.label}`),
-      React.createElement(Text, { color: "cyan" }, `${FRAMES[frame]} Saving settings`),
-    );
-  }
-
-  const field = setupField(setup);
-  const displayValue = setup.stage === "api_key" ? maskSecret(setup.editor.value) : setup.editor.value;
-  return React.createElement(
-    Box,
-    { flexDirection: "column" },
-    React.createElement(Text, { bold: true }, `Connect ${option.label}`),
-    React.createElement(Text, { color: "gray" }, field.hint),
-    React.createElement(Text, { color: "gray", bold: true }, field.label),
-    React.createElement(PromptLine, {
-      React,
-      Box,
-      Text,
-      cursor: setup.editor.cursor,
-      input: displayValue,
-      disabled: false,
-      placeholder: field.placeholder,
-      compact: true,
-    }),
-    setup.error ? React.createElement(Text, { color: "red", wrap: "wrap" }, setup.error) : null,
-    React.createElement(Text, { color: "gray" }, "enter continue  esc back"),
-  );
-}
-
-function setupField(setup: ProviderSetupState): {
-  label: string;
-  hint: string;
-  placeholder: string;
-} {
-  if (setup.stage === "base_url") {
-    return {
-      label: "Base URL",
-      hint: "OpenAI-compatible API endpoint",
-      placeholder: "https://api.example.com/v1",
-    };
-  }
-  if (setup.stage === "model") {
-    return {
-      label: "Model",
-      hint: "Exact model ID exposed by the provider",
-      placeholder: "model-id",
-    };
-  }
-  const required = selectedProvider(setup).api_key_required;
+function currentTerminalSize(): { columns: number; rows: number } {
   return {
-    label: required ? "API key" : "API key (optional)",
-    hint: "Stored locally with owner-only permissions",
-    placeholder: required ? "Paste API key" : "Leave empty for local providers",
+    columns: process.stdout.columns || 80,
+    rows: process.stdout.rows || 24,
   };
 }
-
-function MessageList({
-  React,
-  Box,
-  Text,
-  messages,
-}: RenderProps & { messages: TranscriptEntry[] }) {
-  return React.createElement(
-    Box,
-    { flexDirection: "column" },
-    ...messages.map((message) => {
-      const marker =
-        message.role === "user"
-          ? "›"
-          : message.role === "assistant"
-            ? "•"
-            : message.role === "command"
-              ? "·"
-              : "!";
-      const color =
-        message.role === "user"
-          ? "cyan"
-          : message.role === "system"
-            ? "red"
-            : message.role === "command"
-              ? "gray"
-              : undefined;
-      return React.createElement(
-        Box,
-        { key: message.id, flexDirection: "row", marginBottom: 1 },
-        React.createElement(Text, { color, bold: message.role === "user" }, `${marker} `),
-        React.createElement(
-          Box,
-          { flexDirection: "column", flexGrow: 1 },
-          message.title
-            ? React.createElement(Text, { bold: true, color }, message.title)
-            : null,
-          React.createElement(Text, { color, wrap: "wrap" }, message.text),
-        ),
-      );
-    }),
-  );
-}
-
-function ApprovalPanel({
-  React,
-  Box,
-  Text,
-  approval,
-  showDetails,
-}: RenderProps & { approval: ApprovalRequiredEvent; showDetails: boolean }) {
-  return React.createElement(
-    Box,
-    { flexDirection: "column", marginY: 1, paddingLeft: 2 },
-    React.createElement(Text, { bold: true, color: "yellow" }, "Permission required"),
-    React.createElement(Text, null, approval.title),
-    approval.target
-      ? React.createElement(Text, { color: "cyan", wrap: "wrap" }, approval.target)
-      : null,
-    showDetails && approval.reason
-      ? React.createElement(Text, { color: "gray", wrap: "wrap" }, approval.reason)
-      : null,
-    React.createElement(Text, { color: "gray" }, "y allow   n deny   d details"),
-  );
-}
-
-function CommandPalette({
-  React,
-  Box,
-  Text,
-  menu,
-}: RenderProps & { menu: CommandMenuState }) {
-  const visibleStart = Math.min(
-    Math.max(menu.selectedIndex - 5, 0),
-    Math.max(menu.options.length - 6, 0),
-  );
-  const visibleOptions = menu.options.slice(visibleStart, visibleStart + 6);
-  return React.createElement(
-    Box,
-    { flexDirection: "column", paddingLeft: 2, marginTop: 1 },
-    ...visibleOptions.map((option, index) => {
-      const selected = visibleStart + index === menu.selectedIndex;
-      return React.createElement(
-        Box,
-        { key: option.command, flexDirection: "row" },
-        React.createElement(
-          Text,
-          {
-            bold: selected,
-            color: selected ? "cyan" : "gray",
-          },
-          `${selected ? "›" : " "} ${option.command}`,
-        ),
-        React.createElement(Text, { color: "gray" }, `  ${option.description}`),
-      );
-    }),
-    React.createElement(Text, { color: "gray" }, "↑↓ choose  tab complete  enter run"),
-  );
-}
-
-function StatusLine({
-  React,
-  Text,
-  frame,
-  status,
-  statusText,
-}: StatusRenderProps & { frame: number; status: Status; statusText: string }) {
-  if (status !== "thinking" && status !== "cancelling" && status !== "starting") {
-    return React.createElement(Text, null, "");
-  }
-  const label = status === "starting" ? "Starting runtime" : statusText;
-  return React.createElement(Text, { color: "cyan" }, `${FRAMES[frame]} ${label}`);
-}
-
-function PromptLine({
-  React,
-  Box,
-  Text,
-  cursor,
-  disabled,
-  input,
-  placeholder = "Ask kagent",
-  compact = false,
-}: RenderProps & {
-  cursor: number;
-  disabled: boolean;
-  input: string;
-  placeholder?: string;
-  compact?: boolean;
-}) {
-  const characters = splitGraphemes(input);
-  const safeCursor = Math.min(Math.max(cursor, 0), characters.length);
-  const before = characters.slice(0, safeCursor).join("");
-  const active = characters[safeCursor] || " ";
-  const after = characters.slice(safeCursor + 1).join("");
-  return React.createElement(
-    Box,
-    { flexDirection: "row", marginTop: compact ? 0 : 1, alignItems: "flex-start" },
-    React.createElement(Text, { color: disabled ? "gray" : "cyan" }, "› "),
-    input
-      ? React.createElement(
-          Text,
-          { wrap: "wrap" },
-          before,
-          React.createElement(Text, { inverse: !disabled }, active),
-          after,
-        )
-      : React.createElement(Text, { color: "gray" }, disabled ? "" : placeholder),
-  );
-}
-
-type RenderProps = {
-  React: typeof ReactNamespace;
-  Box: ReactNamespace.ElementType;
-  Text: ReactNamespace.ElementType;
-};
-
-type StatusRenderProps = {
-  React: typeof ReactNamespace;
-  Text: ReactNamespace.ElementType;
-};
 
 function progressLabel(event: Record<string, unknown>): string {
   const type = String(event.type || "");

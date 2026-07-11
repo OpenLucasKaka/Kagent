@@ -75,17 +75,204 @@ def test_npm_ink_source_uses_jsonl_runtime_protocol():
     assert "--classic" not in Path("npm/src/runtime-client.ts").read_text(encoding="utf-8")
 
 
+def test_npm_terminal_layout_adapts_to_narrow_and_wide_terminals():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const {createTerminalLayout} = require("./npm/lib/ui-components");
+
+assert.deepEqual(createTerminalLayout(40, 24, {approval: true, commandMenu: true}), {
+  columns: 40,
+  rows: 24,
+  compact: true,
+  horizontalPadding: 0,
+  commandLimit: 4,
+  reservedRows: 17,
+});
+assert.deepEqual(createTerminalLayout(100, 30, {approval: false, commandMenu: true}), {
+  columns: 100,
+  rows: 30,
+  compact: false,
+  horizontalPadding: 1,
+  commandLimit: 6,
+  reservedRows: 13,
+});
+"""
+
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_npm_ui_components_render_with_real_ink_at_narrow_and_wide_widths():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const React = require("react");
+const {PassThrough} = require("node:stream");
+const ui = require("./npm/lib/ui-components");
+
+async function renderAt(columns) {
+  const Ink = await import("ink");
+  const output = [];
+  const stdout = new PassThrough();
+  stdout.columns = columns;
+  stdout.rows = 24;
+  stdout.isTTY = true;
+  stdout.on("data", (chunk) => output.push(chunk));
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  stdin.setRawMode = () => {};
+  const stderr = new PassThrough();
+  const layout = ui.createTerminalLayout(columns, 24, {approval: true, commandMenu: true});
+  const menu = {
+    query: "/",
+    selectedIndex: 0,
+    selectedCommand: "/status",
+    options: [
+      {
+        command: "/status",
+        description: "Show provider, workspace, and session status",
+        aliases: [],
+      },
+      {command: "/memory", description: "Inspect recent conversation memory", aliases: []},
+      {command: "/tools", description: "List available capabilities", aliases: []},
+      {command: "/clear", description: "Clear visible conversation", aliases: []},
+      {command: "/reset", description: "Reset session state", aliases: []},
+    ],
+  };
+  const element = React.createElement(
+    Ink.Box,
+    {flexDirection: "column", width: columns},
+    React.createElement(ui.Header, {
+      React,
+      Box: Ink.Box,
+      Text: Ink.Text,
+      compact: layout.compact,
+      provider: {
+        configured: true,
+        provider: "qwen",
+        display_name: "Qwen",
+        base_url_configured: true,
+        model: "qwen3.5-122b-a10b",
+        api_key_configured: true,
+      },
+      setup: false,
+    }),
+    React.createElement(ui.MessageList, {
+      React,
+      Box: Ink.Box,
+      Text: Ink.Text,
+      messages: [{
+        id: "m-1",
+        role: "assistant",
+        status: "streaming",
+        text: "正在整理一份很长的周末旅行计划，内容会自动换行并保持输入区域稳定。",
+      }],
+    }),
+    React.createElement(ui.ApprovalPanel, {
+      React,
+      Box: Ink.Box,
+      Text: Ink.Text,
+      approval: {
+        type: "approval_required",
+        action_id: "open",
+        title: "Open a website",
+        target: "https://github.com/OpenLucasKaka/Kagent/issues/very-long-target",
+        reason: "The user requested this external action.",
+      },
+      compact: layout.compact,
+      showDetails: true,
+    }),
+    React.createElement(ui.CommandPalette, {
+      React,
+      Box: Ink.Box,
+      Text: Ink.Text,
+      compact: layout.compact,
+      limit: layout.commandLimit,
+      menu,
+    }),
+    React.createElement(ui.PromptLine, {
+      React,
+      Box: Ink.Box,
+      Text: Ink.Text,
+      cursor: 24,
+      disabled: false,
+      input: "帮我继续完善这个非常长的终端输入内容并且不要卡住",
+    }),
+  );
+  const instance = Ink.render(element, {
+    stdout,
+    stdin,
+    stderr,
+    debug: true,
+    exitOnCtrlC: false,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  instance.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  return output.map((chunk) => chunk.toString("utf8"));
+}
+
+async function main() {
+  const {default: stripAnsi} = await import("strip-ansi");
+  const {default: stringWidth} = await import("string-width");
+  for (const columns of [40, 100]) {
+    const chunks = await renderAt(columns);
+    const frameChunks = chunks.filter((chunk) => chunk.includes("kagent"));
+    assert.ok(frameChunks.length > 0, JSON.stringify(chunks));
+    const plain = stripAnsi(frameChunks.at(-1));
+    assert.match(plain, /kagent/);
+    assert.match(plain, /Permission required/);
+    assert.match(plain, /Ask kagent|帮我继续完善/);
+    const overflow = plain
+      .split("\n")
+      .map((line) => ({line, width: stringWidth(line)}))
+      .filter(({width}) => width > columns);
+    assert.deepEqual(overflow, []);
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_npm_ink_runtime_keeps_one_session_and_hides_internal_tool_names():
     app = Path("npm/src/App.tsx").read_text(encoding="utf-8")
+    ui = Path("npm/src/ui-components.tsx").read_text(encoding="utf-8")
     client = Path("npm/src/runtime-client.ts").read_text(encoding="utf-8")
 
     assert "createRuntimeSessionClient" in app
     assert "respondToApproval" in app
     assert "runtime.command" in app
-    assert "Permission required" in app
-    assert "approval.title" in app
-    assert "approval.target" in app
-    assert "approval.tool" not in app
+    assert "Permission required" in ui
+    assert "approval.title" in ui
+    assert "approval.target" in ui
+    assert "approval.tool" not in ui
     assert "child.stdin.end" not in client
     assert "approval_response" in client
     assert "runtime session is busy" in client

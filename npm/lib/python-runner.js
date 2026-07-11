@@ -96,13 +96,21 @@ function runChecked(command, args, options) {
   const result = childProcess.spawnSync(command, args, {
     cwd: options.cwd,
     env: process.env,
+    encoding: "utf8",
     stdio: options.stdio || "inherit"
   });
   if (result.error) {
     throw result.error;
   }
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+    const detail = [result.stdout, result.stderr]
+      .filter((value) => typeof value === "string" && value.trim())
+      .join("\n")
+      .trim();
+    const suffix = detail ? `\n${detail.slice(-4000)}` : "";
+    throw new Error(
+      `${command} ${args.join(" ")} failed with exit code ${result.status}${suffix}`
+    );
   }
 }
 
@@ -424,8 +432,12 @@ function ensureVenv(root, version) {
     runChecked(python, ["-m", "venv", venvDir], { cwd: root });
   }
 
-  process.stderr.write("kagent: installing Python runtime package\n");
-  runChecked(pythonPath, ["-m", "pip", "install", root], { cwd: root });
+  process.stderr.write("kagent: preparing Python runtime\n");
+  runChecked(
+    pythonPath,
+    ["-m", "pip", "install", "--disable-pip-version-check", "--quiet", root],
+    { cwd: root, stdio: "pipe" }
+  );
   writeMarker(venvDir, expectedMarker);
   return venvDir;
 }

@@ -16,6 +16,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     const [runtime] = React.useState(() => runtimeSessionFactory());
     const [editor, setEditor] = React.useState(editor_1.createEditorState);
     const [transcript, setTranscript] = React.useState(transcript_1.createTranscriptState);
+    const [transcriptOffset, setTranscriptOffset] = React.useState(0);
     const [status, setStatus] = React.useState("starting");
     const [statusText, setStatusText] = React.useState("");
     const [frame, setFrame] = React.useState(0);
@@ -57,6 +58,9 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         };
     }, [React]);
     React.useEffect(() => {
+        setTranscriptOffset(0);
+    }, [React, transcript.nextId]);
+    React.useEffect(() => {
         if (status !== "thinking" &&
             status !== "cancelling" &&
             status !== "starting" &&
@@ -97,6 +101,18 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         }
         if (setup) {
             handleSetupInput(value, key);
+            return;
+        }
+        if (key.name === "pageup" || key.name === "pagedown") {
+            const pagingLayout = (0, ui_components_1.createTerminalLayout)(terminalSize.columns, terminalSize.rows, {
+                approval: approval !== null,
+                commandMenu: commandMenu !== null && status === "idle",
+            });
+            setTranscriptOffset((current) => (0, transcript_1.moveTranscriptViewport)(transcript.entries, {
+                columns: pagingLayout.columns,
+                rows: pagingLayout.rows,
+                reservedRows: pagingLayout.reservedRows + (current > 0 ? 1 : 0),
+            }, current, key.name === "pageup" ? "older" : "newer"));
             return;
         }
         if (status === "approval") {
@@ -417,8 +433,8 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     const visibleTranscript = (0, transcript_1.selectTranscriptViewport)(transcript.entries, {
         columns: layout.columns,
         rows: layout.rows,
-        reservedRows: layout.reservedRows,
-    });
+        reservedRows: layout.reservedRows + (transcriptOffset > 0 ? 1 : 0),
+    }, transcriptOffset);
     return React.createElement(Box, { flexDirection: "column", paddingX: layout.horizontalPadding }, React.createElement(ui_components_1.Header, {
         React,
         Box,
@@ -426,6 +442,10 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         compact: layout.compact,
         provider,
         setup: false,
+    }), React.createElement(ui_components_1.TranscriptPosition, {
+        React,
+        Text,
+        newerCount: transcriptOffset,
     }), React.createElement(ui_components_1.MessageList, { React, Box, Text, messages: visibleTranscript }), approval
         ? React.createElement(ui_components_1.ApprovalPanel, {
             React,

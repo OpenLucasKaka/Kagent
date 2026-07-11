@@ -181,6 +181,11 @@ async function renderAt(columns) {
         text: "正在整理一份很长的周末旅行计划，内容会自动换行并保持输入区域稳定。",
       }],
     }),
+    React.createElement(ui.TranscriptPosition, {
+      React,
+      Text: Ink.Text,
+      newerCount: 3,
+    }),
     React.createElement(ui.ApprovalPanel, {
       React,
       Box: Ink.Box,
@@ -234,6 +239,7 @@ async function main() {
     assert.ok(frameChunks.length > 0, JSON.stringify(chunks));
     const plain = stripAnsi(frameChunks.at(-1));
     assert.match(plain, /kagent/);
+    assert.match(plain, /History · 3 newer/);
     assert.match(plain, /Permission required/);
     assert.match(plain, /Ask kagent|帮我继续完善/);
     const overflow = plain
@@ -395,6 +401,8 @@ for (const sequence of [
   "\x1b[C",
   "\x1b[A",
   "\x1b[B",
+  "\x1b[5~",
+  "\x1b[6~",
   "\x01",
   "\x05",
   "\x03",
@@ -419,6 +427,8 @@ assert.deepEqual(events, [
   ["", "right", false],
   ["", "up", false],
   ["", "down", false],
+  ["", "pageup", false],
+  ["", "pagedown", false],
   ["a", "a", true],
   ["e", "e", true],
   ["c", "c", true],
@@ -449,6 +459,9 @@ def test_npm_ink_app_uses_raw_terminal_input_and_cooperative_ctrl_c():
     assert 'key.name === "delete"' in app
     assert 'key.name === "home"' in app
     assert 'key.name === "end"' in app
+    assert 'key.name === "pageup"' in app
+    assert 'key.name === "pagedown"' in app
+    assert "[React, transcript.nextId]" in app
     assert "showError(errorMessage(error));\n      showError(errorMessage(error));" not in app
     assert "exitOnCtrlC: false" in runner
 
@@ -625,13 +638,13 @@ render();
 inputEvents.emit("input", "👍");
 inputEvents.emit("input", "🏽");
 assert.deepEqual(
-  [states[9].editor.value, states[9].editor.cursor],
+  [states[10].editor.value, states[10].editor.cursor],
   ["x👍🏽", 2],
 );
 inputEvents.emit("input", "e");
 inputEvents.emit("input", "\u0301");
 assert.deepEqual(
-  [states[9].editor.value, states[9].editor.cursor],
+  [states[10].editor.value, states[10].editor.cursor],
   ["x👍🏽e\u0301", 3],
 );
 
@@ -837,7 +850,7 @@ inputEvents.emit("input", "/");
 render();
 inputEvents.emit("input", "\x1b[B");
 render();
-assert.equal(states[11], "/config");
+assert.equal(states[12], "/config");
 inputEvents.emit("input", "\t");
 render();
 assert.deepEqual([states[1].value, states[1].cursor], ["/config", 7]);
@@ -859,6 +872,7 @@ def test_npm_transcript_reducer_streams_without_duplicates_and_bounds_viewport()
 const assert = require("node:assert/strict");
 const {
   createTranscriptState,
+  moveTranscriptViewport,
   progressTranscriptAction,
   selectTranscriptViewport,
   transcriptReducer,
@@ -917,6 +931,86 @@ const viewport = selectTranscriptViewport(state.entries, {
 });
 assert.equal(viewport.at(-1).text, "五");
 assert.ok(viewport.length >= 1);
+
+const latestViewport = selectTranscriptViewport(state.entries, {
+  columns: 10,
+  rows: 4,
+  reservedRows: 2,
+});
+assert.deepEqual(latestViewport.map((entry) => entry.text), ["五"]);
+const olderOffset = moveTranscriptViewport(
+  state.entries,
+  {columns: 10, rows: 4, reservedRows: 2},
+  0,
+  "older",
+);
+assert.equal(olderOffset, 1);
+assert.deepEqual(
+  selectTranscriptViewport(
+    state.entries,
+    {columns: 10, rows: 4, reservedRows: 2},
+    olderOffset,
+  ).map((entry) => entry.text),
+  ["四"],
+);
+assert.equal(
+  moveTranscriptViewport(
+    state.entries,
+    {columns: 10, rows: 4, reservedRows: 2},
+    olderOffset,
+    "newer",
+  ),
+  0,
+);
+assert.equal(
+  moveTranscriptViewport(
+    state.entries,
+    {columns: 10, rows: 4, reservedRows: 2},
+    999,
+    "older",
+  ),
+  state.entries.length - 1,
+);
+assert.equal(
+  moveTranscriptViewport([], {columns: 10, rows: 4, reservedRows: 2}, 3, "older"),
+  0,
+);
+
+const unevenEntries = [
+  {
+    id: "u-1",
+    role: "assistant",
+    status: "complete",
+    text: "很长很长很长很长很长",
+    title: undefined,
+  },
+  {id: "u-2", role: "user", status: "complete", text: "中", title: undefined},
+  {id: "u-3", role: "assistant", status: "complete", text: "新", title: undefined},
+];
+const unevenViewport = {columns: 10, rows: 6, reservedRows: 2};
+const unevenOlderOffset = moveTranscriptViewport(
+  unevenEntries,
+  unevenViewport,
+  0,
+  "older",
+);
+assert.equal(unevenOlderOffset, 2);
+assert.equal(
+  moveTranscriptViewport(
+    unevenEntries,
+    unevenViewport,
+    unevenOlderOffset,
+    "newer",
+  ),
+  0,
+);
+
+let bounded = createTranscriptState(2);
+for (const text of ["一", "二", "三"]) {
+  bounded = transcriptReducer(bounded, {type: "user_submitted", text});
+}
+assert.equal(bounded.entries.length, 2);
+assert.equal(bounded.nextId, 4);
 
 const unicodeState = [
   {id: "m-1", role: "assistant", status: "complete", text: "深圳周末旅行攻略", title: "攻略"},

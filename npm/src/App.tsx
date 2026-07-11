@@ -44,6 +44,7 @@ import {
 } from "./terminal-input";
 import {
   createTranscriptState,
+  moveTranscriptViewport,
   progressTranscriptAction,
   selectTranscriptViewport,
   transcriptReducer,
@@ -57,6 +58,7 @@ import {
   ProviderSetupPanel,
   StatusLine,
   TERMINAL_SPINNER_FRAMES,
+  TranscriptPosition,
   createTerminalLayout,
   type AgentStatus,
 } from "./ui-components";
@@ -91,6 +93,7 @@ export function KagentInkApp({
   const [runtime] = React.useState<RuntimeSessionClient>(() => runtimeSessionFactory());
   const [editor, setEditor] = React.useState<EditorState>(createEditorState);
   const [transcript, setTranscript] = React.useState(createTranscriptState);
+  const [transcriptOffset, setTranscriptOffset] = React.useState(0);
   const [status, setStatus] = React.useState<AgentStatus>("starting");
   const [statusText, setStatusText] = React.useState("");
   const [frame, setFrame] = React.useState(0);
@@ -134,6 +137,10 @@ export function KagentInkApp({
       process.stdout.removeListener("resize", handleResize);
     };
   }, [React]);
+
+  React.useEffect(() => {
+    setTranscriptOffset(0);
+  }, [React, transcript.nextId]);
 
   React.useEffect(() => {
     if (
@@ -181,6 +188,29 @@ export function KagentInkApp({
     }
     if (setup) {
       handleSetupInput(value, key);
+      return;
+    }
+    if (key.name === "pageup" || key.name === "pagedown") {
+      const pagingLayout = createTerminalLayout(
+        terminalSize.columns,
+        terminalSize.rows,
+        {
+          approval: approval !== null,
+          commandMenu: commandMenu !== null && status === "idle",
+        },
+      );
+      setTranscriptOffset((current) =>
+        moveTranscriptViewport(
+          transcript.entries,
+          {
+            columns: pagingLayout.columns,
+            rows: pagingLayout.rows,
+            reservedRows: pagingLayout.reservedRows + (current > 0 ? 1 : 0),
+          },
+          current,
+          key.name === "pageup" ? "older" : "newer",
+        ),
+      );
       return;
     }
     if (status === "approval") {
@@ -523,11 +553,15 @@ export function KagentInkApp({
     approval: approval !== null,
     commandMenu: commandMenu !== null && status === "idle",
   });
-  const visibleTranscript = selectTranscriptViewport(transcript.entries, {
-    columns: layout.columns,
-    rows: layout.rows,
-    reservedRows: layout.reservedRows,
-  });
+  const visibleTranscript = selectTranscriptViewport(
+    transcript.entries,
+    {
+      columns: layout.columns,
+      rows: layout.rows,
+      reservedRows: layout.reservedRows + (transcriptOffset > 0 ? 1 : 0),
+    },
+    transcriptOffset,
+  );
 
   return React.createElement(
     Box,
@@ -539,6 +573,11 @@ export function KagentInkApp({
       compact: layout.compact,
       provider,
       setup: false,
+    }),
+    React.createElement(TranscriptPosition, {
+      React,
+      Text,
+      newerCount: transcriptOffset,
     }),
     React.createElement(MessageList, { React, Box, Text, messages: visibleTranscript }),
     approval

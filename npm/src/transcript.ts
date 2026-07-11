@@ -115,14 +115,17 @@ export function progressTranscriptAction(
 export function selectTranscriptViewport(
   entries: TranscriptEntry[],
   viewport: TranscriptViewport,
+  offset = 0,
 ): TranscriptEntry[] {
   if (entries.length === 0) {
     return [];
   }
   const availableRows = Math.max(1, viewport.rows - (viewport.reservedRows ?? 0));
+  const safeOffset = clampTranscriptOffset(entries, offset);
+  const end = entries.length - safeOffset;
   let usedRows = 0;
-  let start = entries.length - 1;
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
+  let start = end - 1;
+  for (let index = end - 1; index >= 0; index -= 1) {
     const rows = estimateEntryRows(entries[index], viewport.columns);
     if (usedRows > 0 && usedRows + rows > availableRows) {
       break;
@@ -130,7 +133,61 @@ export function selectTranscriptViewport(
     usedRows += rows;
     start = index;
   }
-  return entries.slice(start);
+  return entries.slice(start, end);
+}
+
+export function moveTranscriptViewport(
+  entries: TranscriptEntry[],
+  viewport: TranscriptViewport,
+  offset: number,
+  direction: "older" | "newer",
+): number {
+  if (entries.length === 0) {
+    return 0;
+  }
+  const safeOffset = clampTranscriptOffset(entries, offset);
+  const pageOffsets = transcriptPageOffsets(entries, viewport);
+  if (direction === "older") {
+    return pageOffsets.find((pageOffset) => pageOffset > safeOffset)
+      ?? pageOffsets.at(-1)
+      ?? 0;
+  }
+  for (let index = pageOffsets.length - 1; index >= 0; index -= 1) {
+    if (pageOffsets[index] < safeOffset) {
+      return pageOffsets[index];
+    }
+  }
+  return 0;
+}
+
+export function clampTranscriptOffset(
+  entries: TranscriptEntry[],
+  offset: number,
+): number {
+  if (entries.length === 0) {
+    return 0;
+  }
+  return Math.min(Math.max(Math.trunc(offset), 0), entries.length - 1);
+}
+
+function transcriptPageOffsets(
+  entries: TranscriptEntry[],
+  viewport: TranscriptViewport,
+): number[] {
+  const offsets = [0];
+  while (offsets.at(-1)! < entries.length - 1) {
+    const current = offsets.at(-1)!;
+    const visibleCount = Math.max(
+      1,
+      selectTranscriptViewport(entries, viewport, current).length,
+    );
+    const next = clampTranscriptOffset(entries, current + visibleCount);
+    if (next === current) {
+      break;
+    }
+    offsets.push(next);
+  }
+  return offsets;
 }
 
 function appendEntry(

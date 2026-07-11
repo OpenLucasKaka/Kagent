@@ -4,6 +4,8 @@ exports.createTranscriptState = createTranscriptState;
 exports.transcriptReducer = transcriptReducer;
 exports.progressTranscriptAction = progressTranscriptAction;
 exports.selectTranscriptViewport = selectTranscriptViewport;
+exports.moveTranscriptViewport = moveTranscriptViewport;
+exports.clampTranscriptOffset = clampTranscriptOffset;
 const editor_1 = require("./editor");
 function createTranscriptState(maxEntries = 100) {
     return {
@@ -73,14 +75,16 @@ function progressTranscriptAction(event) {
     }
     return null;
 }
-function selectTranscriptViewport(entries, viewport) {
+function selectTranscriptViewport(entries, viewport, offset = 0) {
     if (entries.length === 0) {
         return [];
     }
     const availableRows = Math.max(1, viewport.rows - (viewport.reservedRows ?? 0));
+    const safeOffset = clampTranscriptOffset(entries, offset);
+    const end = entries.length - safeOffset;
     let usedRows = 0;
-    let start = entries.length - 1;
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
+    let start = end - 1;
+    for (let index = end - 1; index >= 0; index -= 1) {
         const rows = estimateEntryRows(entries[index], viewport.columns);
         if (usedRows > 0 && usedRows + rows > availableRows) {
             break;
@@ -88,7 +92,44 @@ function selectTranscriptViewport(entries, viewport) {
         usedRows += rows;
         start = index;
     }
-    return entries.slice(start);
+    return entries.slice(start, end);
+}
+function moveTranscriptViewport(entries, viewport, offset, direction) {
+    if (entries.length === 0) {
+        return 0;
+    }
+    const safeOffset = clampTranscriptOffset(entries, offset);
+    const pageOffsets = transcriptPageOffsets(entries, viewport);
+    if (direction === "older") {
+        return pageOffsets.find((pageOffset) => pageOffset > safeOffset)
+            ?? pageOffsets.at(-1)
+            ?? 0;
+    }
+    for (let index = pageOffsets.length - 1; index >= 0; index -= 1) {
+        if (pageOffsets[index] < safeOffset) {
+            return pageOffsets[index];
+        }
+    }
+    return 0;
+}
+function clampTranscriptOffset(entries, offset) {
+    if (entries.length === 0) {
+        return 0;
+    }
+    return Math.min(Math.max(Math.trunc(offset), 0), entries.length - 1);
+}
+function transcriptPageOffsets(entries, viewport) {
+    const offsets = [0];
+    while (offsets.at(-1) < entries.length - 1) {
+        const current = offsets.at(-1);
+        const visibleCount = Math.max(1, selectTranscriptViewport(entries, viewport, current).length);
+        const next = clampTranscriptOffset(entries, current + visibleCount);
+        if (next === current) {
+            break;
+        }
+        offsets.push(next);
+    }
+    return offsets;
 }
 function appendEntry(state, role, text, status, title) {
     const entry = {

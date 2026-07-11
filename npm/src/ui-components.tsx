@@ -176,6 +176,21 @@ export function MessageList({
   );
 }
 
+export function TranscriptPosition({
+  React,
+  Text,
+  newerCount,
+}: StatusRenderProps & { newerCount: number }): ReactNamespace.ReactElement | null {
+  if (newerCount <= 0) {
+    return null;
+  }
+  return React.createElement(
+    Text,
+    { color: "gray" },
+    `History · ${newerCount} newer`,
+  );
+}
+
 export function ApprovalPanel({
   React,
   Box,

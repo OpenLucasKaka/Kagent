@@ -18,6 +18,7 @@ from kagent.runtime.metadata import (
 )
 from kagent.runtime.policy import RuntimePolicy
 from kagent.runtime.redaction import redact_runtime_payload
+from kagent.runtime.steering import RuntimeSteeringBuffer
 from kagent.runtime.steps import derive_runtime_steps
 from kagent.runtime.tools import (
     RuntimeToolSpec,
@@ -78,6 +79,7 @@ Use only tools that are available to you.
 
 RUNTIME_TRACE_TYPE = "codex_runtime"
 MAX_PLANNER_OBSERVATION_STRING_CHARS = 500
+MAX_STEERING_APPLIED_PER_RUN = 8
 RuntimeEventSink = Callable[[Dict[str, Any]], None]
 
 
@@ -85,6 +87,7 @@ class RuntimeGraphState(TypedDict, total=False):
     goal: str
     run_id: str
     cancellation_token: RuntimeCancellationToken
+    steering_buffer: RuntimeSteeringBuffer
     provider: Any
     policy: RuntimePolicy
     tools: Dict[str, RuntimeToolSpec]
@@ -174,6 +177,7 @@ def run_runtime_agent(
     provider: Any,
     run_id: str = "",
     cancellation_token: Optional[RuntimeCancellationToken] = None,
+    steering_buffer: Optional[RuntimeSteeringBuffer] = None,
     policy: Optional[RuntimePolicy] = None,
     tools: Optional[Dict[str, RuntimeToolSpec]] = None,
     max_iterations: int = 1,
@@ -214,6 +218,8 @@ def run_runtime_agent(
     }
     if cancellation_token is not None:
         state["cancellation_token"] = cancellation_token
+    if steering_buffer is not None:
+        state["steering_buffer"] = steering_buffer
     if policy is not None:
         state["policy"] = policy
     if tools is not None:
@@ -258,6 +264,7 @@ def _runtime_loop_graph_node(state: RuntimeGraphState) -> RuntimeGraphState:
         provider=state["provider"],
         run_id=state.get("run_id", ""),
         cancellation_token=state.get("cancellation_token"),
+        steering_buffer=state.get("steering_buffer"),
         policy=state.get("policy"),
         tools=state.get("tools"),
         max_iterations=state.get("max_iterations", 1),
@@ -333,6 +340,7 @@ def _run_runtime_agent_loop(
     provider: Any,
     run_id: str = "",
     cancellation_token: Optional[RuntimeCancellationToken] = None,
+    steering_buffer: Optional[RuntimeSteeringBuffer] = None,
     policy: Optional[RuntimePolicy] = None,
     tools: Optional[Dict[str, RuntimeToolSpec]] = None,
     max_iterations: int = 1,
@@ -362,6 +370,7 @@ def _run_runtime_agent_loop(
     if tags_error:
         raise ValueError(tags_error)
     run_id = run_id.strip() or str(uuid4())
+    original_goal = goal
     events = []
     started_at = _utc_timestamp()
     started_timer = time.perf_counter()
@@ -432,6 +441,8 @@ def _run_runtime_agent_loop(
     progress_event_sink_failure_count = 0
     hook_failure_count = 0
     answer_streamed = False
+    steering_applied_count = 0
+    steering_iteration_budget_added = 0
     hook_chain = RuntimeHookChain(hooks or [])
     context_manager = RuntimeContextManager(
         max_string_chars=MAX_PLANNER_OBSERVATION_STRING_CHARS
@@ -476,6 +487,42 @@ def _run_runtime_agent_loop(
             node="control",
             status="cancelled",
             reason=cancel_reason,
+        )
+        return True
+
+    def apply_pending_steering(boundary: str, iteration: str) -> bool:
+        nonlocal goal, steering_applied_count
+        if (
+            steering_buffer is None
+            or steering_applied_count >= MAX_STEERING_APPLIED_PER_RUN
+        ):
+            return False
+        instruction, revision = steering_buffer.consume()
+        if not instruction:
+            return False
+        goal = f"{goal}\n\nAdditional user instruction:\n{instruction}"
+        steering_applied_count += 1
+        timestamp = _utc_timestamp()
+        events.append(
+            {
+                "node": "control",
+                "status": "applied",
+                "boundary": boundary,
+                "iteration": iteration,
+                "revision": revision,
+                "started_at": timestamp,
+                "completed_at": timestamp,
+                "duration_seconds": "0.0000",
+            }
+        )
+        _emit_runtime_progress(
+            emit_progress,
+            "steering_applied",
+            node="control",
+            status="applied",
+            boundary=boundary,
+            iteration=iteration,
+            revision=revision,
         )
         return True
 
@@ -531,7 +578,10 @@ def _run_runtime_agent_loop(
                 timer=hook_timer,
             )
 
-    for iteration in range(1, max_iterations + 1):
+    iteration_limit = max_iterations
+    iteration = 0
+    while iteration < iteration_limit:
+        iteration += 1
         if mark_cancelled():
             break
         iteration_count = iteration
@@ -609,7 +659,7 @@ def _run_runtime_agent_loop(
                 error_code=planner_error_code,
                 duration_seconds=timing["duration_seconds"],
             )
-            if iteration < max_iterations:
+            if iteration < iteration_limit:
                 continue
             status = "failed"
             break
@@ -631,6 +681,11 @@ def _run_runtime_agent_loop(
             action_count=str(len(plan.actions)),
             duration_seconds=events[-1]["duration_seconds"],
         )
+        if apply_pending_steering("after_planner", iteration_label):
+            if steering_iteration_budget_added < MAX_STEERING_APPLIED_PER_RUN:
+                iteration_limit += 1
+                steering_iteration_budget_added += 1
+            continue
         if not plan.actions:
             if _latest_observation_failed(observations):
                 status = "failed"
@@ -862,8 +917,14 @@ def _run_runtime_agent_loop(
             )
             if cancelled_after_tool:
                 break
+            if apply_pending_steering("after_tool", iteration_label):
+                if steering_iteration_budget_added < MAX_STEERING_APPLIED_PER_RUN:
+                    iteration_limit += 1
+                    steering_iteration_budget_added += 1
+                should_replan = True
+                break
             if observation.status != "ok":
-                if iteration < max_iterations:
+                if iteration < iteration_limit:
                     should_replan = True
                 else:
                     status = "failed"
@@ -878,7 +939,7 @@ def _run_runtime_agent_loop(
                 plan.final_answer,
             )
             break
-        if iteration >= max_iterations:
+        if iteration >= iteration_limit:
             status = "failed"
             terminal_error_code = "iteration_budget_exhausted"
             terminal_error = (
@@ -890,13 +951,15 @@ def _run_runtime_agent_loop(
         "trace_type": RUNTIME_TRACE_TYPE,
         "run_id": run_id,
         "status": status,
-        "goal": goal,
+        "goal": original_goal,
         "started_at": started_at,
         "completed_at": _utc_timestamp(),
         "duration_seconds": _duration_since(started_timer),
         "iteration_count": str(iteration_count),
         "max_iterations": str(max_iterations),
         "iteration_budget_remaining": str(max(0, max_iterations - iteration_count)),
+        "steering_applied_count": str(steering_applied_count),
+        "steering_iteration_budget_added": str(steering_iteration_budget_added),
         "prompt_observation_compaction": context_manager.report(),
         "approved_action_count": str(len(consumed_approved_action_ids)),
         "approved_action_ids": sorted(consumed_approved_action_ids),

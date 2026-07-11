@@ -7,6 +7,8 @@ const EVENT_TYPES = new Set([
     "run_started",
     "run_progress",
     "run_cancel_requested",
+    "run_steer_queued",
+    "run_steer_rejected",
     "approval_required",
     "run_completed",
     "run_failed",

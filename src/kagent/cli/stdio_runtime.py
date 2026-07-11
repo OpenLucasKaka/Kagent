@@ -36,6 +36,7 @@ from kagent.providers.llm import (
 )
 from kagent.runtime import build_resumable_plan, run_runtime_agent
 from kagent.runtime.cancellation import RuntimeCancellationToken
+from kagent.runtime.steering import RuntimeSteeringBuffer
 from kagent.utils.json_output import json_ready
 
 Request = Dict[str, Any]
@@ -54,6 +55,7 @@ class PendingApproval:
 class ActiveRun:
     generation: int
     cancellation_token: RuntimeCancellationToken
+    steering_buffer: RuntimeSteeringBuffer
     thread: threading.Thread
 
 
@@ -87,6 +89,9 @@ class StdioRuntimeSession:
         if request_type == "cancel_request":
             self._handle_cancel_request(request)
             return
+        if request_type == "steer_request":
+            self._handle_steer_request(request)
+            return
         if request_type == "provider_configure":
             self._handle_provider_configure(request)
             return
@@ -96,7 +101,7 @@ class StdioRuntimeSession:
         self._fail(
             "invalid_request_type",
             "request type must be run_request, approval_response, cancel_request, "
-            "provider_configure, or session_command",
+            "steer_request, provider_configure, or session_command",
         )
 
     def ready_event(self) -> Dict[str, Any]:
@@ -168,6 +173,37 @@ class StdioRuntimeSession:
                 "reason": snapshot["reason"] or reason,
             }
         )
+
+    def _handle_steer_request(self, request: Request) -> None:
+        instruction = str(request.get("instruction", "")).strip()
+        if not instruction:
+            self._steer_failed("missing_instruction", "steering instruction is required")
+            return
+        if len(instruction) > 20000:
+            self._steer_failed(
+                "instruction_too_long",
+                "steering instruction must contain at most 20000 characters",
+            )
+            return
+        with self._state_lock:
+            active_run = self.active_run
+        if active_run is None:
+            self._steer_failed("no_active_run", "there is no active run to steer")
+            return
+        try:
+            active_run.steering_buffer.submit(
+                instruction,
+                accepted=lambda snapshot: self._emit(
+                    {
+                        "type": "run_steer_queued",
+                        "revision": snapshot["revision"],
+                        "replaced": snapshot["replaced"],
+                    }
+                ),
+            )
+        except (RuntimeError, ValueError) as exc:
+            self._steer_failed("steering_closed", str(exc))
+            return
 
     def _handle_provider_configure(self, request: Request) -> None:
         with self._state_lock:
@@ -302,6 +338,7 @@ class StdioRuntimeSession:
         **run_kwargs: Any,
     ) -> None:
         token = RuntimeCancellationToken()
+        steering_buffer = RuntimeSteeringBuffer()
         with self._state_lock:
             if self.active_run is not None:
                 self._fail("runtime_busy", "wait for the active run to finish")
@@ -310,11 +347,18 @@ class StdioRuntimeSession:
             generation = self._run_generation
             thread = threading.Thread(
                 target=self._run_worker,
-                args=(generation, goal, runtime_goal, token, run_kwargs),
+                args=(
+                    generation,
+                    goal,
+                    runtime_goal,
+                    token,
+                    steering_buffer,
+                    run_kwargs,
+                ),
                 name=f"kagent-stdio-run-{generation}",
                 daemon=False,
             )
-            self.active_run = ActiveRun(generation, token, thread)
+            self.active_run = ActiveRun(generation, token, steering_buffer, thread)
             self._state_changed.notify_all()
         thread.start()
 
@@ -324,20 +368,33 @@ class StdioRuntimeSession:
         goal: str,
         runtime_goal: str,
         token: RuntimeCancellationToken,
+        steering_buffer: RuntimeSteeringBuffer,
         run_kwargs: Dict[str, Any],
     ) -> None:
         try:
             result = run_runtime_agent(
                 runtime_goal,
                 cancellation_token=token,
+                steering_buffer=steering_buffer,
                 event_sink=self._progress_sink,
                 **run_kwargs,
             )
-            self._finish_run(generation, goal, runtime_goal, result)
+            with self._state_lock:
+                if not self._is_active_generation(generation):
+                    return
+                pending_instruction, pending_revision = steering_buffer.close()
+                if pending_instruction:
+                    self._steer_failed(
+                        "steering_too_late",
+                        "active run reached its final boundary before the instruction applied",
+                        revision=pending_revision,
+                    )
+                self._finish_run(generation, goal, runtime_goal, result)
         except Exception as exc:  # pragma: no cover - defensive protocol boundary
-            self._fail("runtime_error", str(exc))
-        finally:
-            self._clear_active_run(generation)
+            with self._state_lock:
+                steering_buffer.close()
+                self._clear_active_run_locked(generation)
+                self._fail("runtime_error", str(exc))
 
     def _finish_run(
         self,
@@ -348,19 +405,22 @@ class StdioRuntimeSession:
     ) -> None:
         payload = json_ready(result)
         if not isinstance(payload, dict):
+            self._clear_active_run_locked(generation)
             self._fail("runtime_error", "runtime result must be an object")
             return
         payload["goal"] = goal
         if payload.get("status") == "requires_approval":
             pending = _pending_approval_from_result(payload, goal, runtime_goal)
             if pending is None:
+                self._clear_active_run_locked(generation)
                 self._fail("invalid_approval_state", "runtime approval state is incomplete")
                 return
             with self._state_lock:
                 if not self._is_active_generation(generation):
                     return
                 self.pending_approval = pending
-            self._emit(_approval_event(pending.action))
+                self._clear_active_run_locked(generation)
+                self._emit(_approval_event(pending.action))
             return
         self._complete(goal, payload, generation=generation)
 
@@ -377,14 +437,16 @@ class StdioRuntimeSession:
             if generation is not None and not self._is_active_generation(generation):
                 return
             self.last_payload = dict(payload)
-        self._emit(
-            {
-                "type": "run_completed",
-                "status": str(payload.get("status", "done")),
-                "answer": str(payload.get("answer", "")),
-                "payload": payload,
-            },
-        )
+            if generation is not None:
+                self._clear_active_run_locked(generation)
+            self._emit(
+                {
+                    "type": "run_completed",
+                    "status": str(payload.get("status", "done")),
+                    "answer": str(payload.get("answer", "")),
+                    "payload": payload,
+                },
+            )
 
     def _progress_sink(self, event: Dict[str, Any]) -> None:
         self._emit({"type": "run_progress", "event": event})
@@ -396,9 +458,12 @@ class StdioRuntimeSession:
 
     def _clear_active_run(self, generation: int) -> None:
         with self._state_lock:
-            if self._is_active_generation(generation):
-                self.active_run = None
-                self._state_changed.notify_all()
+            self._clear_active_run_locked(generation)
+
+    def _clear_active_run_locked(self, generation: int) -> None:
+        if self._is_active_generation(generation):
+            self.active_run = None
+            self._state_changed.notify_all()
 
     def _is_active_generation(self, generation: int) -> bool:
         return self.active_run is not None and self.active_run.generation == generation
@@ -442,6 +507,22 @@ class StdioRuntimeSession:
                 "message": message,
             },
         )
+
+    def _steer_failed(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        revision: str = "",
+    ) -> None:
+        payload = {
+            "type": "run_steer_rejected",
+            "error_code": error_code,
+            "message": message,
+        }
+        if revision:
+            payload["revision"] = revision
+        self._emit(payload)
 
 
 def main() -> None:

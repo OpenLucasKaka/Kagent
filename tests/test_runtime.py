@@ -7,6 +7,7 @@ import pytest
 from kagent.providers.llm import FakeLLMProvider
 from kagent.runtime import (
     RuntimeCancellationToken,
+    RuntimeSteeringBuffer,
     build_runtime_graph,
     run_runtime_agent,
     runtime_topology,
@@ -55,6 +56,55 @@ def test_runtime_graph_runs_codex_style_runtime_through_langgraph():
     assert final_state["result"]["status"] == "done"
     assert final_state["result"]["runtime_engine"] == "langgraph"
     assert final_state["result"]["observations"][0]["output"] == {"text": "hello"}
+
+
+def test_runtime_steering_replans_with_latest_user_instruction():
+    steering = RuntimeSteeringBuffer()
+
+    class SteeringProvider:
+        def __init__(self):
+            self.calls = []
+
+        def complete(self, _system, user):
+            self.calls.append(user)
+            if len(self.calls) == 1:
+                steering.submit("Use the updated concise answer")
+                return '{"actions":[],"final_answer":"old answer"}'
+            assert "Additional user instruction" in user
+            assert "Use the updated concise answer" in user
+            return '{"actions":[],"final_answer":"updated answer"}'
+
+    provider = SteeringProvider()
+    result = run_runtime_agent(
+        "draft an answer",
+        provider=provider,
+        steering_buffer=steering,
+        max_iterations=1,
+    )
+
+    assert result["status"] == "done"
+    assert result["answer"] == "updated answer"
+    assert result["goal"] == "draft an answer"
+    assert result["iteration_count"] == "2"
+    assert result["steering_applied_count"] == "1"
+    assert result["steering_iteration_budget_added"] == "1"
+    assert any(
+        event.get("type") == "steering_applied"
+        for event in result["progress_events"]
+    )
+
+
+def test_runtime_steering_buffer_is_latest_wins():
+    steering = RuntimeSteeringBuffer()
+
+    assert steering.submit("first") == {"revision": "1", "replaced": "false"}
+    assert steering.submit("second") == {"revision": "2", "replaced": "true"}
+    assert steering.pending() is True
+    assert steering.consume() == ("second", "2")
+    assert steering.consume() == ("", "2")
+    assert steering.close() == ("", "2")
+    with pytest.raises(RuntimeError, match="no longer accepting"):
+        steering.submit("third")
 
 
 def test_runtime_topology_exposes_production_graph_phases():

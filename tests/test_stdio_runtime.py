@@ -670,6 +670,62 @@ def test_stdio_runtime_cancels_active_run_cooperatively_and_reuses_session(
     assert events[-1]["answer"] == "second answer"
 
 
+def test_stdio_runtime_queues_latest_steering_instruction_for_active_run(
+    monkeypatch,
+    tmp_path,
+):
+    entered = threading.Event()
+    release = threading.Event()
+    consumed = []
+
+    def fake_run_runtime_agent(goal, **kwargs):
+        entered.set()
+        assert release.wait(timeout=1)
+        consumed.append(kwargs["steering_buffer"].consume())
+        return {"status": "done", "answer": "updated", "goal": goal}
+
+    monkeypatch.setattr(stdio_runtime, "run_runtime_agent", fake_run_runtime_agent)
+    stdout = io.StringIO()
+    session = stdio_runtime.StdioRuntimeSession(
+        stdout,
+        memory_path=str(tmp_path / "session-memory.json"),
+    )
+
+    session.handle({"type": "run_request", "goal": "first", "runtime_plan": "{}"})
+    assert entered.wait(timeout=1)
+    session.handle({"type": "steer_request", "instruction": "first update"})
+    session.handle({"type": "steer_request", "instruction": "latest update"})
+    release.set()
+    session.wait_until_idle()
+
+    events = _jsonl(stdout.getvalue())
+    assert [event["type"] for event in events] == [
+        "run_started",
+        "run_steer_queued",
+        "run_steer_queued",
+        "run_completed",
+    ]
+    assert events[1]["replaced"] == "false"
+    assert events[2]["replaced"] == "true"
+    assert consumed == [("latest update", "2")]
+
+
+def test_stdio_runtime_rejects_steering_without_active_run(tmp_path):
+    stdout = io.StringIO()
+    session = stdio_runtime.StdioRuntimeSession(
+        stdout,
+        memory_path=str(tmp_path / "session-memory.json"),
+    )
+
+    session.handle({"type": "steer_request", "instruction": "change direction"})
+
+    assert _jsonl(stdout.getvalue())[-1] == {
+        "type": "run_steer_rejected",
+        "error_code": "no_active_run",
+        "message": "there is no active run to steer",
+    }
+
+
 def test_stdio_runtime_remains_busy_until_terminal_event_is_flushed(
     monkeypatch,
     tmp_path,

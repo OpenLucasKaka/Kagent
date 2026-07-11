@@ -202,6 +202,19 @@ function reduceRunEvent(
   if (event.type === "run_cancel_requested") {
     return { ...state, status: "cancelling", statusText: "Stopping" };
   }
+  if (event.type === "run_steer_queued") {
+    return {
+      ...state,
+      status: "thinking",
+      statusText: event.replaced === "true" ? "Instruction updated" : "Instruction queued",
+    };
+  }
+  if (event.type === "run_steer_rejected") {
+    return {
+      ...state,
+      statusText: "Instruction was not applied",
+    };
+  }
   if (event.type === "approval_required") {
     return { ...state, approval: event, status: "approval", statusText: "" };
   }
@@ -237,6 +250,9 @@ function failureState(state: AppRuntimeState, message: string): AppRuntimeState 
 
 function progressLabel(event: Record<string, unknown>): string {
   const type = String(event.type || "");
+  if (type === "steering_applied") {
+    return "Applying instruction";
+  }
   if (type === "planner_started") {
     return "Thinking";
   }

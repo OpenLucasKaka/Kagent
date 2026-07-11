@@ -200,6 +200,12 @@ interpreter-shutdown races. Conversation memory and the React transcript both
 survive cooperative cancellation; the React transcript also survives the one
 controlled child restart.
 
+`steer_request` uses a thread-safe latest-wins instruction slot owned by the
+active run. The runtime consumes steering only after planner or tool boundaries,
+adds a bounded replanning iteration, and emits queued/applied lifecycle events.
+This keeps user corrections responsive without interrupting an in-flight tool
+or creating an unbounded prompt queue.
+
 `cli/main.py` and `cli/ui.py` remain the classic Python CLI path for one-shot
 automation, JSON diagnostics, and environments where Ink cannot start. The
 `cli` package exposes the CLI entrypoint and `python -m kagent.cli` support

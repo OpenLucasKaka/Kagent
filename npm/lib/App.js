@@ -127,7 +127,12 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             handleApprovalInput(value);
             return;
         }
-        if (status === "thinking" || status === "cancelling") {
+        if (status === "cancelling") {
+            return;
+        }
+        if (status === "thinking" && key.name === "escape") {
+            runtime.cancel();
+            dispatchRuntime({ type: "cancel_requested", label: "Stopping" });
             return;
         }
         if (key.name === "return" || key.name === "enter") {
@@ -135,7 +140,12 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
                 setEditor((current) => (0, editor_1.insertInput)(current, "\n"));
                 return;
             }
-            submit();
+            if (status === "thinking") {
+                submitSteering();
+            }
+            else {
+                submit();
+            }
             return;
         }
         if (key.name === "tab" && commandMenu) {
@@ -294,6 +304,20 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         }
         runtime.run(goal, handleRuntimeEvent);
     }
+    function submitSteering() {
+        const submission = (0, editor_1.submitInput)(editor);
+        if (!submission.value) {
+            return;
+        }
+        setEditor(submission.state);
+        setSelectedCommand(null);
+        try {
+            runtime.steer(submission.value);
+        }
+        catch (error) {
+            showError(errorMessage(error));
+        }
+    }
     function handleCommandEvent(event) {
         dispatchRuntime({ type: "runtime_event", channel: "command", event });
     }
@@ -391,7 +415,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             Text,
             cursor: editor.cursor,
             input: editor.value,
-            disabled: status === "thinking" || status === "cancelling" || status === "approval",
+            disabled: status === "cancelling" || status === "approval",
         }));
 }
 function currentTerminalSize() {

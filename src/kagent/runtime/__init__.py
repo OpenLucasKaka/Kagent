@@ -10,6 +10,7 @@ from kagent.runtime.agent import (
 from kagent.runtime.approval import build_resumable_plan
 from kagent.runtime.cancellation import RuntimeCancellationToken
 from kagent.runtime.hooks import RuntimeHookChain, RuntimeHookDecision
+from kagent.runtime.steering import RuntimeSteeringBuffer
 from kagent.runtime.steps import derive_runtime_steps
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "RuntimeHookChain",
     "RuntimeHookDecision",
     "RuntimeCancellationToken",
+    "RuntimeSteeringBuffer",
     "run_runtime_agent",
 ]

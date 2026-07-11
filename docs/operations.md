@@ -533,6 +533,11 @@ changes the selection and Tab completes it. The layout budgets wrapped prompt
 rows and remains responsive down to a 40-column terminal. Ctrl-C during a run
 requests cooperative cancellation without discarding the Python session;
 Ctrl-C at a permission prompt denies the action; Ctrl-C while idle exits.
+While a run is active, the prompt remains editable. Enter sends a bounded
+latest-wins steering instruction, which is applied only after a planner or tool
+boundary and can add a bounded replanning iteration. Escape requests the same
+cooperative cancellation as Ctrl-C. Steering text is not persisted separately
+and is never injected during an active tool call.
 
 External effects are permission-gated in the Ink client. The prompt shows a
 human title and target, accepts `y` to allow, `n` to deny, and `d` to reveal the

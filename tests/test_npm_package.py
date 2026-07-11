@@ -62,6 +62,9 @@ def test_npm_ink_source_uses_jsonl_runtime_protocol():
     assert "runtime_ready" in combined
     assert "runtime_unavailable" in combined
     assert "run_progress" in combined
+    assert "steer_request" in combined
+    assert "run_steer_queued" in combined
+    assert "run_steer_rejected" in combined
     assert "approval_required" in combined
     assert "approval_response" in combined
     assert "provider_configure" in combined
@@ -503,6 +506,8 @@ def test_npm_ink_app_uses_raw_terminal_input_and_cooperative_ctrl_c():
     assert 'key.name === "pageup"' in app
     assert 'key.name === "pagedown"' in app
     assert 'key.shift || key.meta || key.sequence === "\\n"' in app
+    assert "runtime.steer" in app
+    assert 'status === "thinking" && key.name === "escape"' in app
     assert "[React, transcript.nextId]" in app
     assert "showError(errorMessage(error));\n      showError(errorMessage(error));" not in app
     assert "exitOnCtrlC: false" in runner
@@ -1177,6 +1182,12 @@ state = appRuntimeReducer(state, {type: "submit", text: "go", command: false});
 state = appRuntimeReducer(state, {
   type: "runtime_event",
   channel: "run",
+  event: {type: "run_steer_queued", revision: "1", replaced: "false"},
+});
+assert.equal(state.statusText, "Instruction queued");
+state = appRuntimeReducer(state, {
+  type: "runtime_event",
+  channel: "run",
   event: {type: "run_progress", event: {type: "answer_started"}},
 });
 state = appRuntimeReducer(state, {
@@ -1269,6 +1280,7 @@ let stateCursor = 0;
 let refCursor = 0;
 let lifecycleHandler;
 let runHandler;
+let steered = "";
 
 const React = {
   createElement(type, props, ...children) { return {type, props, children}; },
@@ -1299,6 +1311,7 @@ const runtime = {
     assert.equal(goal, "go");
     runHandler = handler;
   },
+  steer(instruction) { steered = instruction; },
   close() {},
   cancel() {},
 };
@@ -1330,6 +1343,12 @@ render();
 inputEvents.emit("input", "go");
 render();
 inputEvents.emit("input", "\r");
+render();
+inputEvents.emit("input", "focus on the latest request");
+render();
+inputEvents.emit("input", "\r");
+assert.equal(steered, "focus on the latest request");
+assert.equal(states[1].value, "");
 
 runHandler({type: "run_progress", event: {type: "answer_started"}});
 runHandler({type: "run_progress", event: {type: "answer_delta", delta: "你"}});
@@ -1702,9 +1721,21 @@ async function main() {
     max_iterations: "3",
   }) + "\n");
 
-  client.cancel();
+  client.steer("focus on the latest instruction");
   await waitFor(() => writes.length === 2);
   assert.deepEqual(writes[1], {
+    type: "steer_request",
+    instruction: "focus on the latest instruction",
+  });
+  child.stdout.write(JSON.stringify({
+    type: "run_steer_queued",
+    revision: "1",
+    replaced: "false",
+  }) + "\n");
+
+  client.cancel();
+  await waitFor(() => writes.length === 3);
+  assert.deepEqual(writes[2], {
     type: "cancel_request",
     reason: "user requested cancellation",
   });
@@ -1724,9 +1755,9 @@ async function main() {
   await waitFor(() => events.at(-1)?.type === "run_completed");
 
   client.run("second", (event) => events.push(event));
-  await waitFor(() => writes.length === 3);
-  assert.equal(writes[2].type, "run_request");
-  assert.equal(writes[2].goal, "second");
+  await waitFor(() => writes.length === 4);
+  assert.equal(writes[3].type, "run_request");
+  assert.equal(writes[3].goal, "second");
   assert.equal(spawnCount, 1);
   assert.equal(killCount, 0);
   client.close();

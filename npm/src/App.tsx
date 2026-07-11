@@ -216,7 +216,12 @@ export function KagentInkApp({
       handleApprovalInput(value);
       return;
     }
-    if (status === "thinking" || status === "cancelling") {
+    if (status === "cancelling") {
+      return;
+    }
+    if (status === "thinking" && key.name === "escape") {
+      runtime.cancel();
+      dispatchRuntime({ type: "cancel_requested", label: "Stopping" });
       return;
     }
     if (key.name === "return" || key.name === "enter") {
@@ -224,7 +229,11 @@ export function KagentInkApp({
         setEditor((current) => insertInput(current, "\n"));
         return;
       }
-      submit();
+      if (status === "thinking") {
+        submitSteering();
+      } else {
+        submit();
+      }
       return;
     }
     if (key.name === "tab" && commandMenu) {
@@ -389,6 +398,20 @@ export function KagentInkApp({
     runtime.run(goal, handleRuntimeEvent);
   }
 
+  function submitSteering(): void {
+    const submission = submitInput(editor);
+    if (!submission.value) {
+      return;
+    }
+    setEditor(submission.state);
+    setSelectedCommand(null);
+    try {
+      runtime.steer(submission.value);
+    } catch (error) {
+      showError(errorMessage(error));
+    }
+  }
+
   function handleCommandEvent(event: RuntimeClientEvent): void {
     dispatchRuntime({ type: "runtime_event", channel: "command", event });
   }
@@ -509,7 +532,7 @@ export function KagentInkApp({
           Text,
           cursor: editor.cursor,
           input: editor.value,
-          disabled: status === "thinking" || status === "cancelling" || status === "approval",
+          disabled: status === "cancelling" || status === "approval",
         }),
   );
 }

@@ -264,6 +264,21 @@ function createRuntimeSessionClient() {
                 failCurrent(errorMessage(error));
             }
         },
+        steer(instruction) {
+            if (!busy || !currentHandler) {
+                throw new Error("there is no active runtime request to steer");
+            }
+            const request = {
+                type: "steer_request",
+                instruction,
+            };
+            try {
+                send(request);
+            }
+            catch (error) {
+                failCurrent(errorMessage(error));
+            }
+        },
         cancel() {
             if (!busy) {
                 return;

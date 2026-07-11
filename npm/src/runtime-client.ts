@@ -14,6 +14,7 @@ import {
   type RuntimeProtocolEvent,
   type RuntimeRequest,
   type SessionCommandRequest,
+  type SteerRequest,
 } from "./protocol";
 
 type PythonRunner = {
@@ -40,6 +41,7 @@ export type RuntimeSessionClient = {
   ): void;
   command(command: string, onEvent: (event: RuntimeClientEvent) => void): void;
   respondToApproval(actionId: string, approved: boolean): void;
+  steer(instruction: string): void;
   cancel(): void;
   close(): void;
 };
@@ -316,6 +318,20 @@ export function createRuntimeSessionClient(): RuntimeSessionClient {
         type: "approval_response",
         action_id: actionId,
         approved,
+      };
+      try {
+        send(request);
+      } catch (error) {
+        failCurrent(errorMessage(error));
+      }
+    },
+    steer(instruction) {
+      if (!busy || !currentHandler) {
+        throw new Error("there is no active runtime request to steer");
+      }
+      const request: SteerRequest = {
+        type: "steer_request",
+        instruction,
       };
       try {
         send(request);

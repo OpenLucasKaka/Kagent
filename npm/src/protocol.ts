@@ -16,6 +16,11 @@ export type CancelRequest = {
   reason?: string;
 };
 
+export type SteerRequest = {
+  type: "steer_request";
+  instruction: string;
+};
+
 export type ProviderConfigureRequest = {
   type: "provider_configure";
   provider: string;
@@ -33,6 +38,7 @@ export type RuntimeRequest =
   | RunRequest
   | ApprovalResponseRequest
   | CancelRequest
+  | SteerRequest
   | ProviderConfigureRequest
   | SessionCommandRequest;
 
@@ -85,6 +91,19 @@ export type RunProgressEvent = {
 export type RunCancelRequestedEvent = {
   type: "run_cancel_requested";
   reason: string;
+};
+
+export type RunSteerQueuedEvent = {
+  type: "run_steer_queued";
+  revision: string;
+  replaced: string;
+};
+
+export type RunSteerRejectedEvent = {
+  type: "run_steer_rejected";
+  error_code: string;
+  message: string;
+  revision?: string;
 };
 
 export type ApprovalRequiredEvent = {
@@ -142,6 +161,8 @@ export type RuntimeProtocolEvent =
   | RunStartedEvent
   | RunProgressEvent
   | RunCancelRequestedEvent
+  | RunSteerQueuedEvent
+  | RunSteerRejectedEvent
   | ApprovalRequiredEvent
   | RunCompletedEvent
   | RunFailedEvent
@@ -156,6 +177,8 @@ const EVENT_TYPES = new Set([
   "run_started",
   "run_progress",
   "run_cancel_requested",
+  "run_steer_queued",
+  "run_steer_rejected",
   "approval_required",
   "run_completed",
   "run_failed",

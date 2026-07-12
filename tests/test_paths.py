@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from kagent.utils import paths
 from kagent.utils.paths import (
     kagent_cache_dir,
     kagent_config_dir,
@@ -32,6 +33,17 @@ def test_kagent_home_returns_an_absolute_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert kagent_home({"HOME": "relative-home"}) == tmp_path / "relative-home" / ".kagent"
+
+
+def test_relative_kagent_home_is_normalized_to_a_stable_absolute_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    resolved = kagent_home(
+        {"HOME": str(tmp_path / "user-home"), "KAGENT_HOME": "relative/../stable-home"}
+    )
+
+    assert resolved == tmp_path / "stable-home"
+    assert resolved.is_absolute()
 
 
 @pytest.mark.parametrize("value", ["", "   "])
@@ -141,6 +153,22 @@ def test_migration_is_idempotent_after_completion(tmp_path):
     assert (Path(env["HOME"]) / ".kagent" / "state" / "history").read_text() == "first"
 
 
+@pytest.mark.parametrize("marker_kind", ["directory", "fifo"])
+def test_migration_rejects_a_non_regular_completion_marker(tmp_path, marker_kind):
+    if marker_kind == "fifo" and not hasattr(os, "mkfifo"):
+        pytest.skip("requires FIFO support")
+    env = _legacy_env(tmp_path)
+    marker = Path(env["HOME"]) / ".kagent" / ".migration-v1-complete"
+    marker.parent.mkdir(parents=True)
+    if marker_kind == "directory":
+        marker.mkdir()
+    else:
+        os.mkfifo(marker)
+
+    with pytest.raises(ValueError, match="regular file"):
+        migrate_legacy_kagent_state(env)
+
+
 def test_explicit_kagent_home_skips_legacy_discovery_and_marker(tmp_path):
     env = _legacy_env(tmp_path)
     env["KAGENT_HOME"] = str(tmp_path / "custom")
@@ -204,6 +232,65 @@ def test_failed_directory_migration_writes_no_marker_and_can_retry(tmp_path):
     assert migrate_legacy_kagent_state(env) == marker
     assert marker.exists()
     assert (Path(env["HOME"]) / ".kagent" / "state" / "pending-approvals" / "valid.json").exists()
+
+
+def test_destination_parent_replacement_is_not_followed_during_atomic_copy(tmp_path, monkeypatch):
+    env = _legacy_env(tmp_path)
+    source = Path(env["XDG_CONFIG_HOME"]) / "kagent" / "provider.json"
+    destination_parent = Path(env["HOME"]) / ".kagent" / "config"
+    displaced_parent = tmp_path / "displaced-config"
+    outside_parent = tmp_path / "outside-config"
+    outside_parent.mkdir()
+    _write(source, "provider")
+    real_link = paths.os.link
+    replaced = False
+
+    def replace_parent_before_link(*args, **kwargs):
+        nonlocal replaced
+        if not replaced:
+            destination_parent.rename(displaced_parent)
+            destination_parent.symlink_to(outside_parent, target_is_directory=True)
+            replaced = True
+        return real_link(*args, **kwargs)
+
+    monkeypatch.setattr(paths.os, "link", replace_parent_before_link)
+
+    with pytest.raises(ValueError, match="changed|symlink"):
+        migrate_legacy_kagent_state(env)
+
+    assert replaced
+    assert not (outside_parent / "provider.json").exists()
+    assert not (Path(env["HOME"]) / ".kagent" / ".migration-v1-complete").exists()
+
+
+def test_destination_parent_replacement_is_detected_before_destination_wins(tmp_path, monkeypatch):
+    env = _legacy_env(tmp_path)
+    source = Path(env["XDG_CONFIG_HOME"]) / "kagent" / "provider.json"
+    destination = Path(env["HOME"]) / ".kagent" / "config" / "provider.json"
+    displaced_parent = tmp_path / "displaced-config"
+    outside_parent = tmp_path / "outside-config"
+    outside_parent.mkdir()
+    _write(source, "legacy")
+    _write(destination, "current")
+    real_destination_entry_exists = paths._destination_entry_exists
+    replaced = False
+
+    def replace_parent_after_check(parent_fd, name, path):
+        nonlocal replaced
+        exists = real_destination_entry_exists(parent_fd, name, path)
+        if not replaced:
+            destination.parent.rename(displaced_parent)
+            destination.parent.symlink_to(outside_parent, target_is_directory=True)
+            replaced = True
+        return exists
+
+    monkeypatch.setattr(paths, "_destination_entry_exists", replace_parent_after_check)
+
+    with pytest.raises(ValueError, match="changed|symlink"):
+        migrate_legacy_kagent_state(env)
+
+    assert replaced
+    assert not (Path(env["HOME"]) / ".kagent" / ".migration-v1-complete").exists()
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires FIFO support")

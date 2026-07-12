@@ -1,7 +1,7 @@
 import path from "node:path";
 
 function requiredHome(env: NodeJS.ProcessEnv): string {
-  const home = env.HOME;
+  const home = env.HOME?.trim();
   if (!home) {
     throw new Error("HOME is required to resolve the kagent home directory");
   }
@@ -12,16 +12,19 @@ export function resolveKagentHome(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const configured = env.KAGENT_HOME;
-  if (!configured) {
-    return path.resolve(requiredHome(env), ".kagent");
+  if (Object.prototype.hasOwnProperty.call(env, "KAGENT_HOME")) {
+    if (!configured?.trim()) {
+      throw new Error("KAGENT_HOME must not be empty");
+    }
+    if (configured === "~") {
+      return path.resolve(requiredHome(env));
+    }
+    if (configured.startsWith("~/")) {
+      return path.resolve(requiredHome(env), configured.slice(2));
+    }
+    return path.resolve(configured);
   }
-  if (configured === "~") {
-    return path.resolve(requiredHome(env));
-  }
-  if (configured.startsWith("~/") || configured.startsWith("~\\")) {
-    return path.resolve(requiredHome(env), configured.slice(2));
-  }
-  return path.resolve(configured);
+  return path.resolve(requiredHome(env), ".kagent");
 }
 
 export function kagentStatePath(

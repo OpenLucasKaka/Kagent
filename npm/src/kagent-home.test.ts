@@ -25,6 +25,10 @@ test("expands a tilde-prefixed KAGENT_HOME and makes relative overrides absolute
     resolveKagentHome({ HOME: home, KAGENT_HOME: "relative-kagent" }),
     path.resolve("relative-kagent"),
   );
+  assert.equal(
+    resolveKagentHome({ HOME: home, KAGENT_HOME: "~\\shared-kagent" }),
+    path.resolve("~\\shared-kagent"),
+  );
 });
 
 test("builds state and cache paths beneath the resolved kagent home", () => {
@@ -39,10 +43,23 @@ test("builds state and cache paths beneath the resolved kagent home", () => {
   );
 });
 
-test("fails clearly when HOME is required but missing", () => {
+test("fails clearly when HOME is required but missing or blank", () => {
   assert.throws(() => resolveKagentHome({}), /HOME.*required/i);
+  assert.throws(() => resolveKagentHome({ HOME: "   " }), /HOME.*required/i);
   assert.throws(
     () => resolveKagentHome({ KAGENT_HOME: "~/shared-kagent" }),
     /HOME.*required/i,
+  );
+});
+
+test("rejects an empty or blank KAGENT_HOME override", () => {
+  const home = path.join(path.sep, "Users", "kaka");
+  assert.throws(
+    () => resolveKagentHome({ HOME: home, KAGENT_HOME: "" }),
+    /KAGENT_HOME.*empty/i,
+  );
+  assert.throws(
+    () => resolveKagentHome({ HOME: home, KAGENT_HOME: "   " }),
+    /KAGENT_HOME.*empty/i,
   );
 });

@@ -10,6 +10,15 @@ def test_github_actions_ci_runs_standard_check_script():
     assert "pip install -e '.[dev]'" in workflow
 
 
+def test_github_actions_ci_installs_node_dependencies():
+    workflow = Path(".github/workflows/ci.yml").read_text()
+
+    assert "actions/setup-node@v4" in workflow
+    assert "node-version: 22" in workflow
+    assert "cache: npm" in workflow
+    assert "npm ci" in workflow
+
+
 def test_github_actions_ci_uses_minimal_permissions():
     workflow = Path(".github/workflows/ci.yml").read_text()
 

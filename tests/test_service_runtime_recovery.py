@@ -3,7 +3,9 @@ import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import Event, get_ident
 
+import kagent.service.runtime_recovery as runtime_recovery
 from kagent.service.runtime_recovery import (
     RUNTIME_INTERRUPTED_ERROR_CODE,
     RuntimeInstanceLease,
@@ -180,7 +182,73 @@ def test_concurrent_reconciliation_recovers_orphaned_trace_once(tmp_path):
         summaries = list(executor.map(reconcile, ("replacement-a", "replacement-b")))
 
     assert sum(summary["recovered_running"] for summary in summaries) == 1
+    assert sum(summary["skipped_locked"] for summary in summaries) == 1
+    assert not any(summary["errors"] for summary in summaries)
     recovered = load_trace_by_run_id("concurrent-orphan", str(tmp_path))
+    assert recovered is not None
+    assert recovered["status"] == "failed"
+    assert recovered["reconciled_by_runtime_instance_id"] in {
+        "replacement-a",
+        "replacement-b",
+    }
+
+
+def test_reconcile_does_not_flock_fresh_lock_before_creator(tmp_path, monkeypatch):
+    persist_trace(
+        _runtime_trace(
+            run_id="fresh-creation-race",
+            status="running",
+            runtime_instance_id="dead-instance",
+        ),
+        str(tmp_path),
+    )
+    lock_path = tmp_path / ".fresh-creation-race.reconcile.lock"
+    creator_opened = Event()
+    release_creator = Event()
+    contender_thread_id = None
+    original_open = runtime_recovery.os.open
+    original_flock = runtime_recovery.fcntl.flock
+
+    def controlled_open(path, flags, mode=0o777):
+        fd = original_open(path, flags, mode)
+        if os.fspath(path) == os.fspath(lock_path) and flags & os.O_EXCL:
+            creator_opened.set()
+            assert release_creator.wait(timeout=5)
+        return fd
+
+    def reject_fresh_lock_flock(fd, operation):
+        if get_ident() == contender_thread_id:
+            raise AssertionError("contender flocked a freshly created reconcile lock")
+        return original_flock(fd, operation)
+
+    monkeypatch.setattr(runtime_recovery.os, "open", controlled_open)
+    monkeypatch.setattr(runtime_recovery.fcntl, "flock", reject_fresh_lock_flock)
+
+    def reconcile(instance_id):
+        nonlocal contender_thread_id
+        if instance_id == "replacement-b":
+            contender_thread_id = get_ident()
+        return reconcile_orphaned_runtime_traces(
+            str(tmp_path),
+            current_instance_id=instance_id,
+            stale_after_seconds=30,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        creator = executor.submit(reconcile, "replacement-a")
+        assert creator_opened.wait(timeout=5)
+        contender = executor.submit(reconcile, "replacement-b")
+        try:
+            contender_summary = contender.result(timeout=5)
+        finally:
+            release_creator.set()
+        creator_summary = creator.result(timeout=5)
+
+    summaries = (creator_summary, contender_summary)
+    assert sum(summary["recovered_running"] for summary in summaries) == 1
+    assert sum(summary["skipped_locked"] for summary in summaries) == 1
+    assert not any(summary["errors"] for summary in summaries)
+    recovered = load_trace_by_run_id("fresh-creation-race", str(tmp_path))
     assert recovered is not None
     assert recovered["status"] == "failed"
 

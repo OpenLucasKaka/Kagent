@@ -425,20 +425,30 @@ class _TraceReconcileLock:
         except FileNotFoundError:
             return True
         try:
+            stat_result = os.fstat(existing_fd)
+            if not self._existing_lock_is_stale(existing_fd, stat_result.st_mtime):
+                return False
             try:
                 fcntl.flock(existing_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return False
-            stat_result = os.fstat(existing_fd)
-            if not self._existing_lock_is_stale(existing_fd, stat_result.st_mtime):
+            locked_stat = os.fstat(existing_fd)
+            if (
+                locked_stat.st_dev != stat_result.st_dev
+                or locked_stat.st_ino != stat_result.st_ino
+                or not self._existing_lock_is_stale(
+                    existing_fd,
+                    locked_stat.st_mtime,
+                )
+            ):
                 return False
             try:
                 current_stat = os.stat(self.path, follow_symlinks=False)
             except FileNotFoundError:
                 return True
             if (
-                current_stat.st_dev != stat_result.st_dev
-                or current_stat.st_ino != stat_result.st_ino
+                current_stat.st_dev != locked_stat.st_dev
+                or current_stat.st_ino != locked_stat.st_ino
             ):
                 return False
             self.path.unlink()

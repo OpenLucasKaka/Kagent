@@ -31,9 +31,10 @@ def kagent_home(env: Optional[Mapping[str, str]] = None) -> Path:
         configured = environment[KAGENT_HOME_ENV_VAR]
         if not configured.strip():
             raise ValueError("KAGENT_HOME must not be empty")
-        if not (configured == "~" or configured.startswith("~/")) and not Path(
-            configured
-        ).is_absolute():
+        if (
+            not (configured == "~" or configured.startswith("~/"))
+            and not Path(configured).is_absolute()
+        ):
             raise ValueError("KAGENT_HOME must be an absolute or tilde-prefixed path")
         return _absolute_user_path(configured, environment)
 
@@ -320,11 +321,21 @@ def _copy_directory(source: Path, destination: Path) -> None:
     if destination_kind is not None and destination_kind != "directory":
         return
     _ensure_private_directory(destination)
+    blocked_prefixes: List[Path] = []
     for directory in directories:
         relative = directory.relative_to(source)
-        _ensure_private_directory(destination / relative)
+        if any(prefix == relative or prefix in relative.parents for prefix in blocked_prefixes):
+            continue
+        target = destination / relative
+        target_kind = _path_kind(target)
+        if target_kind is not None and target_kind != "directory":
+            blocked_prefixes.append(relative)
+            continue
+        _ensure_private_directory(target)
     for source_file in files:
         relative = source_file.relative_to(source)
+        if any(prefix == relative or prefix in relative.parents for prefix in blocked_prefixes):
+            continue
         _atomic_copy_file(source_file, destination / relative)
 
 

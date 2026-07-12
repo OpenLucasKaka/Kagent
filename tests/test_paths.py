@@ -37,9 +37,7 @@ def test_kagent_home_returns_an_absolute_path(tmp_path, monkeypatch):
 
 def test_kagent_home_rejects_a_relative_override(tmp_path):
     with pytest.raises(ValueError, match="absolute"):
-        kagent_home(
-            {"HOME": str(tmp_path / "user-home"), "KAGENT_HOME": "relative-kagent"}
-        )
+        kagent_home({"HOME": str(tmp_path / "user-home"), "KAGENT_HOME": "relative-kagent"})
 
 
 @pytest.mark.parametrize("value", ["", "   "])
@@ -49,9 +47,7 @@ def test_kagent_home_rejects_an_empty_override(tmp_path, value):
 
 
 @pytest.mark.parametrize("env", [{}, {"HOME": "   "}])
-def test_kagent_home_falls_back_to_system_home_when_home_is_unavailable(
-    tmp_path, monkeypatch, env
-):
+def test_kagent_home_falls_back_to_system_home_when_home_is_unavailable(tmp_path, monkeypatch, env):
     system_home = tmp_path / "system-home"
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: system_home))
 
@@ -146,6 +142,26 @@ def test_migration_never_overwrites_an_existing_destination(tmp_path):
     migrate_legacy_kagent_state(env)
 
     assert destination.read_text(encoding="utf-8") == "current"
+
+
+@pytest.mark.parametrize("artifact", ["pending-approvals", "patches"])
+def test_directory_migration_skips_a_source_subtree_blocked_by_a_destination_file(
+    tmp_path, artifact
+):
+    env = _legacy_env(tmp_path)
+    legacy_state = Path(env["XDG_STATE_HOME"]) / "kagent"
+    destination = Path(env["HOME"]) / ".kagent" / "state" / artifact
+    _write(legacy_state / artifact / "nested" / "child.json", "legacy-child")
+    _write(legacy_state / artifact / "sibling.json", "legacy-sibling")
+    _write(legacy_state / "history", "legacy-history")
+    _write(destination / "nested", "current-file")
+
+    marker = migrate_legacy_kagent_state(env)
+
+    assert (destination / "nested").read_text(encoding="utf-8") == "current-file"
+    assert (destination / "sibling.json").read_text(encoding="utf-8") == "legacy-sibling"
+    assert (Path(env["HOME"]) / ".kagent" / "state" / "history").read_text() == "legacy-history"
+    assert marker.exists()
 
 
 def test_migration_is_idempotent_after_completion(tmp_path):

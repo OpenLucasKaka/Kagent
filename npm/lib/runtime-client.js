@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createRuntimeSessionClient = createRuntimeSessionClient;
 const node_crypto_1 = require("node:crypto");
-const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_readline_1 = __importDefault(require("node:readline"));
 const kagent_home_1 = require("./kagent-home");
@@ -118,9 +117,6 @@ function createRuntimeSessionClient() {
                     event.type === "provider_configuration_failed" ||
                     event.type === "session_command_completed" ||
                     event.type === "session_command_failed") {
-                    if (event.type === "run_completed" || event.type === "run_failed") {
-                        cleanupPendingApproval();
-                    }
                     approvalExecutionUncertain = false;
                     recoveringActive = false;
                     recoveryFailureMessage = "";
@@ -166,9 +162,6 @@ function createRuntimeSessionClient() {
                 else {
                     failCurrent(message);
                 }
-            }
-            if (!preserveUncertainTombstone) {
-                cleanupPendingApproval();
             }
             startupFailure = message;
             notify({ type: "client_failed", message });
@@ -375,7 +368,6 @@ function createRuntimeSessionClient() {
                 return;
             }
             closed = true;
-            const preserveUncertainTombstone = approvalExecutionUncertain;
             busy = false;
             currentHandler = null;
             queuedRequest = null;
@@ -390,21 +382,8 @@ function createRuntimeSessionClient() {
             }
             child = null;
             stdout = null;
-            if (!preserveUncertainTombstone) {
-                cleanupPendingApproval();
-            }
         },
     };
-    function cleanupPendingApproval() {
-        try {
-            node_fs_1.default.unlinkSync(pendingApprovalPath);
-        }
-        catch (error) {
-            if (error.code !== "ENOENT") {
-                // The Python runtime still owns validation and persistence errors.
-            }
-        }
-    }
 }
 function errorMessage(error) {
     return error instanceof Error ? error.message : String(error);

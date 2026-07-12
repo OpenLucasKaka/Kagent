@@ -2300,7 +2300,7 @@ async function main() {
   }) + "\n");
   await waitFor(() => events.at(-1)?.type === "run_completed");
   client.close();
-  assert.equal(fs.existsSync(pendingPath), false);
+  assert.equal(fs.existsSync(pendingPath), true);
 }
 
 main().catch((error) => {
@@ -2445,6 +2445,124 @@ assert.equal(fs.existsSync(stalePath), true);
 client.close();
 fs.rmSync(root, {recursive: true, force: true});
 fs.rmSync(outside, {recursive: true, force: true});
+"""
+
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_npm_runtime_client_never_unlinks_pending_approval_through_symlink_parent():
+    node = shutil.which("node")
+    if node is None or sys.platform == "win32":
+        return
+
+    script = r"""
+const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const {EventEmitter} = require("node:events");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const {PassThrough} = require("node:stream");
+
+const sessionId = "123e4567-e89b-42d3-a456-426614174000";
+crypto.randomUUID = () => sessionId;
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "kagent-runtime-root-"));
+const outside = fs.mkdtempSync(path.join(os.tmpdir(), "kagent-runtime-outside-"));
+process.env.KAGENT_HOME = root;
+delete process.env.KAGENT_PENDING_APPROVAL_PATH;
+const stateDirectory = path.join(root, "state");
+fs.mkdirSync(stateDirectory, {recursive: true});
+fs.symlinkSync(outside, path.join(stateDirectory, "pending-approvals"), "dir");
+const victim = path.join(outside, `${sessionId}.json`);
+fs.writeFileSync(victim, "external victim");
+
+const children = [];
+const runnerPath = require.resolve("./npm/lib/python-runner");
+require.cache[runnerPath] = {
+  id: runnerPath,
+  filename: runnerPath,
+  loaded: true,
+  exports: {
+    spawnPythonModule() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.killed = false;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = () => { child.killed = true; };
+      children.push(child);
+      setImmediate(() => child.stdout.write(JSON.stringify({
+        type: "runtime_ready",
+        provider: {
+          configured: true,
+          provider: "test",
+          display_name: "Test",
+          base_url_configured: true,
+          model: "model",
+          api_key_configured: true,
+        },
+        provider_options: [],
+        session_commands: [],
+      }) + "\n"));
+      return child;
+    },
+  },
+};
+
+const {createRuntimeSessionClient} = require("./npm/lib/runtime-client");
+
+async function waitFor(predicate) {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(predicate(), "condition did not become true");
+}
+
+async function main() {
+  const closeClient = createRuntimeSessionClient();
+  closeClient.close();
+  const closePreservedVictim = fs.existsSync(victim);
+
+  fs.writeFileSync(victim, "external victim");
+  const eventClient = createRuntimeSessionClient();
+  const lifecycle = [];
+  eventClient.subscribe((event) => lifecycle.push(event));
+  await waitFor(() => lifecycle.some((event) => event.type === "runtime_ready"));
+  const events = [];
+  eventClient.run("complete", (event) => events.push(event));
+  children.at(-1).stdout.write(JSON.stringify({
+    type: "run_completed",
+    status: "completed",
+    answer: "done",
+    payload: {},
+  }) + "\n");
+  await waitFor(() => events.some((event) => event.type === "run_completed"));
+  const eventPreservedVictim = fs.existsSync(victim);
+  eventClient.close();
+
+  assert.equal(closePreservedVictim, true);
+  assert.equal(eventPreservedVictim, true);
+  assert.equal(fs.existsSync(victim), true);
+  fs.rmSync(root, {recursive: true, force: true});
+  fs.rmSync(outside, {recursive: true, force: true});
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 """
 
     completed = subprocess.run(

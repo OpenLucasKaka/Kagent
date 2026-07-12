@@ -1,6 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -176,9 +175,6 @@ export function createRuntimeSessionClient(): RuntimeSessionClient {
           event.type === "session_command_completed" ||
           event.type === "session_command_failed"
         ) {
-          if (event.type === "run_completed" || event.type === "run_failed") {
-            cleanupPendingApproval();
-          }
           approvalExecutionUncertain = false;
           recoveringActive = false;
           recoveryFailureMessage = "";
@@ -226,9 +222,6 @@ export function createRuntimeSessionClient(): RuntimeSessionClient {
         } else {
           failCurrent(message);
         }
-      }
-      if (!preserveUncertainTombstone) {
-        cleanupPendingApproval();
       }
       startupFailure = message;
       notify({ type: "client_failed", message });
@@ -438,7 +431,6 @@ export function createRuntimeSessionClient(): RuntimeSessionClient {
         return;
       }
       closed = true;
-      const preserveUncertainTombstone = approvalExecutionUncertain;
       busy = false;
       currentHandler = null;
       queuedRequest = null;
@@ -453,21 +445,8 @@ export function createRuntimeSessionClient(): RuntimeSessionClient {
       }
       child = null;
       stdout = null;
-      if (!preserveUncertainTombstone) {
-        cleanupPendingApproval();
-      }
     },
   };
-
-  function cleanupPendingApproval(): void {
-    try {
-      fs.unlinkSync(pendingApprovalPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        // The Python runtime still owns validation and persistence errors.
-      }
-    }
-  }
 }
 
 function errorMessage(error: unknown): string {

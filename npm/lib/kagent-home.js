@@ -6,13 +6,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveKagentHome = resolveKagentHome;
 exports.kagentStatePath = kagentStatePath;
 exports.kagentCachePath = kagentCachePath;
+const node_os_1 = __importDefault(require("node:os"));
 const node_path_1 = __importDefault(require("node:path"));
 function requiredHome(env) {
     const home = env.HOME?.trim();
-    if (!home) {
-        throw new Error("HOME is required to resolve the kagent home directory");
-    }
-    return home;
+    return home || node_os_1.default.homedir();
 }
 function resolveKagentHome(env = process.env) {
     const configured = env.KAGENT_HOME;
@@ -25,6 +23,9 @@ function resolveKagentHome(env = process.env) {
         }
         if (configured.startsWith("~/")) {
             return node_path_1.default.resolve(requiredHome(env), configured.slice(2));
+        }
+        if (!node_path_1.default.isAbsolute(configured)) {
+            throw new Error("KAGENT_HOME must be an absolute or tilde-prefixed path");
         }
         return node_path_1.default.resolve(configured);
     }

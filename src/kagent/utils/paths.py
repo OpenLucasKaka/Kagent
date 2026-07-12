@@ -17,7 +17,7 @@ def _absolute_user_path(value: str, env: Mapping[str, str]) -> Path:
     if value == "~" or value.startswith("~/"):
         home = env.get("HOME", "").strip()
         if not home:
-            raise ValueError("HOME must be set to expand a user-relative path")
+            home = str(Path.home())
         suffix = value[2:] if value != "~" else ""
         path = Path(home) / suffix
     else:
@@ -31,11 +31,15 @@ def kagent_home(env: Optional[Mapping[str, str]] = None) -> Path:
         configured = environment[KAGENT_HOME_ENV_VAR]
         if not configured.strip():
             raise ValueError("KAGENT_HOME must not be empty")
+        if not (configured == "~" or configured.startswith("~/")) and not Path(
+            configured
+        ).is_absolute():
+            raise ValueError("KAGENT_HOME must be an absolute or tilde-prefixed path")
         return _absolute_user_path(configured, environment)
 
     home = environment.get("HOME", "").strip()
     if not home:
-        raise ValueError("HOME must be set when KAGENT_HOME is not configured")
+        home = str(Path.home())
     return _absolute_user_path(home, environment) / ".kagent"
 
 

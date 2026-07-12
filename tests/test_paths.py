@@ -35,15 +35,11 @@ def test_kagent_home_returns_an_absolute_path(tmp_path, monkeypatch):
     assert kagent_home({"HOME": "relative-home"}) == tmp_path / "relative-home" / ".kagent"
 
 
-def test_relative_kagent_home_is_normalized_to_a_stable_absolute_path(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-
-    resolved = kagent_home(
-        {"HOME": str(tmp_path / "user-home"), "KAGENT_HOME": "relative/../stable-home"}
-    )
-
-    assert resolved == tmp_path / "stable-home"
-    assert resolved.is_absolute()
+def test_kagent_home_rejects_a_relative_override(tmp_path):
+    with pytest.raises(ValueError, match="absolute"):
+        kagent_home(
+            {"HOME": str(tmp_path / "user-home"), "KAGENT_HOME": "relative-kagent"}
+        )
 
 
 @pytest.mark.parametrize("value", ["", "   "])
@@ -52,9 +48,21 @@ def test_kagent_home_rejects_an_empty_override(tmp_path, value):
         kagent_home({"HOME": str(tmp_path), "KAGENT_HOME": value})
 
 
-def test_kagent_home_requires_home_without_an_override():
-    with pytest.raises(ValueError, match="HOME"):
-        kagent_home({})
+@pytest.mark.parametrize("env", [{}, {"HOME": "   "}])
+def test_kagent_home_falls_back_to_system_home_when_home_is_unavailable(
+    tmp_path, monkeypatch, env
+):
+    system_home = tmp_path / "system-home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: system_home))
+
+    assert kagent_home(env) == system_home / ".kagent"
+
+
+def test_tilde_kagent_home_falls_back_to_system_home(tmp_path, monkeypatch):
+    system_home = tmp_path / "system-home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: system_home))
+
+    assert kagent_home({"KAGENT_HOME": "~"}) == system_home
 
 
 def _legacy_env(tmp_path):

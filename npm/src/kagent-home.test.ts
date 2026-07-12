@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -15,19 +16,18 @@ test("defaults to the .kagent directory beneath HOME", () => {
   );
 });
 
-test("expands a tilde-prefixed KAGENT_HOME and makes relative overrides absolute", () => {
+test("expands a tilde-prefixed KAGENT_HOME", () => {
   const home = path.join(path.sep, "Users", "kaka");
   assert.equal(
     resolveKagentHome({ HOME: home, KAGENT_HOME: "~/shared-kagent" }),
     path.join(home, "shared-kagent"),
   );
-  assert.equal(
-    resolveKagentHome({ HOME: home, KAGENT_HOME: "relative-kagent" }),
-    path.resolve("relative-kagent"),
-  );
-  assert.equal(
-    resolveKagentHome({ HOME: home, KAGENT_HOME: "~\\shared-kagent" }),
-    path.resolve("~\\shared-kagent"),
+});
+
+test("rejects a relative KAGENT_HOME override", () => {
+  assert.throws(
+    () => resolveKagentHome({ KAGENT_HOME: "relative-kagent" }),
+    /KAGENT_HOME.*absolute/i,
   );
 });
 
@@ -43,12 +43,19 @@ test("builds state and cache paths beneath the resolved kagent home", () => {
   );
 });
 
-test("fails clearly when HOME is required but missing or blank", () => {
-  assert.throws(() => resolveKagentHome({}), /HOME.*required/i);
-  assert.throws(() => resolveKagentHome({ HOME: "   " }), /HOME.*required/i);
-  assert.throws(
-    () => resolveKagentHome({ KAGENT_HOME: "~/shared-kagent" }),
-    /HOME.*required/i,
+test("falls back to the system home when HOME is missing or blank", () => {
+  assert.equal(resolveKagentHome({}), path.resolve(os.homedir(), ".kagent"));
+  assert.equal(
+    resolveKagentHome({ HOME: "   " }),
+    path.resolve(os.homedir(), ".kagent"),
+  );
+});
+
+test("uses the system home for tilde overrides when HOME is unavailable", () => {
+  assert.equal(resolveKagentHome({ KAGENT_HOME: "~" }), path.resolve(os.homedir()));
+  assert.equal(
+    resolveKagentHome({ HOME: "   ", KAGENT_HOME: "~/shared-kagent" }),
+    path.resolve(os.homedir(), "shared-kagent"),
   );
 });
 

@@ -2320,7 +2320,7 @@ main().catch((error) => {
     assert completed.returncode == 0, completed.stderr
 
 
-def test_npm_runtime_client_leaves_expired_approval_cleanup_to_python():
+def test_npm_runtime_client_does_not_prune_expired_orphan_approvals():
     node = shutil.which("node")
     if node is None:
         return

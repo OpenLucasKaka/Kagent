@@ -6,7 +6,7 @@ import { splitGraphemes } from "./editor";
 import { maskSecret, selectedProvider, type ProviderSetupState } from "./provider-setup";
 import type { ApprovalRequiredEvent, ProviderSnapshot } from "./protocol";
 import type { TranscriptEntry } from "./transcript";
-import { terminalSafeText } from "./terminal-text";
+import { terminalGraphemeWidth, terminalSafeText } from "./terminal-text";
 import { estimateTextRows } from "./terminal-width";
 
 export type AgentStatus =
@@ -36,6 +36,11 @@ export type PromptViewport = {
   rendered: string;
   prefixClipped: boolean;
   suffixClipped: boolean;
+};
+
+export type PromptTerminalCursorControl = {
+  position: string;
+  restore: string;
 };
 
 type ApprovalLayout = Pick<
@@ -244,6 +249,31 @@ export function createPromptViewport(
   );
 }
 
+export function createPromptTerminalCursorControl({
+  input,
+  cursor,
+  columns,
+  maxRows,
+  horizontalPadding,
+}: {
+  input: string;
+  cursor: number;
+  columns: number;
+  maxRows: number;
+  horizontalPadding: number;
+}): PromptTerminalCursorControl {
+  const viewport = createPromptViewport(input, cursor, columns, maxRows);
+  const safeColumns = Math.max(4, columns);
+  const cursorPosition = textEndPosition(viewport.before, safeColumns);
+  const promptRows = estimateTextRows(viewport.rendered, safeColumns);
+  const up = Math.max(1, promptRows - cursorPosition.row);
+  const right = Math.max(0, horizontalPadding + 2 + cursorPosition.column);
+  return {
+    position: `${showTerminalCursor()}${moveCursorUp(up)}${moveCursorRight(right)}`,
+    restore: `\r${moveCursorDown(up)}`,
+  };
+}
+
 function promptViewportRows(
   characters: string[],
   cursor: number,
@@ -292,6 +322,42 @@ function promptViewportParts(
     prefixClipped,
     suffixClipped,
   };
+}
+
+function textEndPosition(text: string, columns: number): { row: number; column: number } {
+  let row = 0;
+  let column = 0;
+  for (const grapheme of splitGraphemes(text)) {
+    if (grapheme === "\n") {
+      row += 1;
+      column = 0;
+      continue;
+    }
+    const width = Math.max(0, terminalGraphemeWidth(grapheme));
+    if (column + width >= columns) {
+      row += 1;
+      column = 0;
+    } else {
+      column += width;
+    }
+  }
+  return { row, column };
+}
+
+function showTerminalCursor(): string {
+  return "\u001b[?25h";
+}
+
+function moveCursorUp(rows: number): string {
+  return rows > 0 ? `\u001b[${rows}A` : "";
+}
+
+function moveCursorDown(rows: number): string {
+  return rows > 0 ? `\u001b[${rows}B` : "";
+}
+
+function moveCursorRight(columns: number): string {
+  return columns > 0 ? `\u001b[${columns}C` : "";
 }
 
 export function Header({

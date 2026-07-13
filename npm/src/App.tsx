@@ -59,7 +59,9 @@ import {
   StatusLine,
   TERMINAL_SPINNER_FRAMES,
   TranscriptPosition,
+  createPromptTerminalCursorControl,
   createTerminalLayout,
+  type PromptTerminalCursorControl,
 } from "./ui-components";
 
 type InkApi = {
@@ -586,6 +588,14 @@ export function KagentInkApp({
     },
     transcriptOffset,
   );
+  const promptDisabled = status === "cancelling" || status === "approval";
+  const promptCursorControl = createPromptTerminalCursorControl({
+    input: editor.value,
+    cursor: editor.cursor,
+    columns: layout.promptColumns,
+    maxRows: layout.promptRowLimit,
+    horizontalPadding: layout.horizontalPadding,
+  });
 
   return React.createElement(
     Box,
@@ -638,17 +648,44 @@ export function KagentInkApp({
       : null,
     status === "starting"
       ? null
-      : React.createElement(PromptLine, {
-          React,
-          Box,
-          Text,
-          cursor: editor.cursor,
-          input: editor.value,
-          disabled: status === "cancelling" || status === "approval",
-          columns: layout.promptColumns,
-          maxRows: layout.promptRowLimit,
-        }),
+      : React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(PromptLine, {
+            React,
+            Box,
+            Text,
+            cursor: editor.cursor,
+            input: editor.value,
+            disabled: promptDisabled,
+            columns: layout.promptColumns,
+            maxRows: layout.promptRowLimit,
+          }),
+          React.createElement(TerminalCursorSync, {
+            React,
+            control: promptDisabled ? null : promptCursorControl,
+          }),
+        ),
   );
+}
+
+function TerminalCursorSync({
+  React,
+  control,
+}: {
+  React: typeof ReactNamespace;
+  control: PromptTerminalCursorControl | null;
+}): null {
+  React.useLayoutEffect(() => {
+    if (!control || !process.stdout.isTTY) {
+      return undefined;
+    }
+    process.stdout.write(control.position);
+    return () => {
+      process.stdout.write(control.restore);
+    };
+  });
+  return null;
 }
 
 function currentTerminalSize(): { columns: number; rows: number } {

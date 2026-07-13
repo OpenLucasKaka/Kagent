@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9 - 2026-07-13
+
+### Fixed
+
+- Kept the real terminal cursor aligned with the Ink prompt input cell so IME
+  preedit text appears on the `kagent` prompt line instead of the terminal's
+  lower-left corner.
+
 ## 0.1.7 - 2026-07-13
 
 ### Added

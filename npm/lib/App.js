@@ -462,6 +462,14 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         rows: layout.rows,
         reservedRows: layout.reservedRows + (transcriptOffset > 0 ? 1 : 0),
     }, transcriptOffset);
+    const promptDisabled = status === "cancelling" || status === "approval";
+    const promptCursorControl = (0, ui_components_1.createPromptTerminalCursorControl)({
+        input: editor.value,
+        cursor: editor.cursor,
+        columns: layout.promptColumns,
+        maxRows: layout.promptRowLimit,
+        horizontalPadding: layout.horizontalPadding,
+    });
     return React.createElement(Box, { flexDirection: "column", paddingX: layout.horizontalPadding }, transcript.entries.length === 0
         ? React.createElement(ui_components_1.Header, {
             React,
@@ -504,16 +512,31 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         })
         : null, status === "starting"
         ? null
-        : React.createElement(ui_components_1.PromptLine, {
+        : React.createElement(React.Fragment, null, React.createElement(ui_components_1.PromptLine, {
             React,
             Box,
             Text,
             cursor: editor.cursor,
             input: editor.value,
-            disabled: status === "cancelling" || status === "approval",
+            disabled: promptDisabled,
             columns: layout.promptColumns,
             maxRows: layout.promptRowLimit,
-        }));
+        }), React.createElement(TerminalCursorSync, {
+            React,
+            control: promptDisabled ? null : promptCursorControl,
+        })));
+}
+function TerminalCursorSync({ React, control, }) {
+    React.useLayoutEffect(() => {
+        if (!control || !process.stdout.isTTY) {
+            return undefined;
+        }
+        process.stdout.write(control.position);
+        return () => {
+            process.stdout.write(control.restore);
+        };
+    });
+    return null;
 }
 function currentTerminalSize() {
     return {

@@ -4,6 +4,7 @@ exports.TERMINAL_SPINNER_FRAMES = void 0;
 exports.createTerminalLayout = createTerminalLayout;
 exports.NarrowTerminal = NarrowTerminal;
 exports.createPromptViewport = createPromptViewport;
+exports.createPromptTerminalCursorControl = createPromptTerminalCursorControl;
 exports.Header = Header;
 exports.ProviderSetupPanel = ProviderSetupPanel;
 exports.MessageList = MessageList;
@@ -115,6 +116,18 @@ function createPromptViewport(input, cursor, columns, maxRows) {
     }
     return promptViewportParts(characters, safeCursor, start, end, preserveActiveNewline);
 }
+function createPromptTerminalCursorControl({ input, cursor, columns, maxRows, horizontalPadding, }) {
+    const viewport = createPromptViewport(input, cursor, columns, maxRows);
+    const safeColumns = Math.max(4, columns);
+    const cursorPosition = textEndPosition(viewport.before, safeColumns);
+    const promptRows = (0, terminal_width_1.estimateTextRows)(viewport.rendered, safeColumns);
+    const up = Math.max(1, promptRows - cursorPosition.row);
+    const right = Math.max(0, horizontalPadding + 2 + cursorPosition.column);
+    return {
+        position: `${showTerminalCursor()}${moveCursorUp(up)}${moveCursorRight(right)}`,
+        restore: `\r${moveCursorDown(up)}`,
+    };
+}
 function promptViewportRows(characters, cursor, start, end, columns, preserveActiveNewline) {
     return (0, terminal_width_1.estimateTextRows)(promptViewportParts(characters, cursor, start, end, preserveActiveNewline).rendered, columns);
 }
@@ -135,6 +148,38 @@ function promptViewportParts(characters, cursor, start, end, preserveActiveNewli
         prefixClipped,
         suffixClipped,
     };
+}
+function textEndPosition(text, columns) {
+    let row = 0;
+    let column = 0;
+    for (const grapheme of (0, editor_1.splitGraphemes)(text)) {
+        if (grapheme === "\n") {
+            row += 1;
+            column = 0;
+            continue;
+        }
+        const width = Math.max(0, (0, terminal_text_1.terminalGraphemeWidth)(grapheme));
+        if (column + width >= columns) {
+            row += 1;
+            column = 0;
+        }
+        else {
+            column += width;
+        }
+    }
+    return { row, column };
+}
+function showTerminalCursor() {
+    return "\u001b[?25h";
+}
+function moveCursorUp(rows) {
+    return rows > 0 ? `\u001b[${rows}A` : "";
+}
+function moveCursorDown(rows) {
+    return rows > 0 ? `\u001b[${rows}B` : "";
+}
+function moveCursorRight(columns) {
+    return columns > 0 ? `\u001b[${columns}C` : "";
 }
 function Header({ React, Box, Text, compact, provider, setup, workspace, }) {
     const providerLabel = provider?.configured

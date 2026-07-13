@@ -64,11 +64,17 @@ function compareSemVer(left, right) {
 async function checkForUpdate(options) {
     parseSemVer(options.currentVersion);
     const deps = options.deps ?? {};
-    const channel = options.channel ?? resolveUpdateChannel(options.env);
+    const channel = resolveCheckChannel(options.channel, options.env);
     const now = deps.now?.() ?? new Date();
     const checkedAt = now.toISOString();
     if (!options.force && deps.readState) {
-        const cached = await deps.readState();
+        let cached;
+        try {
+            cached = await deps.readState();
+        }
+        catch (error) {
+            return skippedCheck(options.currentVersion, channel, checkedAt, "state-read-error", error);
+        }
         if (isFreshState(cached, channel, now)) {
             return {
                 current: options.currentVersion,
@@ -86,32 +92,54 @@ async function checkForUpdate(options) {
         latest = await fetchLatestVersion(channel, deps);
     }
     catch (error) {
-        if (!(error instanceof UpdateNetworkError)) {
-            throw error;
-        }
         const message = errorMessage(error);
         if (options.force) {
-            throw new Error(`Unable to check for kagent updates: ${message}`);
+            if (error instanceof UpdateNetworkError) {
+                throw new Error(`Unable to check for kagent updates: ${message}`);
+            }
+            throw error;
         }
-        return {
-            current: options.currentVersion,
-            latest: null,
-            channel,
-            updateAvailable: false,
-            checkedAt,
-            skipped: true,
-            reason: "network-error",
-            error: message,
-        };
+        return skippedCheck(options.currentVersion, channel, checkedAt, error instanceof UpdateMetadataError
+            ? "metadata-error"
+            : "network-error", error);
     }
     const state = { channel, latest, checkedAt };
-    await deps.writeState?.(state);
+    try {
+        await deps.writeState?.(state);
+    }
+    catch (error) {
+        if (options.force) {
+            throw error;
+        }
+        return skippedCheck(options.currentVersion, channel, checkedAt, "state-write-error", error);
+    }
     return {
         current: options.currentVersion,
         latest,
         channel,
         updateAvailable: compareSemVer(latest, options.currentVersion) > 0,
         checkedAt,
+    };
+}
+function resolveCheckChannel(channel, env) {
+    if (channel === undefined) {
+        return resolveUpdateChannel(env);
+    }
+    if (channel === "latest" || channel === "next") {
+        return channel;
+    }
+    throw new Error(`Update channel ${JSON.stringify(channel)} is invalid; expected latest or next`);
+}
+function skippedCheck(current, channel, checkedAt, reason, error) {
+    return {
+        current,
+        latest: null,
+        channel,
+        updateAvailable: false,
+        checkedAt,
+        skipped: true,
+        reason,
+        error: errorMessage(error),
     };
 }
 async function runUpgrade(options) {
@@ -240,6 +268,7 @@ async function fetchLatestVersion(channel, deps) {
             throw new UpdateNetworkError(message);
         }
         if (!response.ok) {
+            releaseFailedResponse(response, controller);
             throw new UpdateNetworkError(`npm registry returned HTTP ${response.status}`);
         }
         let metadata;
@@ -278,6 +307,14 @@ async function fetchLatestVersion(channel, deps) {
         if (timer !== undefined) {
             clearTimeout(timer);
         }
+    }
+}
+function releaseFailedResponse(response, controller) {
+    try {
+        void response.body?.cancel().catch(() => undefined);
+    }
+    finally {
+        controller.abort();
     }
 }
 function defaultFetch(input, init) {

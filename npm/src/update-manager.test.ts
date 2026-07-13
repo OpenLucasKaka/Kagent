@@ -23,6 +23,16 @@ function registryResponse(version: string, tag: "latest" | "next" = "latest") {
   };
 }
 
+function assertErrorSkip(result: unknown, reason: string, error: RegExp) {
+  assert.ok(result && typeof result === "object");
+  const record = result as Record<string, unknown>;
+  assert.equal(record.skipped, true);
+  assert.equal(record.reason, reason);
+  assert.equal(record.latest, null);
+  assert.equal(record.updateAvailable, false);
+  assert.match(String(record.error), error);
+}
+
 test("maps stable/latest and beta/next update channel configuration", () => {
   assert.equal(UPDATE_CHECK_TIMEOUT_MS, 3_000);
   assert.equal(UPDATE_CHECK_TTL_MS, 24 * 60 * 60 * 1_000);
@@ -136,7 +146,7 @@ test("force ignores TTL and persists a successful check", async () => {
   }]);
 });
 
-test("rejects malformed registry metadata", async () => {
+test("skips malformed metadata automatically and rejects it when forced", async () => {
   const malformed = [
     null,
     [],
@@ -145,19 +155,28 @@ test("rejects malformed registry metadata", async () => {
     { "dist-tags": { latest: "" } },
     { "dist-tags": { latest: "not-a-version" } },
   ];
+  const readers: Array<() => Promise<unknown>> = [
+    async () => { throw new SyntaxError("Unexpected end of JSON input"); },
+    ...malformed.map((payload) => async () => payload),
+  ];
 
-  for (const payload of malformed) {
+  for (const json of readers) {
+    const deps: UpdateManagerDeps = {
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+      fetch: async () => ({ ok: true, status: 200, json }),
+    };
+    const automatic = await checkForUpdate({ currentVersion: "1.0.0", deps });
+    assertErrorSkip(
+      automatic,
+      "metadata-error",
+      /json|metadata|dist-tags|semver/i,
+    );
+
     await assert.rejects(
       checkForUpdate({
         currentVersion: "1.0.0",
         force: true,
-        deps: {
-          fetch: async () => ({
-            ok: true,
-            status: 200,
-            async json() { return payload; },
-          }),
-        },
+        deps,
       }),
       /registry metadata|dist-tags|semver/i,
     );
@@ -186,6 +205,72 @@ test("returns a skipped result on automatic network errors and throws when force
   await assert.rejects(
     checkForUpdate({ currentVersion: "1.0.0", force: true, deps }),
     /unable to check.*socket closed/i,
+  );
+});
+
+test("releases non-2xx response bodies and aborts the request", async () => {
+  const originalFetch = globalThis.fetch;
+  let bodyCancellations = 0;
+  const requestSignals: AbortSignal[] = [];
+  globalThis.fetch = (async (url, init) => {
+    assert.equal(String(url), NPM_REGISTRY_URL);
+    if (init?.signal) {
+      requestSignals.push(init.signal);
+    }
+    return {
+      ok: false,
+      status: 503,
+      body: {
+        async cancel() { bodyCancellations += 1; },
+      },
+      json: () => new Promise<never>(() => undefined),
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    const deps: UpdateManagerDeps = {
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    };
+    const result = await checkForUpdate({ currentVersion: "1.0.0", deps });
+    assertErrorSkip(result, "network-error", /HTTP 503/i);
+    await assert.rejects(
+      checkForUpdate({ currentVersion: "1.0.0", force: true, deps }),
+      /unable to check.*HTTP 503/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(bodyCancellations, 2);
+  assert.equal(requestSignals.length, 2);
+  assert.equal(requestSignals.every((signal) => signal.aborted), true);
+});
+
+test("makes injected state failures best-effort unless forced", async () => {
+  const now = () => new Date("2026-07-13T00:00:00.000Z");
+  const readFailure = await checkForUpdate({
+    currentVersion: "1.0.0",
+    deps: {
+      now,
+      readState: async () => { throw new Error("EACCES"); },
+      fetch: async () => { throw new Error("must not fetch"); },
+    },
+  });
+  assertErrorSkip(readFailure, "state-read-error", /EACCES/);
+
+  const writeDeps: UpdateManagerDeps = {
+    now,
+    fetch: async () => registryResponse("2.0.0"),
+    writeState: async () => { throw new Error("ENOSPC"); },
+  };
+  const writeFailure = await checkForUpdate({
+    currentVersion: "1.0.0",
+    deps: writeDeps,
+  });
+  assertErrorSkip(writeFailure, "state-write-error", /ENOSPC/);
+  await assert.rejects(
+    checkForUpdate({ currentVersion: "1.0.0", force: true, deps: writeDeps }),
+    /ENOSPC/,
   );
 });
 
@@ -219,19 +304,48 @@ test("treats metadata body network failures as skippable", async () => {
 });
 
 test("aborts registry requests after the configured timeout", async () => {
+  const deps: UpdateManagerDeps = {
+    now: () => new Date("2026-07-13T00:00:00.000Z"),
+    timeoutMs: 5,
+    fetch: (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    }),
+  };
+  const automatic = await checkForUpdate({ currentVersion: "1.0.0", deps });
+  assertErrorSkip(automatic, "network-error", /timed out.*5ms/i);
+
   await assert.rejects(
     checkForUpdate({
       currentVersion: "1.0.0",
       force: true,
-      deps: {
-        timeoutMs: 5,
-        fetch: (_url, init) => new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }),
-      },
+      deps,
     }),
     /unable to check.*timed out.*5ms/i,
   );
+});
+
+test("rejects local version and channel errors before requesting metadata", async () => {
+  let fetches = 0;
+  const deps: UpdateManagerDeps = {
+    fetch: async () => {
+      fetches += 1;
+      return registryResponse("2.0.0");
+    },
+  };
+
+  await assert.rejects(
+    checkForUpdate({ currentVersion: "v1.0.0", deps }),
+    /invalid semver/i,
+  );
+  await assert.rejects(
+    checkForUpdate({
+      currentVersion: "1.0.0",
+      channel: "nightly" as never,
+      deps,
+    }),
+    /update channel.*nightly.*latest.*next/i,
+  );
+  assert.equal(fetches, 0);
 });
 
 test("keeps the registry timeout active while reading metadata", async () => {
@@ -315,5 +429,23 @@ test("reports the fixed target when installation fails", async () => {
       },
     }),
     /failed to install @openlucaskaka\/kagent@latest: permission denied/i,
+  );
+});
+
+test("runUpgrade keeps forced update-check failures strict", async () => {
+  await assert.rejects(
+    runUpgrade({
+      currentVersion: "1.0.0",
+      deps: {
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async json() { return { "dist-tags": { latest: "invalid" } }; },
+        }),
+        runInstall: async () => undefined,
+        readInstalledVersion: async () => "1.0.0",
+      },
+    }),
+    /registry metadata|semver/i,
   );
 });

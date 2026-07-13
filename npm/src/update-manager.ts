@@ -13,6 +13,9 @@ const INSTALL_ARGS: Readonly<Record<UpdateChannel, readonly string[]>> = {
 interface FetchResponse {
   ok: boolean;
   status: number;
+  body?: {
+    cancel(reason?: unknown): Promise<void>;
+  } | null;
   json(): Promise<unknown>;
 }
 
@@ -44,7 +47,11 @@ export interface SkippedUpdateInfo {
   updateAvailable: false;
   checkedAt: string;
   skipped: true;
-  reason: "network-error";
+  reason:
+    | "network-error"
+    | "metadata-error"
+    | "state-read-error"
+    | "state-write-error";
   error: string;
 }
 
@@ -154,12 +161,23 @@ export async function checkForUpdate(
 ): Promise<UpdateCheckResult> {
   parseSemVer(options.currentVersion);
   const deps = options.deps ?? {};
-  const channel = options.channel ?? resolveUpdateChannel(options.env);
+  const channel = resolveCheckChannel(options.channel, options.env);
   const now = deps.now?.() ?? new Date();
   const checkedAt = now.toISOString();
 
   if (!options.force && deps.readState) {
-    const cached = await deps.readState();
+    let cached: UpdateCheckState | null | undefined;
+    try {
+      cached = await deps.readState();
+    } catch (error) {
+      return skippedCheck(
+        options.currentVersion,
+        channel,
+        checkedAt,
+        "state-read-error",
+        error,
+      );
+    }
     if (isFreshState(cached, channel, now)) {
       return {
         current: options.currentVersion,
@@ -177,33 +195,79 @@ export async function checkForUpdate(
   try {
     latest = await fetchLatestVersion(channel, deps);
   } catch (error) {
-    if (!(error instanceof UpdateNetworkError)) {
-      throw error;
-    }
     const message = errorMessage(error);
     if (options.force) {
-      throw new Error(`Unable to check for kagent updates: ${message}`);
+      if (error instanceof UpdateNetworkError) {
+        throw new Error(`Unable to check for kagent updates: ${message}`);
+      }
+      throw error;
     }
-    return {
-      current: options.currentVersion,
-      latest: null,
+    return skippedCheck(
+      options.currentVersion,
       channel,
-      updateAvailable: false,
       checkedAt,
-      skipped: true,
-      reason: "network-error",
-      error: message,
-    };
+      error instanceof UpdateMetadataError
+        ? "metadata-error"
+        : "network-error",
+      error,
+    );
   }
 
   const state = { channel, latest, checkedAt } satisfies UpdateCheckState;
-  await deps.writeState?.(state);
+  try {
+    await deps.writeState?.(state);
+  } catch (error) {
+    if (options.force) {
+      throw error;
+    }
+    return skippedCheck(
+      options.currentVersion,
+      channel,
+      checkedAt,
+      "state-write-error",
+      error,
+    );
+  }
   return {
     current: options.currentVersion,
     latest,
     channel,
     updateAvailable: compareSemVer(latest, options.currentVersion) > 0,
     checkedAt,
+  };
+}
+
+function resolveCheckChannel(
+  channel: UpdateChannel | undefined,
+  env: NodeJS.ProcessEnv | undefined,
+): UpdateChannel {
+  if (channel === undefined) {
+    return resolveUpdateChannel(env);
+  }
+  if (channel === "latest" || channel === "next") {
+    return channel;
+  }
+  throw new Error(
+    `Update channel ${JSON.stringify(channel)} is invalid; expected latest or next`,
+  );
+}
+
+function skippedCheck(
+  current: string,
+  channel: UpdateChannel,
+  checkedAt: string,
+  reason: SkippedUpdateInfo["reason"],
+  error: unknown,
+): SkippedUpdateInfo {
+  return {
+    current,
+    latest: null,
+    channel,
+    updateAvailable: false,
+    checkedAt,
+    skipped: true,
+    reason,
+    error: errorMessage(error),
   };
 }
 
@@ -359,6 +423,7 @@ async function fetchLatestVersion(
     }
 
     if (!response.ok) {
+      releaseFailedResponse(response, controller);
       throw new UpdateNetworkError(`npm registry returned HTTP ${response.status}`);
     }
 
@@ -401,6 +466,17 @@ async function fetchLatestVersion(
     if (timer !== undefined) {
       clearTimeout(timer);
     }
+  }
+}
+
+function releaseFailedResponse(
+  response: FetchResponse,
+  controller: AbortController,
+): void {
+  try {
+    void response.body?.cancel().catch(() => undefined);
+  } finally {
+    controller.abort();
   }
 }
 

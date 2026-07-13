@@ -13,6 +13,7 @@ const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka
 const GITHUB_HEAD_URL = "https://api.github.com/repos/OpenLucasKaka/Kagent/commits/main";
 const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/Kagent";
 const SELF_UPDATE_TIMEOUT_MS = 3000;
+const TEMP_RUNTIME_STALE_MS = 24 * 60 * 60 * 1000;
 const PYTHON_ENTRYPOINTS = Object.freeze({
   kagent: "import sys; sys.argv = sys.argv[1:]; from kagent.cli import main; raise SystemExit(main())",
   "kagent-serve": "import sys; sys.argv = sys.argv[1:]; from kagent.service import main; raise SystemExit(main())"
@@ -21,6 +22,7 @@ const SECURE_FILESYSTEM_HELPER = String.raw`
 import ctypes
 import errno
 import os
+import re
 import secrets
 import stat
 import sys
@@ -174,23 +176,53 @@ def remove_directory_contents(directory_fd):
             os.unlink(name, dir_fd=directory_fd)
 
 
+def remove_tree_entry(parent_fd, name, target):
+    try:
+        directory_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            fail(f"refusing symbolic link or non-directory temporary runtime: {target}")
+        raise
+    try:
+        remove_directory_contents(directory_fd)
+    finally:
+        os.close(directory_fd)
+    os.rmdir(name, dir_fd=parent_fd)
+
+
 def remove_tree(target):
     parent_fd, name = managed_parent(target)
     try:
-        try:
-            directory_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
-        except FileNotFoundError:
-            return
-        try:
-            remove_directory_contents(directory_fd)
-        finally:
-            os.close(directory_fd)
-        os.rmdir(name, dir_fd=parent_fd)
+        remove_tree_entry(parent_fd, name, target)
     finally:
         os.close(parent_fd)
 
 
-def rename_no_replace(parent_fd, source_name, target_name, source_path, target_path, platform_name):
+def cleanup_temp_directories(parent_target, stale_before_ms):
+    parent_fd = open_directory(parent_target, False)
+    try:
+        for name in os.listdir(parent_fd):
+            if re.fullmatch(r"t[0-9a-f]{63}", name) is None:
+                continue
+            target = os.path.join(parent_target, name)
+            try:
+                value = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISLNK(value.st_mode):
+                fail(f"refusing symbolic link temporary runtime: {target}")
+            if not stat.S_ISDIR(value.st_mode):
+                fail(f"temporary runtime is not a directory: {target}")
+            if value.st_mtime * 1000 >= stale_before_ms:
+                continue
+            remove_tree_entry(parent_fd, name, target)
+    finally:
+        os.close(parent_fd)
+
+
+def rename_no_replace(parent_fd, source_name, target_name, platform_name):
     libc = ctypes.CDLL(None, use_errno=True)
     source = os.fsencode(source_name)
     target = os.fsencode(target_name)
@@ -204,12 +236,6 @@ def rename_no_replace(parent_fd, source_name, target_name, source_path, target_p
         rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
         rename.restype = ctypes.c_int
         result = rename(parent_fd, source, parent_fd, target, 1)
-    elif platform_name == "win32":
-        try:
-            os.rename(source_path, target_path)
-            return True
-        except FileExistsError:
-            return False
     else:
         fail(f"unsupported atomic publish platform: {platform_name}")
     if result == 0:
@@ -230,9 +256,7 @@ def publish_directory(temp_target, final_target, platform_name):
         temp_name = os.path.basename(temp_target)
         final_name = os.path.basename(final_target)
         directory_stat(parent_fd, temp_name, temp_target)
-        if rename_no_replace(
-            parent_fd, temp_name, final_name, temp_target, final_target, platform_name
-        ):
+        if rename_no_replace(parent_fd, temp_name, final_name, platform_name):
             return "published"
         directory_stat(parent_fd, final_name, final_target)
         return "exists"
@@ -252,6 +276,8 @@ try:
         sys.stdout.write(create_temp_directory(target))
     elif operation == "remove-tree":
         remove_tree(target)
+    elif operation == "cleanup-temp-directories":
+        cleanup_temp_directories(target, int(sys.argv[3]))
     elif operation == "publish-directory":
         platform_name = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else sys.platform
         sys.stdout.write(publish_directory(target, sys.argv[3], platform_name))
@@ -363,7 +389,14 @@ function writePrivateFile(filePath, body) {
   runSecureFilesystemOperation("write-file", path.resolve(filePath), body);
 }
 
+function assertSupportedPlatform(platform = process.platform) {
+  if (platform !== "darwin" && platform !== "linux") {
+    throw new Error(`kagent npm Python runtime supports only macOS and Linux, not ${platform}`);
+  }
+}
+
 function runSecureFilesystemOperation(operation, targetPath, body = "", extraArgs = []) {
+  assertSupportedPlatform();
   const python = findPython();
   const result = childProcess.spawnSync(
     python,
@@ -417,6 +450,15 @@ function createTempRuntime(finalDirectory) {
 
 function removeTempRuntime(directory) {
   runSecureFilesystemOperation("remove-tree", path.resolve(directory));
+}
+
+function cleanupStaleTempRuntimes(parentDirectory, staleMs = TEMP_RUNTIME_STALE_MS) {
+  runSecureFilesystemOperation(
+    "cleanup-temp-directories",
+    path.resolve(parentDirectory),
+    "",
+    [String(Date.now() - staleMs)]
+  );
 }
 
 function publishRuntime(tempDirectory, finalDirectory, platformOverride = "") {
@@ -879,12 +921,13 @@ function runtimeState(venvDir, expectedMarker, pythonWorks = commandWorks) {
 }
 
 function ensureVenv(root, version, options = {}) {
+  const platform = options.platform || process.platform;
+  assertSupportedPlatform(platform);
   const python = options.python || findPython();
   const identity = options.pythonIdentity || pythonRuntimeIdentity(python);
   const dependencyFingerprint = dependencyHash(root);
   const pythonIdentityHash = sha256(JSON.stringify(identity));
   const cache = options.cacheRoot || ensureCacheRoot();
-  const platform = options.platform || process.platform;
   const arch = options.arch || process.arch;
   const venvDir = runtimeCacheDirectory(cache, identity, platform, arch, dependencyFingerprint);
   const ensureDirectory = options.ensurePrivateDirectory || ensurePrivateDirectory;
@@ -897,6 +940,10 @@ function ensureVenv(root, version, options = {}) {
     return venvDir;
   }
 
+  cleanupStaleTempRuntimes(path.dirname(venvDir), options.tempRuntimeStaleMs);
+  if (runtimeState(venvDir, expectedMarker, pythonWorks) === "valid") {
+    return venvDir;
+  }
   const tempDir = createTempRuntime(venvDir);
   try {
     process.stderr.write(`kagent: preparing Python runtime in ${tempDir}\n`);

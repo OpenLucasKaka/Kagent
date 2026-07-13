@@ -3108,7 +3108,26 @@ const options = {
 };
 
 writePackage(packageRoot, "0.1.0", "langgraph>=0.6,<0.7", "SOURCE = 1\n");
+const windowsCache = path.join(testRoot, "windows-cache");
+assert.throws(() => _internals.ensureVenv(packageRoot, "0.1.0", {
+  ...options, cacheRoot: windowsCache, platform: "win32",
+}), /supports only macOS and Linux/);
+assert.equal(fs.existsSync(windowsCache), false);
+
+const initialParent = path.dirname(finalPath(packageRoot));
+const oldTemp = path.join(initialParent, `t${"a".repeat(63)}`);
+const freshTemp = path.join(initialParent, `t${"b".repeat(63)}`);
+const unrelated = path.join(initialParent, "keep-me");
+for (const directory of [oldTemp, freshTemp, unrelated]) {
+  fs.mkdirSync(directory, {recursive: true});
+}
+fs.writeFileSync(path.join(oldTemp, "partial"), "old");
+const oldTime = new Date(Date.now() - (25 * 60 * 60 * 1000));
+fs.utimesSync(oldTemp, oldTime, oldTime);
 const firstRuntime = _internals.ensureVenv(packageRoot, "0.1.0", options);
+assert.equal(fs.existsSync(oldTemp), false);
+assert.equal(fs.existsSync(freshTemp), true);
+assert.equal(fs.existsSync(unrelated), true);
 assert.equal(firstRuntime, finalPath(packageRoot));
 assert.deepEqual(calls.map((call) => call.args), [
   ["-m", "venv", calls[0].args.at(-1)],
@@ -3167,6 +3186,23 @@ assert.throws(() => _internals.ensureVenv(packageRoot, "0.4.0", {
 assert.equal(fs.existsSync(failedTemp), false);
 assert.equal(fs.existsSync(failedFinal), false);
 assert.equal(fs.existsSync(firstRuntime), true);
+
+writePackage(packageRoot, "0.4.1", "langgraph>=0.85,<0.95", "SOURCE = 41\n");
+const symlinkTempFinal = finalPath(packageRoot);
+const symlinkTempParent = path.dirname(symlinkTempFinal);
+const tempOutside = path.join(testRoot, "temp-outside");
+fs.mkdirSync(tempOutside, {recursive: true});
+fs.writeFileSync(path.join(tempOutside, "sentinel"), "safe");
+fs.mkdirSync(symlinkTempParent, {recursive: true});
+const tempSymlink = path.join(symlinkTempParent, `t${"c".repeat(63)}`);
+fs.symlinkSync(tempOutside, tempSymlink, "dir");
+assert.throws(
+  () => _internals.ensureVenv(packageRoot, "0.4.1", options),
+  /symbolic link.*temporary runtime/,
+);
+assert.equal(fs.readFileSync(path.join(tempOutside, "sentinel"), "utf8"), "safe");
+assert.equal(fs.lstatSync(tempSymlink).isSymbolicLink(), true);
+assert.equal(fs.existsSync(symlinkTempFinal), false);
 
 writePackage(packageRoot, "0.5.0", "langgraph>=0.9,<1", "SOURCE = 5\n");
 const maliciousFinal = finalPath(packageRoot);

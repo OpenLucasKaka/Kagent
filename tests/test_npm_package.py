@@ -3124,8 +3124,32 @@ assert.deepEqual(calls.at(-1).args, [
 const callCountAfterSourceInstall = calls.length;
 assert.equal(_internals.ensureVenv(packageRoot, "0.2.0", options), firstVenv);
 assert.equal(calls.length, callCountAfterSourceInstall);
+
+const markerPath = path.join(firstVenv, ".kagent-node-install.json");
+const markerBeforeFailedSourceInstall = fs.readFileSync(markerPath, "utf8");
+writePackage("0.3.0", "langgraph>=0.6,<0.7", "SOURCE = 3\n");
+assert.throws(() => _internals.ensureVenv(packageRoot, "0.3.0", {
+  ...options,
+  runChecked(command, args) {
+    options.runChecked(command, args);
+    if (args.includes("--no-deps")) {
+      throw new Error("source-only install failed");
+    }
+  },
+}), /source-only install failed/);
+assert.deepEqual(calls.at(-1).args, [
+  "-m", "pip", "install", "--no-deps", "--disable-pip-version-check", "--quiet", packageRoot,
+]);
+assert.equal(fs.readFileSync(markerPath, "utf8"), markerBeforeFailedSourceInstall);
+const callCountBeforeSourceRetry = calls.length;
+assert.equal(_internals.ensureVenv(packageRoot, "0.3.0", options), firstVenv);
+assert.equal(calls.length, callCountBeforeSourceRetry + 1);
+assert.deepEqual(calls.at(-1).args, [
+  "-m", "pip", "install", "--no-deps", "--disable-pip-version-check", "--quiet", packageRoot,
+]);
+
 fs.unlinkSync(path.join(firstVenv, "bin", "python"));
-_internals.ensureVenv(packageRoot, "0.2.0", options);
+_internals.ensureVenv(packageRoot, "0.3.0", options);
 assert.deepEqual(calls.slice(-2).map((call) => call.args), [
   ["-m", "venv", "--clear", firstVenv],
   ["-m", "pip", "install", "--disable-pip-version-check", "--quiet", packageRoot],
@@ -3143,6 +3167,21 @@ const otherPlatformVenv = _internals.ensureVenv(packageRoot, "0.2.0", {
   platform: "linux",
 });
 assert.notEqual(otherPlatformVenv, dependencyVenv);
+const otherArchVenv = _internals.ensureVenv(packageRoot, "0.2.0", {
+  ...options,
+  arch: "x64",
+});
+assert.notEqual(otherArchVenv, dependencyVenv);
+const otherMinorVenv = _internals.ensureVenv(packageRoot, "0.2.0", {
+  ...options,
+  pythonIdentity: {implementation: "cpython", major: 3, minor: 11},
+});
+assert.notEqual(otherMinorVenv, dependencyVenv);
+const otherMajorVenv = _internals.ensureVenv(packageRoot, "0.2.0", {
+  ...options,
+  pythonIdentity: {implementation: "cpython", major: 4, minor: 0},
+});
+assert.notEqual(otherMajorVenv, dependencyVenv);
 
 writePackage("0.2.0", "langgraph>=0.8,<0.9", "SOURCE = 2\n");
 let failedVenv;
@@ -3157,6 +3196,20 @@ assert.throws(() => _internals.ensureVenv(packageRoot, "0.2.0", {
   },
 }), /pip failed/);
 assert.equal(fs.existsSync(path.join(failedVenv, ".kagent-node-install.json")), false);
+
+writePackage("0.2.0", "langgraph>=0.7,<0.8", "SOURCE = 2\n");
+const alternatePackageRoot = path.join(testRoot, "alternate-package");
+fs.cpSync(packageRoot, alternatePackageRoot, {recursive: true});
+const callsBeforeRootChange = calls.length;
+const rootChangedVenv = _internals.ensureVenv(alternatePackageRoot, "0.2.0", options);
+assert.equal(rootChangedVenv, dependencyVenv);
+assert.equal(calls.length, callsBeforeRootChange + 1);
+assert.deepEqual(calls.at(-1).args, [
+  "-m", "pip", "install", "--no-deps", "--disable-pip-version-check", "--quiet",
+  alternatePackageRoot,
+]);
+assert.equal(_internals.ensureVenv(alternatePackageRoot, "0.2.0", options), dependencyVenv);
+assert.equal(calls.length, callsBeforeRootChange + 1);
 """
 
     completed = subprocess.run(

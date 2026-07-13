@@ -14,10 +14,9 @@ const GITHUB_HEAD_URL = "https://api.github.com/repos/OpenLucasKaka/Kagent/commi
 const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/Kagent";
 const SELF_UPDATE_TIMEOUT_MS = 3000;
 const PYTHON_ENTRYPOINTS = Object.freeze({
-  kagent: ["kagent.cli", "main"],
-  "kagent-serve": ["kagent.service", "main"]
+  kagent: "import sys; sys.argv = sys.argv[1:]; from kagent.cli import main; raise SystemExit(main())",
+  "kagent-serve": "import sys; sys.argv = sys.argv[1:]; from kagent.service import main; raise SystemExit(main())"
 });
-const PYTHON_ENTRYPOINT_CODE = "import importlib, sys; command, module, function, *arguments = sys.argv; sys.argv = [command] + arguments; raise SystemExit(getattr(importlib.import_module(module), function)())";
 const SECURE_FILESYSTEM_HELPER = String.raw`
 import ctypes
 import errno
@@ -191,27 +190,28 @@ def remove_tree(target):
         os.close(parent_fd)
 
 
-def rename_no_replace(parent_fd, source_name, target_name):
+def rename_no_replace(parent_fd, source_name, target_name, source_path, target_path, platform_name):
     libc = ctypes.CDLL(None, use_errno=True)
     source = os.fsencode(source_name)
     target = os.fsencode(target_name)
-    if sys.platform == "darwin":
+    if platform_name == "darwin":
         rename = libc.renameatx_np
         rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
         rename.restype = ctypes.c_int
         result = rename(parent_fd, source, parent_fd, target, 0x00000004)
-    elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+    elif platform_name.startswith("linux") and hasattr(libc, "renameat2"):
         rename = libc.renameat2
         rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
         rename.restype = ctypes.c_int
         result = rename(parent_fd, source, parent_fd, target, 1)
-    else:
+    elif platform_name == "win32":
         try:
-            os.stat(target_name, dir_fd=parent_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            os.rename(source_name, target_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            os.rename(source_path, target_path)
             return True
-        return False
+        except FileExistsError:
+            return False
+    else:
+        fail(f"unsupported atomic publish platform: {platform_name}")
     if result == 0:
         return True
     error_number = ctypes.get_errno()
@@ -220,7 +220,7 @@ def rename_no_replace(parent_fd, source_name, target_name):
     raise OSError(error_number, os.strerror(error_number))
 
 
-def publish_directory(temp_target, final_target):
+def publish_directory(temp_target, final_target, platform_name):
     temp_parent = os.path.dirname(os.path.normpath(temp_target))
     final_parent = os.path.dirname(os.path.normpath(final_target))
     if temp_parent != final_parent:
@@ -230,7 +230,9 @@ def publish_directory(temp_target, final_target):
         temp_name = os.path.basename(temp_target)
         final_name = os.path.basename(final_target)
         directory_stat(parent_fd, temp_name, temp_target)
-        if rename_no_replace(parent_fd, temp_name, final_name):
+        if rename_no_replace(
+            parent_fd, temp_name, final_name, temp_target, final_target, platform_name
+        ):
             return "published"
         directory_stat(parent_fd, final_name, final_target)
         return "exists"
@@ -251,7 +253,8 @@ try:
     elif operation == "remove-tree":
         remove_tree(target)
     elif operation == "publish-directory":
-        sys.stdout.write(publish_directory(target, sys.argv[3]))
+        platform_name = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else sys.platform
+        sys.stdout.write(publish_directory(target, sys.argv[3], platform_name))
     else:
         fail(f"unsupported secure filesystem operation: {operation}")
 except BaseException as error:
@@ -416,12 +419,12 @@ function removeTempRuntime(directory) {
   runSecureFilesystemOperation("remove-tree", path.resolve(directory));
 }
 
-function publishRuntime(tempDirectory, finalDirectory) {
+function publishRuntime(tempDirectory, finalDirectory, platformOverride = "") {
   return runSecureFilesystemOperation(
     "publish-directory",
     path.resolve(tempDirectory),
     "",
-    [path.resolve(finalDirectory)]
+    [path.resolve(finalDirectory), platformOverride]
   );
 }
 
@@ -930,11 +933,11 @@ function pythonEnvironment(root, env = process.env) {
 }
 
 function pythonEntrypointArgs(commandName, args) {
-  const target = PYTHON_ENTRYPOINTS[commandName];
-  if (!target) {
+  const code = PYTHON_ENTRYPOINTS[commandName];
+  if (!code) {
     throw new Error(`unsupported Python entrypoint: ${commandName}`);
   }
-  return ["-c", PYTHON_ENTRYPOINT_CODE, commandName, target[0], target[1]].concat(args || []);
+  return ["-c", code, commandName].concat(args || []);
 }
 
 function spawnEntrypoint(venvDir, root, commandName, args) {
@@ -1014,8 +1017,10 @@ module.exports = {
     pythonEnvironment,
     pythonEntrypointArgs,
     pythonRuntimeIdentity,
+    publishRuntime,
     readSelfUpdateState,
     shouldCheckSelfUpdate,
+    spawnEntrypoint,
     writeSelfUpdateState
   }
 };

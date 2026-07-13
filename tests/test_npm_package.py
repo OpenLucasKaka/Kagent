@@ -3121,9 +3121,10 @@ assert.equal(marker.schema, 1);
 assert.equal(marker.dependencyHash, _internals.dependencyHash(packageRoot));
 assert.equal(marker.createdFromVersion, "0.1.0");
 assert.equal(typeof marker.pythonIdentityHash, "string");
-assert.deepEqual(_internals.pythonEntrypointArgs("kagent", ["--help"]).slice(-4), [
-  "kagent", "kagent.cli", "main", "--help",
-]);
+const helpArgs = _internals.pythonEntrypointArgs("kagent", ["--help"]);
+assert.deepEqual(helpArgs.slice(-2), ["kagent", "--help"]);
+assert.match(helpArgs[1], /from kagent\.cli import main/);
+assert.equal(helpArgs[1].includes("importlib"), false);
 assert.throws(
   () => _internals.pythonEntrypointArgs("unknown", []),
   /unsupported Python entrypoint/,
@@ -3184,6 +3185,17 @@ fs.mkdirSync(outside);
 fs.symlinkSync(outside, symlinkFinal, "dir");
 assert.throws(() => _internals.ensureVenv(packageRoot, "0.6.0", options), /symbolic link/);
 assert.equal(fs.lstatSync(symlinkFinal).isSymbolicLink(), true);
+
+const unsupportedParent = path.join(testRoot, "unsupported-publish");
+const unsupportedTemp = path.join(unsupportedParent, "temp");
+const unsupportedFinal = path.join(unsupportedParent, "final");
+fs.mkdirSync(unsupportedTemp, {recursive: true});
+assert.throws(
+  () => _internals.publishRuntime(unsupportedTemp, unsupportedFinal, "freebsd"),
+  /unsupported atomic publish platform/,
+);
+assert.equal(fs.existsSync(unsupportedTemp), true);
+assert.equal(fs.existsSync(unsupportedFinal), false);
 """
 
     completed = subprocess.run(
@@ -3194,6 +3206,66 @@ assert.equal(fs.lstatSync(symlinkFinal).isSymbolicLink(), true);
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_npm_runner_entrypoint_invokes_fixed_target_with_original_argv(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    package_root = tmp_path / "package"
+    package = package_root / "src" / "kagent"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "cli.py").write_text(
+        "import json, os, sys\n"
+        "def main():\n"
+        "    with open(os.environ['OUTPUT'], 'w', encoding='utf-8') as stream:\n"
+        "        json.dump(sys.argv, stream)\n"
+        "    return 0\n",
+        encoding="utf-8",
+    )
+    venv = tmp_path / "venv"
+    python_path = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    python_path.parent.mkdir(parents=True)
+    python_path.symlink_to(sys.executable)
+    output = tmp_path / "argv.json"
+    script = r"""
+const { _internals } = require("./npm/lib/python-runner");
+_internals.spawnEntrypoint(process.argv[1], process.argv[2], "kagent", ["alpha", "--flag"]);
+"""
+    env = {**os.environ, "OUTPUT": str(output)}
+    completed = subprocess.run(
+        [node, "-e", script, str(venv), str(package_root)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(output.read_text(encoding="utf-8")) == ["kagent", "alpha", "--flag"]
+
+    args_script = (
+        'const { _internals } = require("./npm/lib/python-runner");'
+        'const args = _internals.pythonEntrypointArgs("kagent", ["--help"]);'
+        "process.stdout.write(JSON.stringify(args));"
+    )
+    args = json.loads(
+        subprocess.run(
+            [node, "-e", args_script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    help_env = {**os.environ, "PYTHONPATH": str(Path("src").resolve())}
+    help_result = subprocess.run(
+        [sys.executable, *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=help_env,
+        timeout=15,
+    )
+    assert help_result.returncode == 0, help_result.stderr
+    assert "AttributeError" not in help_result.stderr
 
 
 def test_npm_runner_concurrent_builds_publish_one_immutable_runtime(tmp_path):

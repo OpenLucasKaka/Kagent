@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.shouldRenderInteractivePrompt = shouldRenderInteractivePrompt;
 exports.KagentInkApp = KagentInkApp;
 exports.isSessionCommandInput = isSessionCommandInput;
 const approval_choice_1 = require("./approval-choice");
@@ -11,6 +12,9 @@ const provider_setup_1 = require("./provider-setup");
 const terminal_input_1 = require("./terminal-input");
 const transcript_1 = require("./transcript");
 const ui_components_1 = require("./ui-components");
+function shouldRenderInteractivePrompt(status, input = "") {
+    return status === "idle" || status === "approval" || status === "error" || input !== "";
+}
 function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.createRuntimeSessionClient, }) {
     const { Box, Text } = Ink;
     const app = Ink.useApp();
@@ -29,6 +33,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     const commandMenu = (0, commands_1.updateCommandMenu)(commandCatalog, editor.value, selectedCommand);
     const terminalInputHandler = React.useRef(() => undefined);
     const activityStartedAt = React.useRef(Date.now());
+    const submitInFlight = React.useRef(false);
     terminalInputHandler.current = handleTerminalInput;
     function dispatchRuntime(action) {
         setRuntimeState((current) => (0, app_state_1.appRuntimeReducer)(current, action));
@@ -73,6 +78,11 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         setApprovalChoice("deny");
         setShowApprovalDetails(false);
     }, [React, approval?.action_id]);
+    React.useEffect(() => {
+        if (status === "idle" || status === "error") {
+            submitInFlight.current = false;
+        }
+    }, [React, status]);
     React.useEffect(() => {
         if (status !== "thinking" &&
             status !== "cancelling" &&
@@ -347,6 +357,9 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         dispatchRuntime({ type: "runtime_event", channel: "provider", event });
     }
     function submit(value = "") {
+        if (submitInFlight.current) {
+            return;
+        }
         const source = value
             ? {
                 ...editor,
@@ -363,6 +376,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             app.exit();
             return;
         }
+        submitInFlight.current = true;
         setEditor(submission.state);
         setSelectedCommand(null);
         const command = isSessionCommandInput(goal);
@@ -463,6 +477,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         reservedRows: layout.reservedRows + (transcriptOffset > 0 ? 1 : 0),
     }, transcriptOffset);
     const promptDisabled = status === "cancelling" || status === "approval";
+    const promptVisible = shouldRenderInteractivePrompt(status, editor.value);
     const promptCursorControl = (0, ui_components_1.createPromptTerminalCursorControl)({
         input: editor.value,
         cursor: editor.cursor,
@@ -510,7 +525,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             limit: layout.commandLimit,
             menu: commandMenu,
         })
-        : null, status === "starting"
+        : null, !promptVisible
         ? null
         : React.createElement(React.Fragment, null, React.createElement(ui_components_1.PromptLine, {
             React,

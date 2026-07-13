@@ -6,6 +6,8 @@
 
 - Hid the main prompt placeholder while IME-safe cursor rendering is active so
   macOS Chinese preedit text no longer overlaps `Ask kagent`.
+- Suppressed the empty prompt while a run is thinking and guarded against
+  duplicate Enter events submitting the same prompt twice before React rerenders.
 
 ## 0.1.9 - 2026-07-13
 

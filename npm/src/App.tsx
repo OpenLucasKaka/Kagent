@@ -61,6 +61,7 @@ import {
   TranscriptPosition,
   createPromptTerminalCursorControl,
   createTerminalLayout,
+  type AgentStatus,
   type PromptTerminalCursorControl,
 } from "./ui-components";
 
@@ -82,6 +83,13 @@ type AppProps = {
   Ink: InkApi;
   runtimeSessionFactory?: typeof createRuntimeSessionClient;
 };
+
+export function shouldRenderInteractivePrompt(
+  status: AgentStatus,
+  input = "",
+): boolean {
+  return status === "idle" || status === "approval" || status === "error" || input !== "";
+}
 
 export function KagentInkApp({
   React,
@@ -106,6 +114,7 @@ export function KagentInkApp({
   const commandMenu = updateCommandMenu(commandCatalog, editor.value, selectedCommand);
   const terminalInputHandler = React.useRef<TerminalInputHandler>(() => undefined);
   const activityStartedAt = React.useRef(Date.now());
+  const submitInFlight = React.useRef(false);
   terminalInputHandler.current = handleTerminalInput;
 
   function dispatchRuntime(action: AppRuntimeAction): void {
@@ -157,6 +166,12 @@ export function KagentInkApp({
     setApprovalChoice("deny");
     setShowApprovalDetails(false);
   }, [React, approval?.action_id]);
+
+  React.useEffect(() => {
+    if (status === "idle" || status === "error") {
+      submitInFlight.current = false;
+    }
+  }, [React, status]);
 
   React.useEffect(() => {
     if (
@@ -459,6 +474,9 @@ export function KagentInkApp({
   }
 
   function submit(value = ""): void {
+    if (submitInFlight.current) {
+      return;
+    }
     const source = value
       ? {
           ...editor,
@@ -475,6 +493,7 @@ export function KagentInkApp({
       app.exit();
       return;
     }
+    submitInFlight.current = true;
     setEditor(submission.state);
     setSelectedCommand(null);
     const command = isSessionCommandInput(goal);
@@ -589,6 +608,7 @@ export function KagentInkApp({
     transcriptOffset,
   );
   const promptDisabled = status === "cancelling" || status === "approval";
+  const promptVisible = shouldRenderInteractivePrompt(status, editor.value);
   const promptCursorControl = createPromptTerminalCursorControl({
     input: editor.value,
     cursor: editor.cursor,
@@ -646,7 +666,7 @@ export function KagentInkApp({
           menu: commandMenu,
         })
       : null,
-    status === "starting"
+    !promptVisible
       ? null
       : React.createElement(
           React.Fragment,

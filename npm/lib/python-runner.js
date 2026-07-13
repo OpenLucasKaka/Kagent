@@ -3,16 +3,10 @@
 const childProcess = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
-const https = require("https");
 const path = require("path");
-const readline = require("readline");
 
 const { kagentCachePath, resolveKagentHome } = require("./kagent-home");
 
-const GITHUB_PACKAGE_JSON_URL = "https://raw.githubusercontent.com/OpenLucasKaka/Kagent/main/package.json";
-const GITHUB_HEAD_URL = "https://api.github.com/repos/OpenLucasKaka/Kagent/commits/main";
-const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/Kagent";
-const SELF_UPDATE_TIMEOUT_MS = 3000;
 const TEMP_RUNTIME_STALE_MS = 24 * 60 * 60 * 1000;
 const PYTHON_ENTRYPOINTS = Object.freeze({
   kagent: "import sys; sys.argv = sys.argv[1:]; from kagent.cli import main; raise SystemExit(main())",
@@ -364,7 +358,7 @@ function metadataCacheRoot(env = process.env) {
   return path.dirname(kagentCachePath("npm-python", env));
 }
 
-function selfUpdateStatePath(env = process.env) {
+function updateStatePath(env = process.env) {
   return path.join(metadataCacheRoot(env), "npm-self-update.json");
 }
 
@@ -539,217 +533,23 @@ function runChecked(command, args, options) {
   }
 }
 
-function envFlagEnabled(value) {
-  if (value === undefined || value === null || value === "") {
-    return false;
-  }
-  return !["0", "false", "no"].includes(String(value).toLowerCase());
-}
-
-function shouldCheckSelfUpdate(env, stdin) {
-  return !envFlagEnabled(env.KAGENT_NO_SELF_UPDATE) && Boolean(stdin.isTTY);
-}
-
-function parseVersion(version) {
-  const [mainPart, prerelease = ""] = String(version).replace(/^v/, "").split("-", 2);
-  const parts = mainPart.split(".").map((part) => {
-    const value = Number(part);
-    return Number.isInteger(value) && value >= 0 ? value : 0;
-  });
-  while (parts.length < 3) {
-    parts.push(0);
-  }
-  return {
-    parts: parts.slice(0, 3),
-    prerelease
-  };
-}
-
-function isNewerVersion(candidate, current) {
-  const candidateVersion = parseVersion(candidate);
-  const currentVersion = parseVersion(current);
-  for (let index = 0; index < 3; index += 1) {
-    if (candidateVersion.parts[index] > currentVersion.parts[index]) {
-      return true;
-    }
-    if (candidateVersion.parts[index] < currentVersion.parts[index]) {
-      return false;
-    }
-  }
-  if (candidateVersion.prerelease === currentVersion.prerelease) {
-    return false;
-  }
-  if (candidateVersion.prerelease === "") {
-    return currentVersion.prerelease !== "";
-  }
-  if (currentVersion.prerelease === "") {
-    return false;
-  }
-  return candidateVersion.prerelease > currentVersion.prerelease;
-}
-
-function fetchText(url, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { "User-Agent": "kagent-self-update" } }, (response) => {
-      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        response.resume();
-        fetchText(response.headers.location, timeoutMs).then(resolve, reject);
-        return;
-      }
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`GitHub returned HTTP ${response.statusCode}`));
-        return;
-      }
-      response.setEncoding("utf8");
-      let body = "";
-      response.on("data", (chunk) => {
-        body += chunk;
-      });
-      response.on("end", () => {
-        resolve(body);
-      });
-    });
-    request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error("GitHub update check timed out"));
-    });
-    request.on("error", reject);
-  });
-}
-
-async function fetchLatestGitHubVersion() {
-  const body = await fetchText(GITHUB_PACKAGE_JSON_URL, SELF_UPDATE_TIMEOUT_MS);
-  const packageJson = JSON.parse(body);
-  if (typeof packageJson.version !== "string" || packageJson.version.trim() === "") {
-    throw new Error("GitHub package.json does not declare a version");
-  }
-  return packageJson.version;
-}
-
-async function fetchLatestGitHubHeadSha() {
-  const body = await fetchText(GITHUB_HEAD_URL, SELF_UPDATE_TIMEOUT_MS);
-  const payload = JSON.parse(body);
-  const sha = String(payload.sha || "").trim();
-  if (!sha) {
-    throw new Error("GitHub commit response does not declare a sha");
-  }
-  return sha;
-}
-
-async function fetchLatestGitHubUpdateInfo() {
-  const version = await fetchLatestGitHubVersion();
-  const headSha = await fetchLatestGitHubHeadSha();
-  return { version, headSha };
-}
-
-function readSelfUpdateState(env = process.env) {
-  const statePath = selfUpdateStatePath(env);
+function readUpdateState(env = process.env) {
+  const statePath = updateStatePath(env);
   rejectSymlinks(statePath);
   if (!privateFileStat(statePath)) {
-    return {};
+    return null;
   }
   try {
     const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-    return state && typeof state === "object" ? state : {};
+    return state && typeof state === "object" ? state : null;
   } catch (_error) {
-    return {};
+    return null;
   }
 }
 
-function writeSelfUpdateState(state, env = process.env) {
+function writeUpdateState(state, env = process.env) {
   const statePath = path.join(ensureMetadataCacheRoot(env), "npm-self-update.json");
   writePrivateFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
-}
-
-function latestSelfUpdateState(latest, extra) {
-  return Object.assign({
-    remoteHeadSha: latest.headSha,
-    remoteVersion: latest.version,
-    checkedAt: new Date().toISOString()
-  }, extra || {});
-}
-
-function hasSelfUpdate(latest, currentVersion, _state) {
-  return isNewerVersion(latest.version, currentVersion);
-}
-
-function promptForSelfUpdate(currentVersion, latest) {
-  const shortSha = latest.headSha ? ` (${latest.headSha.slice(0, 7)})` : "";
-  const prompt =
-    `kagent ${latest.version}${shortSha} is available. Current version: ${currentVersion}.\n` +
-    "Update now? [Y/n] ";
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stderr
-    });
-    rl.question(prompt, (answer) => {
-      rl.close();
-      const normalized = String(answer || "").trim().toLowerCase();
-      resolve(normalized === "" || normalized === "y" || normalized === "yes");
-    });
-  });
-}
-
-function restartEntrypoint(commandName, args) {
-  const result = childProcess.spawnSync(commandName, args, {
-    env: process.env,
-    stdio: "inherit",
-    shell: process.platform === "win32"
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  process.exit(result.status === null ? 1 : result.status);
-}
-
-async function maybeSelfUpdate(root, currentVersion, commandName, args) {
-  if (envFlagEnabled(process.env.KAGENT_NO_SELF_UPDATE) || !process.stdin.isTTY) {
-    return false;
-  }
-
-  let latest;
-  let state;
-  try {
-    latest = await fetchLatestGitHubUpdateInfo();
-    state = readSelfUpdateState();
-  } catch (error) {
-    process.stderr.write(`kagent: update check skipped: ${error.message}\n`);
-    return false;
-  }
-
-  if (!hasSelfUpdate(latest, currentVersion, state)) {
-    writeSelfUpdateState(latestSelfUpdateState(latest));
-    return false;
-  }
-
-  writeSelfUpdateState(latestSelfUpdateState(latest, {
-    prompted: "true"
-  }));
-
-  if (!(await promptForSelfUpdate(currentVersion, latest))) {
-    writeSelfUpdateState(latestSelfUpdateState(latest, {
-      skipped: "true"
-    }));
-    return false;
-  }
-
-  process.stderr.write(`kagent: installing ${GITHUB_INSTALL_SPEC}\n`);
-  try {
-    runChecked("npm", ["install", "-g", GITHUB_INSTALL_SPEC], { cwd: root });
-  } catch (error) {
-    writeSelfUpdateState(latestSelfUpdateState(latest, {
-      failed: "true"
-    }));
-    process.stderr.write(`kagent: update failed: ${error.message}; continuing with ${currentVersion}\n`);
-    return false;
-  }
-  writeSelfUpdateState(latestSelfUpdateState(latest, {
-    installed: "true"
-  }));
-  process.stderr.write("kagent: update installed; restarting\n");
-  restartEntrypoint(commandName, args);
-  return true;
 }
 
 function venvPythonPath(venvDir) {
@@ -1054,14 +854,11 @@ function spawnPythonModule(moduleName, args, options) {
   );
 }
 
-async function runPythonEntrypoint(commandName, args) {
+function runPythonEntrypoint(commandName, args) {
   try {
     const root = packageRoot();
     const version = readPackageVersion(root);
     if (maybePrintNodeHandledOutput(commandName, args, version)) {
-      return;
-    }
-    if (await maybeSelfUpdate(root, version, commandName, args)) {
       return;
     }
     const venvDir = ensureVenv(root, version);
@@ -1082,17 +879,14 @@ module.exports = {
     ensureCacheRoot,
     ensurePrivateDirectory,
     ensureVenv,
-    hasSelfUpdate,
-    isNewerVersion,
     metadataCacheRoot,
     maybePrintNodeHandledOutput,
     pythonEnvironment,
     pythonEntrypointArgs,
     pythonRuntimeIdentity,
     publishRuntime,
-    readSelfUpdateState,
-    shouldCheckSelfUpdate,
+    readUpdateState,
     spawnEntrypoint,
-    writeSelfUpdateState
+    writeUpdateState
   }
 };

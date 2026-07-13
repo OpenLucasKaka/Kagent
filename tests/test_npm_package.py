@@ -1809,6 +1809,9 @@ main().catch((error) => {
         "KAGENT_TEST_PYTHON": sys.executable,
         "KAGENT_LLM_CONFIG_PATH": str(tmp_path / "provider.json"),
         "KAGENT_SESSION_MEMORY_PATH": str(tmp_path / "session-memory.json"),
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, [str(Path.cwd() / "src"), os.environ.get("PYTHONPATH")])
+        ),
     }
     for name in (
         "KAGENT_LLM_PROVIDER",
@@ -2692,16 +2695,19 @@ def test_npm_bin_scripts_are_executable_node_wrappers():
     for script in (Path("npm/bin/kagent.js"), Path("npm/bin/kagent-serve.js")):
         text = script.read_text(encoding="utf-8")
         assert text.startswith("#!/usr/bin/env node\n")
-        assert "runPythonEntrypoint" in text
+    assert "launchKagent" in Path("npm/bin/kagent.js").read_text(encoding="utf-8")
+    assert "runPythonEntrypoint" in Path("npm/bin/kagent-serve.js").read_text(
+        encoding="utf-8"
+    )
 
 
-def test_npm_kagent_bin_prefers_ink_tui_with_classic_fallback():
+def test_npm_kagent_bin_is_a_thin_launcher_wrapper():
     text = Path("npm/bin/kagent.js").read_text(encoding="utf-8")
 
-    assert "runKagentInk" in text
-    assert "shouldRunInkTui" in text
-    assert "--classic" in text
-    assert "runPythonEntrypoint(\"kagent\", classicArgs(args))" in text
+    assert 'require("../lib/launcher")' in text
+    assert "launchKagent(process.argv.slice(2))" in text
+    assert "runKagentInk" not in text
+    assert "runPythonEntrypoint" not in text
 
 
 def test_npm_ink_runner_uses_built_ink_app():
@@ -2787,7 +2793,7 @@ for (const directory of [home, cache, runtime]) {
 
 const statePath = path.join(cache, "npm-self-update.json");
 fs.writeFileSync(statePath, "{}\n", {mode: 0o644});
-_internals.writeSelfUpdateState({checked: true}, {KAGENT_HOME: home});
+_internals.writeUpdateState({checked: true}, {KAGENT_HOME: home});
 assert.equal(fs.statSync(statePath).mode & 0o777, 0o600);
 
 const explicit = path.join(root, "explicit-venv");
@@ -2853,7 +2859,7 @@ function rejectsSymlink(name, prepare, action) {
 rejectsSymlink("home-link", (testRoot) => {
   fs.symlinkSync(target, path.join(testRoot, "home"));
 }, (testRoot) => {
-  assert.throws(() => _internals.readSelfUpdateState({
+  assert.throws(() => _internals.readUpdateState({
     KAGENT_HOME: path.join(testRoot, "home"),
   }), /symbolic link/);
   _internals.ensureCacheRoot({KAGENT_HOME: path.join(testRoot, "home")});
@@ -2887,10 +2893,10 @@ rejectsSymlink("state-link", (testRoot) => {
   fs.mkdirSync(cache, {recursive: true});
   fs.symlinkSync(path.join(target, "state.json"), path.join(cache, "npm-self-update.json"));
 }, (testRoot) => {
-  assert.throws(() => _internals.readSelfUpdateState({
+  assert.throws(() => _internals.readUpdateState({
     KAGENT_HOME: path.join(testRoot, "home"),
   }), /symbolic link/);
-  _internals.writeSelfUpdateState({checked: true}, {
+  _internals.writeUpdateState({checked: true}, {
     KAGENT_HOME: path.join(testRoot, "home"),
   });
 });
@@ -3014,7 +3020,7 @@ const fileResult = replaceParentDuringOperation({
   name: "file-race",
   replaceOnMkdir: {parent: fileCache, path: statePath},
   replaceOnHelper: {action: "write-file", path: statePath},
-  action: () => _internals.writeSelfUpdateState({checked: true}, {KAGENT_HOME: fileHome}),
+  action: () => _internals.writeUpdateState({checked: true}, {KAGENT_HOME: fileHome}),
 });
 assert.equal(fs.existsSync(path.join(fileResult.outside, "npm-self-update.json")), false);
 const displacedStatePath = path.join(fileResult.displaced, "npm-self-update.json");
@@ -3404,23 +3410,22 @@ process.stdout.write(runtime);
     assert [item.name for item in final_runtime.parent.iterdir()] == [final_runtime.name]
 
 
-def test_npm_runner_checks_github_for_interactive_self_update():
+def test_npm_launcher_owns_registry_updates_and_runner_only_exposes_safe_state():
     runner = Path("npm/lib/python-runner.js").read_text(encoding="utf-8")
+    launcher = Path("npm/src/launcher.ts").read_text(encoding="utf-8")
 
-    assert "https://raw.githubusercontent.com/OpenLucasKaka/Kagent/main/package.json" in runner
-    assert "https://api.github.com/repos/OpenLucasKaka/Kagent/commits/main" in runner
-    assert "KAGENT_NO_SELF_UPDATE" in runner
-    assert "process.stdin.isTTY" in runner
-    assert "Update now? [Y/n]" in runner
-    assert "readline.createInterface" in runner
-    assert "fs.readSync(0" not in runner
-    assert 'const GITHUB_INSTALL_SPEC = "github:OpenLucasKaka/Kagent"' in runner
-    assert '"npm", ["install", "-g", GITHUB_INSTALL_SPEC]' in runner
-    assert "selfUpdateStatePath" in runner
-    assert 'prompted: "true"' in runner
-    assert runner.index('prompted: "true"') < runner.index(
-        "if (!(await promptForSelfUpdate"
-    )
+    assert "github.com/OpenLucasKaka/Kagent" not in runner
+    assert "maybeSelfUpdate" not in runner
+    assert "hasSelfUpdate" not in runner
+    assert "isNewerVersion" not in runner
+    assert 'require("https")' not in runner
+    assert 'require("readline")' not in runner
+    assert "readUpdateState" in runner
+    assert "writeUpdateState" in runner
+    assert "checkForUpdate" in launcher
+    assert "runUpgrade" in launcher
+    assert "KAGENT_NO_SELF_UPDATE" in launcher
+    assert "Update now? [Y/n]" in launcher
 
 
 def test_npm_kagent_version_does_not_bootstrap_python_runtime(tmp_path):
@@ -3487,90 +3492,6 @@ def test_npm_kagent_version_output_file_does_not_bootstrap_python_runtime(tmp_pa
     }
 
 
-def test_npm_runner_semver_comparison_handles_multi_digit_segments():
-    node = shutil.which("node")
-    if node is None:
-        return
-
-    script = """
-const { _internals } = require("./npm/lib/python-runner");
-if (!_internals.isNewerVersion("0.1.10", "0.1.9")) {
-  throw new Error("0.1.10 should be newer than 0.1.9");
-}
-if (_internals.isNewerVersion("0.1.9", "0.1.10")) {
-  throw new Error("0.1.9 should not be newer than 0.1.10");
-}
-if (_internals.isNewerVersion("0.1.0", "0.1.0")) {
-  throw new Error("equal versions should not be newer");
-}
-"""
-    subprocess.run([node, "-e", script], check=True)
-
-
-def test_npm_runner_does_not_prompt_for_same_version_github_updates():
-    node = shutil.which("node")
-    if node is None:
-        return
-
-    script = """
-const { _internals } = require("./npm/lib/python-runner");
-if (_internals.hasSelfUpdate(
-  {version: "0.1.1", headSha: "new", sourceFingerprint: "remote"},
-  "0.1.1",
-  {remoteHeadSha: "old", remoteVersion: "0.1.1"},
-  "same"
-)) {
-  throw new Error("same source fingerprint should not prompt even with old state");
-}
-if (_internals.hasSelfUpdate(
-  {
-    version: "0.1.1",
-    headSha: "stale",
-    sourceFingerprint: "remote",
-    isNewerSameVersion: false
-  },
-  "0.1.1",
-  {remoteHeadSha: "stale", remoteVersion: "0.1.1"},
-  "local"
-)) {
-  throw new Error("stale same-version GitHub head should not prompt");
-}
-if (_internals.hasSelfUpdate(
-  {version: "0.1.1", headSha: "same"},
-  "0.1.1",
-  {remoteHeadSha: "same"},
-  "same"
-)) {
-  throw new Error("same GitHub head should not prompt");
-}
-if (_internals.hasSelfUpdate(
-  {version: "0.1.1", headSha: "latest"},
-  "0.1.1",
-  {},
-  "local"
-)) {
-  throw new Error("same version without prior state should not prompt");
-}
-if (!_internals.hasSelfUpdate(
-  {version: "0.1.2", headSha: "same"},
-  "0.1.1",
-  {remoteHeadSha: "same"},
-  "same"
-)) {
-  throw new Error("newer package version should prompt");
-}
-if (_internals.hasSelfUpdate(
-  {version: "0.1.2", headSha: "new"},
-  "0.1.2",
-  {remoteHeadSha: "old", remoteVersion: "0.1.1"},
-  "same"
-)) {
-  throw new Error("old version state should not force a same-version prompt after package update");
-}
-"""
-    subprocess.run([node, "-e", script], check=True)
-
-
 def test_npm_wrapper_javascript_syntax_is_valid_when_node_is_available():
     node = shutil.which("node")
     if node is None:
@@ -3580,6 +3501,7 @@ def test_npm_wrapper_javascript_syntax_is_valid_when_node_is_available():
         "npm/bin/kagent.js",
         "npm/bin/kagent-serve.js",
         "npm/lib/ink-runner.js",
+        "npm/lib/launcher.js",
         "npm/lib/python-runner.js",
     ):
         subprocess.run([node, "--check", script], check=True)

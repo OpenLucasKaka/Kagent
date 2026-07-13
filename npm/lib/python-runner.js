@@ -21,6 +21,7 @@ import errno
 import os
 import stat
 import sys
+import time
 
 
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -139,7 +140,50 @@ def create_lock(parent_fd, name):
         os.close(lock_fd)
 
 
-def try_lock(target, stale_before_ms):
+def reap_stale_lock(parent_fd, name, target, stale_before_ms, test_race):
+    try:
+        lock_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return False
+    marker_name = ".kagent-reap"
+    try:
+        value = os.fstat(lock_fd)
+        if value.st_mtime * 1000 >= stale_before_ms:
+            return False
+        if test_race == "replace-before-pin":
+            os.rmdir(name, dir_fd=parent_fd)
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+        try:
+            marker_fd = os.open(
+                marker_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=lock_fd,
+            )
+        except FileExistsError:
+            return False
+        except OSError as error:
+            if error.errno == errno.ENOENT:
+                return False
+            raise
+        os.close(marker_fd)
+        current = lock_stat(parent_fd, name, target)
+        if current is None or current.st_dev != value.st_dev or current.st_ino != value.st_ino:
+            os.unlink(marker_name, dir_fd=lock_fd)
+            return False
+        reap_name = f"{name}.reap-{os.getpid()}-{time.time_ns()}"
+        os.rename(name, reap_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        reaped = lock_stat(parent_fd, reap_name, target)
+        if reaped.st_dev != value.st_dev or reaped.st_ino != value.st_ino:
+            fail(f"managed lock identity changed during stale reap: {target}")
+        os.unlink(marker_name, dir_fd=lock_fd)
+        os.rmdir(reap_name, dir_fd=parent_fd)
+        return True
+    finally:
+        os.close(lock_fd)
+
+
+def try_lock(target, stale_before_ms, test_race):
     parent_fd, name = lock_parent(target)
     try:
         try:
@@ -151,14 +195,8 @@ def try_lock(target, stale_before_ms):
                 return "wait"
             if value.st_mtime * 1000 >= stale_before_ms:
                 return "wait"
-            try:
-                os.rmdir(name, dir_fd=parent_fd)
-            except FileNotFoundError:
+            if not reap_stale_lock(parent_fd, name, target, stale_before_ms, test_race):
                 return "wait"
-            except OSError as error:
-                if error.errno in (errno.ENOTEMPTY, errno.EEXIST):
-                    fail(f"managed lock is not empty: {target}")
-                raise
             try:
                 device, inode = create_lock(parent_fd, name)
                 return f"acquired:{device}:{inode}"
@@ -176,7 +214,12 @@ def release_lock(target, expected_device, expected_inode):
             return
         if value.st_dev != expected_device or value.st_ino != expected_inode:
             return
-        os.rmdir(name, dir_fd=parent_fd)
+        try:
+            os.rmdir(name, dir_fd=parent_fd)
+        except OSError as error:
+            if error.errno in (errno.ENOTEMPTY, errno.EEXIST):
+                return
+            raise
     finally:
         os.close(parent_fd)
 
@@ -188,7 +231,8 @@ try:
     elif operation == "write-file":
         write_file(target)
     elif operation == "try-lock":
-        sys.stdout.write(try_lock(target, int(sys.argv[3])))
+        test_race = sys.argv[4] if len(sys.argv) > 4 else ""
+        sys.stdout.write(try_lock(target, int(sys.argv[3]), test_race))
     elif operation == "release-lock":
         release_lock(target, int(sys.argv[3]), int(sys.argv[4]))
     else:
@@ -358,7 +402,7 @@ function acquireRuntimeLock(venvDir, options) {
       "try-lock",
       lockPath,
       "",
-      [String(Date.now() - staleMs)]
+      [String(Date.now() - staleMs), options.lockTestRace || ""]
     );
     if (result.startsWith("acquired:")) {
       const [, device, inode] = result.split(":");

@@ -3264,6 +3264,20 @@ fs.mkdirSync(lockTarget);
 fs.symlinkSync(lockTarget, runtimeLock, "dir");
 assert.throws(() => _internals.ensureVenv(alternatePackageRoot, "0.2.0", options), /symbolic link/);
 assert.equal(fs.lstatSync(runtimeLock).isSymbolicLink(), true);
+fs.unlinkSync(runtimeLock);
+
+fs.mkdirSync(runtimeLock, {mode: 0o700});
+fs.utimesSync(runtimeLock, staleTime, staleTime);
+const replacedInode = fs.statSync(runtimeLock).ino;
+assert.throws(() => _internals.ensureVenv(alternatePackageRoot, "0.2.0", {
+  ...options,
+  lockStaleMs: 1_000,
+  lockWaitMs: 0,
+  lockTestRace: "replace-before-pin",
+}), /timed out waiting/);
+assert.equal(fs.statSync(runtimeLock).isDirectory(), true);
+assert.notEqual(fs.statSync(runtimeLock).ino, replacedInode);
+fs.rmdirSync(runtimeLock);
 """
 
     completed = subprocess.run(

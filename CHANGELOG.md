@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.7 - 2026-07-13
+
+### Added
+
+- npm registry self-update checks for interactive launches, explicit
+  `kagent update --check` diagnostics, and `kagent upgrade` installs with
+  stable/latest and beta/next channel selection.
+- Immutable, dependency- and Python ABI-keyed runtime directories with atomic
+  publication and reuse across package-only version updates on macOS and Linux.
+- npm release automation gated on successful main-branch CI for the exact
+  tested commit, with strict npm/Python version matching and idempotent
+  already-published handling.
+
+### Changed
+
+- CI now covers the supported Node.js 18 and 22 endpoints alongside Python 3.9
+  and 3.12 without multiplying the matrix beyond two jobs.
+
 ## 0.1.0
 
 Initial production-oriented LangGraph agent package.

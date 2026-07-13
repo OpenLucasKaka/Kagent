@@ -333,6 +333,25 @@ Do not confuse that user-level root with repository state. The project-local
 bound to the current workspace and separate from the resolved user-level Kagent
 root (default `~/.kagent`).
 
+### npm updates and managed Python runtimes
+
+Stable releases are published to npm's `latest` tag (`stable/latest` channel),
+while prereleases such as beta builds use `next` (`beta/next` channel). Set
+`KAGENT_UPDATE_CHANNEL=beta` or `next` to opt into prereleases. Automatic update
+checks run only for interactive TTY launches, are limited to once every 24
+hours, and prompt before installation. Set `KAGENT_NO_SELF_UPDATE=1` to disable
+them. Use `kagent update --check` for a forced read-only registry check and
+`kagent upgrade` for an explicit installation. The check cache is
+`~/.kagent/cache/npm-self-update.json` unless `KAGENT_HOME` relocates it.
+
+The npm-managed immutable Python runtime is supported on macOS and Linux
+(platform identifiers `darwin` and `linux`). Its cache key includes the Python
+identity/ABI, platform, architecture, and project dependencies, so a new runtime
+is prepared and dependencies are downloaded only after a dependency or ABI
+change. Package-only version changes reuse the existing runtime under
+`~/.kagent/cache/npm-python`; temporary builds are atomically published and
+stale temporary directories are cleaned separately.
+
 The Codex-style runtime can use a fake provider for deterministic tests or an
 OpenAI-compatible chat-completions endpoint for real planning. Configure real
 planning with:

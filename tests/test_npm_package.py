@@ -37,9 +37,19 @@ def test_npm_package_declares_daily_use_bins():
 
 def test_npm_and_python_package_versions_match():
     package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
+    package_lock = json.loads(Path("package-lock.json").read_text(encoding="utf-8"))
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
+    assert package_json["version"] == "0.1.7"
+    assert package_lock["version"] == "0.1.7"
+    assert package_lock["packages"][""]["version"] == "0.1.7"
     assert f'version = "{package_json["version"]}"' in pyproject
+
+
+def test_npm_package_exposes_standard_build_script():
+    package_json = json.loads(Path("package.json").read_text(encoding="utf-8"))
+
+    assert package_json["scripts"]["build"] == "npm run build:cli"
 
 
 def test_python_package_requires_langgraph_runtime_context_support():

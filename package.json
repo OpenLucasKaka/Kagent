@@ -1,6 +1,6 @@
 {
   "name": "@openlucaskaka/kagent",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Codex-style LangGraph agent runtime for internal non-coding workflows.",
   "license": "UNLICENSED",
   "bin": {
@@ -31,6 +31,7 @@
     "access": "public"
   },
   "scripts": {
+    "build": "npm run build:cli",
     "build:cli": "tsc -p tsconfig.json",
     "test:cli": "npm run build:cli && node --test npm/lib/*.test.js",
     "check": "npm run build:cli && node --test npm/lib/*.test.js && node --check npm/bin/kagent.js && node --check npm/bin/kagent-serve.js && node --check npm/lib/ink-runner.js && node --check npm/lib/python-runner.js"

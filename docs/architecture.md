@@ -49,6 +49,25 @@ their current working-directory semantics and remain separate from the resolved
 user-level Kagent root (default `~/.kagent`) and its configuration, durable
 state, and cache.
 
+## npm update and immutable runtime boundaries
+
+The Node launcher resolves releases from npm distribution tags: stable releases
+use `latest` (`stable/latest` channel), and prereleases such as beta builds use
+`next` (`beta/next` channel). Only interactive TTY startup performs an automatic
+check, at most once every 24 hours. `KAGENT_NO_SELF_UPDATE` disables that path;
+`kagent update --check` forces a read-only check and `kagent upgrade` performs an
+explicit install. Registry state is isolated from runtime data in
+`~/.kagent/cache/npm-self-update.json` by default.
+
+The macOS and Linux npm launcher (platform identifiers `darwin` and `linux`)
+publishes each immutable Python runtime into a cache path derived from Python
+identity/ABI, platform, architecture, and the project dependency hash.
+Therefore only a dependency or ABI change prepares a new runtime and causes
+dependencies to be downloaded; a package version change alone reuses the
+existing directory under `~/.kagent/cache/npm-python`. Preparation occurs in a
+private temporary directory and uses an atomic no-replace publish so concurrent
+launchers converge on one validated runtime.
+
 ## LangGraph runtime
 
 `core/agent.py` owns the LangGraph runtime topology:

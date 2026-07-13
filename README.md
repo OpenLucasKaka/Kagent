@@ -18,7 +18,7 @@ operator output, and redacted production evidence.
 npm install:
 
 ```sh
-npm install -g github:OpenLucasKaka/kagent
+npm install -g @openlucaskaka/kagent@latest
 kagent
 ```
 
@@ -33,13 +33,20 @@ local provider config is stored at `~/.kagent/config/provider.json` with
 owner-only permissions. Use `kagent --classic` to bypass the Ink UI and run the
 Python CLI directly.
 
-Interactive `kagent` launches check GitHub for updates. For this GitHub-based
-install path, kagent compares both the package version and the `main` commit
-SHA, so day-to-day updates are detected even when the version has not changed.
-Formal releases should still bump `package.json` version. When an update is
-available, kagent asks before running
-`npm install -g github:OpenLucasKaka/kagent` and restarting the same command.
-Set `KAGENT_NO_SELF_UPDATE=1` to skip this check.
+Published stable releases use the npm `latest` tag (`stable/latest` channel);
+prereleases such as beta builds use the `next` tag (`beta/next` channel). Set
+`KAGENT_UPDATE_CHANNEL=beta` or `next` to follow prereleases. Interactive TTY
+launches check the selected registry channel at most once every 24 hours and
+prompt before upgrading. Set `KAGENT_NO_SELF_UPDATE=1` to disable automatic
+checks. Run `kagent update --check` for an immediate read-only check or
+`kagent upgrade` to install the selected channel explicitly. Check metadata is
+stored at `~/.kagent/cache/npm-self-update.json` by default.
+
+The npm launcher supports macOS and Linux (platform identifiers `darwin` and `linux`)
+and stores each immutable Python runtime under
+`~/.kagent/cache/npm-python`. A new runtime is downloaded and
+prepared only when the Python dependency or ABI identity changes; a package
+release with unchanged dependencies and ABI reuses the existing runtime.
 
 To reconfigure later:
 

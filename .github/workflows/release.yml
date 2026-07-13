@@ -1,0 +1,109 @@
+name: Release npm package
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out verified CI commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package versions and select distribution tag
+        id: metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+
+          package_version = json.loads(
+              pathlib.Path("package.json").read_text(encoding="utf-8")
+          )["version"]
+          python_version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          if package_version != python_version:
+              raise SystemExit(
+                  f"package version mismatch: npm={package_version} python={python_version}"
+              )
+          PY
+          VERSION=$(node -p "require('./package.json').version")
+          case "$VERSION" in
+            *-*) TAG=next ;;
+            *) TAG=latest ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build and check package
+        run: |
+          npm run build
+          npm run check
+          npm pack --dry-run --json > /tmp/npm-pack.json
+
+      - name: Check whether exact version is already published
+        id: registry
+        shell: bash
+        env:
+          PACKAGE_NAME: "@openlucaskaka/kagent"
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          if npm view "${PACKAGE_NAME}@${VERSION}" version --json \
+              > /tmp/npm-published-version.json 2> /tmp/npm-view.err; then
+            PUBLISHED=$(node -p \
+              "JSON.parse(require('node:fs').readFileSync('/tmp/npm-published-version.json', 'utf8'))")
+            if [ "$PUBLISHED" != "$VERSION" ]; then
+              echo "registry returned unexpected version: $PUBLISHED" >&2
+              exit 1
+            fi
+            echo "already-published=true" >> "$GITHUB_OUTPUT"
+          else
+            if ! grep -q "E404" /tmp/npm-view.err; then
+              cat /tmp/npm-view.err >&2
+              exit 1
+            fi
+            echo "already-published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package
+        if: steps.registry.outputs.already-published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: npm publish --access public --tag "$TAG"

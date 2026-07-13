@@ -242,6 +242,33 @@ def test_product_docs_document_the_unified_user_home():
     assert "legacy XDG" in iteration_log
 
 
+def test_product_docs_describe_registry_updates_and_immutable_runtime_cache():
+    documents = [
+        Path("README.md").read_text(),
+        Path("docs/operations.md").read_text(),
+        Path("docs/architecture.md").read_text(),
+    ]
+
+    for document in documents:
+        assert "stable/latest" in document
+        assert "beta/next" in document
+        assert "24 hours" in document
+        assert "TTY" in document
+        assert "KAGENT_NO_SELF_UPDATE" in document
+        assert "kagent update --check" in document
+        assert "kagent upgrade" in document
+        assert "~/.kagent/cache/npm-self-update.json" in document
+        assert "immutable Python runtime" in document
+        assert "dependency or ABI" in document
+        assert "downloaded" in document
+        assert "macOS and Linux" in document
+        assert "`darwin` and `linux`" in document
+        assert "github:OpenLucasKaka/kagent" not in document
+        assert "main commit" not in document
+        assert "commit SHA" not in document
+        assert "check GitHub" not in document
+
+
 def test_readme_positions_deterministic_graph_as_smoke_not_demo():
     readme = Path("README.md").read_text()
 

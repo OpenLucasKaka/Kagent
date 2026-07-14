@@ -2128,6 +2128,8 @@ def _emit_runtime_progress(
             if not _is_empty_progress_field(value)
         }
     )
+    if event_type == "tool_started" and "presentation" in fields:
+        payload["presentation"] = fields["presentation"]
     event_sink(payload)
 
 

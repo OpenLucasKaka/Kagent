@@ -296,7 +296,8 @@ def test_runtime_agent_adds_safe_start_presentation_only_when_available():
         "title": "Creating Status report",
         "detail": "Preparing an artifact",
     }
-    assert "presentation" not in started[1]
+    assert "presentation" in started[1]
+    assert started[1].get("presentation") is None
     assert "resolved_input" not in started[0]
     serialized = json.dumps(started[0]["presentation"])
     assert "artifact-action-secret" not in serialized

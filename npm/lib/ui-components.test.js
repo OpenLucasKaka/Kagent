@@ -37,8 +37,8 @@ const ui_components_1 = require("./ui-components");
         maxRows: 6,
         horizontalPadding: 1,
     }), {
-        position: "\u001b[?25h\u001b[1A\u001b[3C",
-        restore: "\r\u001b[1B",
+        position: "\u001b[?25h\u001b[2A\u001b[3C",
+        restore: "\r\u001b[2B",
     });
 });
 (0, node_test_1.default)("positions the real terminal cursor on wrapped prompt input", () => {
@@ -49,8 +49,8 @@ const ui_components_1 = require("./ui-components");
         maxRows: 6,
         horizontalPadding: 0,
     }), {
-        position: "\u001b[?25h\u001b[1A\u001b[2C",
-        restore: "\r\u001b[1B",
+        position: "\u001b[?25h\u001b[2A\u001b[2C",
+        restore: "\r\u001b[2B",
     });
 });
 (0, node_test_1.default)("restores from an upper prompt cursor row before the next Ink render", () => {
@@ -61,8 +61,8 @@ const ui_components_1 = require("./ui-components");
         maxRows: 6,
         horizontalPadding: 0,
     }), {
-        position: "\u001b[?25h\u001b[2A\u001b[4C",
-        restore: "\r\u001b[2B",
+        position: "\u001b[?25h\u001b[3A\u001b[4C",
+        restore: "\r\u001b[3B",
     });
 });
 (0, node_test_1.default)("hides the empty prompt placeholder when IME-safe rendering is enabled", () => {

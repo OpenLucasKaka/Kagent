@@ -129,7 +129,7 @@ function createPromptTerminalCursorControl({ input, cursor, columns, maxRows, ho
     const safeColumns = Math.max(4, columns);
     const cursorPosition = textEndPosition(viewport.before, safeColumns);
     const promptRows = (0, terminal_width_1.estimateTextRows)(viewport.rendered, safeColumns);
-    const up = Math.max(1, promptRows - cursorPosition.row);
+    const up = Math.max(1, promptRows - cursorPosition.row + 1);
     const right = Math.max(0, horizontalPadding + 2 + cursorPosition.column);
     return {
         position: `${showTerminalCursor()}${moveCursorUp(up)}${moveCursorRight(right)}`,

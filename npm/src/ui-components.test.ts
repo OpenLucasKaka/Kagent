@@ -10,6 +10,7 @@ import {
   createTerminalLayout,
 } from "./ui-components";
 import { createRuntimeActivityState } from "./activity";
+import { estimateTextRows } from "./terminal-width";
 
 test("does not reserve session header rows after the intro has been shown", () => {
   type LayoutOverlays = Parameters<typeof createTerminalLayout>[2] & {
@@ -83,6 +84,51 @@ test("limits runtime activity rows before approval and prompt space", () => {
   assert.equal(layout.activityRowLimit, 1);
   assert.ok(layout.reservedRows <= 9);
   assert.ok(layout.promptRowLimit >= 1);
+});
+
+test("keeps long CJK and ASCII runtime phases visible within their constrained row budgets", () => {
+  for (const [phase, visible] of [
+    ["正在整理一份非常长的运行状态说明，确保审批和输入区域始终可见", "正在整理"],
+    ["Preparing a detailed runtime status update while approval and prompt remain visible", "Preparing"],
+  ]) {
+    const activity = { ...createRuntimeActivityState(), phase };
+    const layout = createTerminalLayout(40, 10, {
+      approval: true,
+      commandMenu: false,
+      activity,
+      prompt: "",
+      promptCursor: 0,
+    });
+    const text: string[] = [];
+    const React = {
+      createElement(type: unknown, props: unknown, ...children: unknown[]) {
+        if (typeof type === "function") {
+          return (type as (componentProps: unknown) => unknown)({
+            ...(props && typeof props === "object" ? props : {}),
+            children,
+          });
+        }
+        text.push(...children.filter((child): child is string => typeof child === "string"));
+        return { type, props, children };
+      },
+    };
+
+    RuntimeActivityWorkspace({
+      React: React as never,
+      Box: "Box" as never,
+      Text: "Text" as never,
+      activity,
+      compact: true,
+      frame: 0,
+      elapsedSeconds: 4,
+      maxRows: layout.activityRowLimit ?? 0,
+      columns: layout.columns,
+    });
+
+    const rendered = text.join("");
+    assert.match(rendered, new RegExp(visible));
+    assert.ok(estimateTextRows(rendered, layout.columns) <= layout.activityRowLimit!);
+  }
 });
 
 test("renders runtime activity details and only the newest expanded timeline entries", () => {

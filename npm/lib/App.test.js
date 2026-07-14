@@ -52,6 +52,52 @@ const App_1 = require("./App");
         entry.text,
     ]), [["user", "那你是谁"]]);
 });
+(0, node_test_1.default)("uses Ctrl+O to expand active activity without changing the transcript", () => {
+    const harness = createHarness();
+    const runtime = idleRuntime();
+    harness.render(runtime);
+    harness.effects[0]();
+    harness.effects[1]();
+    runtime.emitReady();
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "plan");
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "\r");
+    harness.render(runtime);
+    const before = harness.states[2];
+    strict_1.default.equal(before.activity?.expanded, false);
+    const transcript = before.transcript;
+    harness.inputEvents.emit("input", "\x0f");
+    const after = harness.states[2];
+    strict_1.default.equal(after.activity?.expanded, true);
+    strict_1.default.equal(after.transcript, transcript);
+});
+(0, node_test_1.default)("keeps Ctrl+O bound to the latest completed result when activity is idle", () => {
+    const harness = createHarness();
+    const runtime = idleRuntime();
+    harness.render(runtime);
+    harness.effects[0]();
+    harness.effects[1]();
+    runtime.emitReady();
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "plan");
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "\r");
+    runtime.emitRun({
+        type: "run_progress",
+        event: {
+            type: "tool_completed",
+            presentation: { title: "Result", detail: "Ready", content: "Details" },
+        },
+    });
+    runtime.emitRun({ type: "run_completed", status: "done", answer: "Done", payload: {} });
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "\x0f");
+    const state = harness.states[2];
+    strict_1.default.equal(state.activity, null);
+    strict_1.default.equal(state.transcript.entries.at(-2)?.title, "Result");
+    strict_1.default.equal(state.transcript.entries.at(-2)?.expanded, true);
+});
 (0, node_test_1.default)("hides only the empty interactive prompt while the runtime is busy", () => {
     strict_1.default.equal((0, App_1.shouldRenderInteractivePrompt)("idle"), true);
     strict_1.default.equal((0, App_1.shouldRenderInteractivePrompt)("approval"), true);
@@ -79,6 +125,37 @@ const App_1 = require("./App");
     const text = renderTreeText(tree);
     strict_1.default.doesNotMatch(text, /◆ kagent/);
     strict_1.default.match(text, /Starting runtime/);
+});
+(0, node_test_1.default)("renders active runtime activity between messages and approval without a duplicate status line", () => {
+    const harness = createHarness();
+    const runtime = idleRuntime();
+    harness.render(runtime);
+    harness.effects[0]();
+    harness.effects[1]();
+    runtime.emitReady();
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "plan");
+    harness.render(runtime);
+    harness.inputEvents.emit("input", "\r");
+    runtime.emitRun({
+        type: "run_progress",
+        event: { type: "answer_started" },
+    });
+    const activeText = renderTreeText(harness.render(runtime));
+    strict_1.default.match(activeText, /Writing the response/);
+    strict_1.default.match(activeText, /Ctrl\+O details · Esc stop/);
+    strict_1.default.doesNotMatch(activeText, /Working/);
+    runtime.emitRun({
+        type: "approval_required",
+        action_id: "approve",
+        title: "Send the report",
+        target: "team@example.test",
+        reason: "The user asked for this action.",
+    });
+    const text = renderTreeText(harness.render(runtime));
+    strict_1.default.match(text, /Waiting for your decision/);
+    strict_1.default.match(text, /Permission required/);
+    strict_1.default.equal(text.indexOf("Waiting for your decision") < text.indexOf("Permission required"), true);
 });
 (0, node_test_1.default)("positions terminal cursor as soon as the sync effect runs", () => {
     const writes = [];
@@ -178,6 +255,41 @@ function createHarness() {
             });
         },
         states,
+    };
+}
+function idleRuntime() {
+    let lifecycleHandler;
+    let runHandler;
+    return {
+        emitReady() {
+            lifecycleHandler?.({
+                type: "runtime_ready",
+                provider: {
+                    configured: true,
+                    provider: "test",
+                    display_name: "Test",
+                    base_url_configured: true,
+                    model: "model",
+                    api_key_configured: true,
+                },
+                provider_options: [],
+                session_commands: [],
+            });
+        },
+        emitRun(event) {
+            runHandler?.(event);
+        },
+        subscribe(handler) {
+            lifecycleHandler = handler;
+            return () => undefined;
+        },
+        run(_goal, handler) {
+            runHandler = handler;
+        },
+        command() { },
+        steer() { },
+        close() { },
+        cancel() { },
     };
 }
 function renderTreeText(value) {

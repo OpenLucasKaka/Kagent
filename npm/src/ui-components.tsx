@@ -187,7 +187,7 @@ export function estimateRuntimeActivityRows(
   const rows = (value: string): number =>
     Math.max(1, estimateTextRows(value, safeColumns));
   const phaseRows = rows(
-    `⠋ ${activity.phase}${activity.phase ? " · " : ""}99s`,
+    runtimeActivityPhaseLine(activity.phase, " · 99s", safeColumns),
   );
   const detailRows = activity.detail ? rows(activity.detail) : 0;
   const outcomeRows = !compact && activity.latestOutcome
@@ -606,8 +606,12 @@ export function RuntimeActivityWorkspace({
 }): ReactNamespace.ReactElement {
   const safeColumns = Math.max(4, columns);
   const elapsed = elapsedSeconds > 0 ? ` · ${elapsedSeconds}s` : "";
-  const phase =
-    `${TERMINAL_SPINNER_FRAMES[frame]} ${terminalSafeText(activity.phase)}${elapsed}`;
+  const phase = runtimeActivityPhaseLine(
+    activity.phase,
+    elapsed,
+    safeColumns,
+    TERMINAL_SPINNER_FRAMES[frame],
+  );
   const footer = `${activity.completedCount} completed · Ctrl+O details · Esc stop`;
   const rows = (value: string): number =>
     Math.max(1, estimateTextRows(value, safeColumns));
@@ -679,6 +683,31 @@ export function RuntimeActivityWorkspace({
       ),
     ),
   );
+}
+
+function runtimeActivityPhaseLine(
+  phase: string,
+  elapsed: string,
+  columns: number,
+  spinner = "⠋",
+): string {
+  const value = `${spinner} ${terminalSafeText(phase)}${elapsed}`;
+  if (estimateTextRows(value, columns) <= 1) {
+    return value;
+  }
+  const ellipsis = "…";
+  const limit = Math.max(1, columns - terminalGraphemeWidth(ellipsis));
+  let width = 0;
+  const visible: string[] = [];
+  for (const grapheme of splitGraphemes(value)) {
+    const graphemeWidth = terminalGraphemeWidth(grapheme);
+    if (width + graphemeWidth > limit) {
+      break;
+    }
+    width += graphemeWidth;
+    visible.push(grapheme);
+  }
+  return `${visible.join("")}${ellipsis}`;
 }
 
 export function TranscriptPosition({

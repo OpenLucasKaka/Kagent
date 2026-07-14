@@ -45,7 +45,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
     const [terminalSize, setTerminalSize] = React.useState(() => currentTerminalSize());
     const [activitySeconds, setActivitySeconds] = React.useState(0);
     const [approvalChoice, setApprovalChoice] = React.useState("deny");
-    const { transcript, status, statusText, approval, provider, setup, commandCatalog } = runtimeState;
+    const { transcript, activity, status, statusText, approval, provider, setup, commandCatalog } = runtimeState;
     const commandMenu = (0, commands_1.updateCommandMenu)(commandCatalog, editor.value, selectedCommand);
     const terminalInputHandler = React.useRef(() => undefined);
     const activityStartedAt = React.useRef(Date.now());
@@ -160,10 +160,15 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             return;
         }
         if (key.ctrl && key.name === "o") {
-            dispatchRuntime({
-                type: "transcript_action",
-                action: { type: "toggle_latest_result" },
-            });
+            if (activity) {
+                dispatchRuntime({ type: "activity_toggle" });
+            }
+            else {
+                dispatchRuntime({
+                    type: "transcript_action",
+                    action: { type: "toggle_latest_result" },
+                });
+            }
             return;
         }
         if (key.name === "pageup" || key.name === "pagedown") {
@@ -171,6 +176,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
                 approval: approval !== null,
                 commandMenu: status === "idle" && commandMenu ? commandMenu : false,
                 introVisible: transcript.entries.length === 0,
+                activity,
                 prompt: editor.value,
                 promptCursor: editor.cursor,
             });
@@ -283,6 +289,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             approval: approval !== null,
             commandMenu: false,
             introVisible: transcript.entries.length === 0,
+            activity,
             prompt: editor.value,
             promptCursor: editor.cursor,
         });
@@ -455,6 +462,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         const layout = (0, ui_components_1.createTerminalLayout)(terminalSize.columns, terminalSize.rows, {
             approval: false,
             commandMenu: false,
+            activity: null,
         });
         if (layout.tooNarrow) {
             return React.createElement(ui_components_1.NarrowTerminal, { React, Box, Text });
@@ -482,6 +490,7 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             : false,
         commandMenu: status === "idle" && commandMenu ? commandMenu : false,
         introVisible: sessionHeaderVisible,
+        activity,
         prompt: editor.value,
         promptCursor: editor.cursor,
     });
@@ -516,7 +525,19 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
         React,
         Text,
         newerCount: transcriptOffset,
-    }), React.createElement(ui_components_1.MessageList, { React, Box, Text, messages: visibleTranscript }), approval
+    }), React.createElement(ui_components_1.MessageList, { React, Box, Text, messages: visibleTranscript }), activity
+        ? React.createElement(ui_components_1.RuntimeActivityWorkspace, {
+            React,
+            Box,
+            Text,
+            activity,
+            compact: layout.compact,
+            frame,
+            elapsedSeconds: activitySeconds,
+            maxRows: layout.activityRowLimit ?? 1,
+            columns: layout.columns - layout.horizontalPadding * 2,
+        })
+        : null, approval
         ? React.createElement(ui_components_1.ApprovalPanel, {
             React,
             Box,
@@ -526,14 +547,16 @@ function KagentInkApp({ React, Ink, runtimeSessionFactory = runtime_client_1.cre
             compact: layout.compact,
             showDetails: showApprovalDetails,
         })
-        : null, React.createElement(ui_components_1.StatusLine, {
-        React,
-        Text,
-        elapsedSeconds: activitySeconds,
-        frame,
-        status,
-        statusText,
-    }), commandMenu && status === "idle"
+        : null, activity
+        ? null
+        : React.createElement(ui_components_1.StatusLine, {
+            React,
+            Text,
+            elapsedSeconds: activitySeconds,
+            frame,
+            status,
+            statusText,
+        }), commandMenu && status === "idle"
         ? React.createElement(ui_components_1.CommandPalette, {
             React,
             Box,

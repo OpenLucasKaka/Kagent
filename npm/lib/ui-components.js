@@ -4,12 +4,14 @@ exports.TERMINAL_SPINNER_FRAMES = void 0;
 exports.shouldRenderPromptPlaceholder = shouldRenderPromptPlaceholder;
 exports.shouldRenderInkPromptCursor = shouldRenderInkPromptCursor;
 exports.createTerminalLayout = createTerminalLayout;
+exports.estimateRuntimeActivityRows = estimateRuntimeActivityRows;
 exports.NarrowTerminal = NarrowTerminal;
 exports.createPromptViewport = createPromptViewport;
 exports.createPromptTerminalCursorControl = createPromptTerminalCursorControl;
 exports.Header = Header;
 exports.ProviderSetupPanel = ProviderSetupPanel;
 exports.MessageList = MessageList;
+exports.RuntimeActivityWorkspace = RuntimeActivityWorkspace;
 exports.TranscriptPosition = TranscriptPosition;
 exports.ApprovalPanel = ApprovalPanel;
 exports.CommandPalette = CommandPalette;
@@ -40,7 +42,13 @@ function createTerminalLayout(columns, rows, overlays) {
     const approvalRows = estimateApprovalRows(overlays.approval, approvalColumns);
     const commandColumns = Math.max(4, safeColumns - horizontalPadding * 2 - (compact ? 0 : 2));
     const commandExtraRows = estimateCommandExtraRows(overlays.commandMenu, compact, commandColumns);
-    const commandCapacity = Math.max(1, safeRows - 1 - fixedBaseRows - 1 - commandExtraRows - approvalRows);
+    const activityColumns = Math.max(4, safeColumns - horizontalPadding * 2);
+    const activityRows = overlays.activity
+        ? estimateRuntimeActivityRows(overlays.activity, activityColumns, compact)
+        : 0;
+    const minimumActivityRows = overlays.activity ? 1 : 0;
+    const commandCapacity = Math.max(1, safeRows - 1 - fixedBaseRows - 1 - commandExtraRows - approvalRows -
+        minimumActivityRows);
     const commandLimit = overlays.commandMenu
         ? Math.min(defaultCommandLimit, commandCapacity)
         : defaultCommandLimit;
@@ -51,11 +59,15 @@ function createTerminalLayout(columns, rows, overlays) {
     const commandRows = overlays.commandMenu
         ? visibleCommandRows + commandExtraRows
         : 0;
-    const promptRowLimit = Math.max(1, Math.min(compact ? 4 : 6, safeRows - 1 - fixedBaseRows - approvalRows - commandRows));
+    const promptRowLimit = Math.max(1, Math.min(compact ? 4 : 6, safeRows - 1 - fixedBaseRows - approvalRows - commandRows -
+        minimumActivityRows));
     const promptRows = overlays.prompt === undefined
         ? 1
         : (0, terminal_width_1.estimateTextRows)(createPromptViewport(overlays.prompt, overlays.promptCursor ?? (0, editor_1.splitGraphemes)(overlays.prompt).length, promptColumns, promptRowLimit).rendered, promptColumns);
     const baseRows = fixedBaseRows + promptRows;
+    const activityRowLimit = overlays.activity
+        ? Math.min(activityRows, Math.max(1, safeRows - 1 - baseRows - approvalRows - commandRows))
+        : 0;
     return {
         columns: safeColumns,
         rows: safeRows,
@@ -65,8 +77,23 @@ function createTerminalLayout(columns, rows, overlays) {
         commandLimit,
         promptColumns,
         promptRowLimit,
-        reservedRows: Math.min(safeRows - 1, baseRows + approvalRows + commandRows),
+        reservedRows: Math.min(safeRows - 1, baseRows + approvalRows + commandRows + activityRowLimit),
+        ...(overlays.activity ? { activityRowLimit } : {}),
     };
+}
+function estimateRuntimeActivityRows(activity, columns, compact) {
+    const safeColumns = Math.max(4, columns);
+    const rows = (value) => Math.max(1, (0, terminal_width_1.estimateTextRows)(value, safeColumns));
+    const phaseRows = rows(runtimeActivityPhaseLine(activity.phase, " · 99s", safeColumns));
+    const detailRows = activity.detail ? rows(activity.detail) : 0;
+    const outcomeRows = !compact && activity.latestOutcome
+        ? rows(activity.latestOutcome)
+        : 0;
+    const footerRows = rows(`${activity.completedCount} completed · Ctrl+O details · Esc stop`);
+    const timelineRows = activity.expanded
+        ? activity.timeline.slice(-2).reduce((total, item) => total + rows([item.title, item.detail].filter(Boolean).join(" · ")), 0)
+        : 0;
+    return phaseRows + detailRows + outcomeRows + footerRows + timelineRows;
 }
 function NarrowTerminal({ React, Box, Text, }) {
     return React.createElement(Box, { flexDirection: "column" }, React.createElement(Text, { bold: true, color: "cyan" }, "kagent"), React.createElement(Text, { color: "gray", wrap: "wrap" }, "widen terminal"));
@@ -238,6 +265,61 @@ function MessageList({ React, Box, Text, messages, }) {
             ? React.createElement(Text, { color: "gray", wrap: "wrap" }, message.content)
             : null));
     }));
+}
+function RuntimeActivityWorkspace({ React, Box, Text, activity, compact, frame, elapsedSeconds, maxRows, columns = 80, }) {
+    const safeColumns = Math.max(4, columns);
+    const elapsed = elapsedSeconds > 0 ? ` · ${elapsedSeconds}s` : "";
+    const phase = runtimeActivityPhaseLine(activity.phase, elapsed, safeColumns, exports.TERMINAL_SPINNER_FRAMES[frame]);
+    const footer = `${activity.completedCount} completed · Ctrl+O details · Esc stop`;
+    const rows = (value) => Math.max(1, (0, terminal_width_1.estimateTextRows)(value, safeColumns));
+    const phaseRows = rows(phase);
+    const footerRows = rows(footer);
+    const footerVisible = phaseRows + footerRows <= maxRows;
+    let contentRows = Math.max(0, maxRows - phaseRows - (footerVisible ? footerRows : 0));
+    const detailRows = activity.detail ? rows(activity.detail) : 0;
+    const canShowDetail = detailRows > 0 && detailRows <= contentRows;
+    if (canShowDetail) {
+        contentRows -= detailRows;
+    }
+    const outcomeRows = activity.latestOutcome ? rows(activity.latestOutcome) : 0;
+    const canShowOutcome = !compact && outcomeRows > 0 && outcomeRows <= contentRows;
+    if (canShowOutcome) {
+        contentRows -= outcomeRows;
+    }
+    const timeline = activity.expanded
+        ? activity.timeline.slice(-2).reduceRight((visible, item) => {
+            const itemRows = rows([item.title, item.detail].filter(Boolean).join(" · "));
+            return itemRows <= contentRows
+                ? (contentRows -= itemRows, [item, ...visible])
+                : visible;
+        }, [])
+        : [];
+    return React.createElement(Box, { flexDirection: "column" }, React.createElement(Text, { color: "cyan", wrap: "wrap" }, phase), canShowDetail
+        ? React.createElement(Text, { color: "gray", wrap: "wrap" }, (0, terminal_text_1.terminalSafeText)(activity.detail))
+        : null, canShowOutcome
+        ? React.createElement(Text, { color: "gray", wrap: "wrap" }, (0, terminal_text_1.terminalSafeText)(activity.latestOutcome))
+        : null, footerVisible
+        ? React.createElement(Text, { color: "gray", wrap: "wrap" }, footer)
+        : null, ...timeline.map((item, index) => React.createElement(Text, { key: `${index}-${item.title}`, color: "gray", wrap: "wrap" }, (0, terminal_text_1.terminalSafeText)([item.title, item.detail].filter(Boolean).join(" · ")))));
+}
+function runtimeActivityPhaseLine(phase, elapsed, columns, spinner = "⠋") {
+    const value = `${spinner} ${(0, terminal_text_1.terminalSafeText)(phase)}${elapsed}`;
+    if ((0, terminal_width_1.estimateTextRows)(value, columns) <= 1) {
+        return value;
+    }
+    const ellipsis = "…";
+    const limit = Math.max(1, columns - (0, terminal_text_1.terminalGraphemeWidth)(ellipsis));
+    let width = 0;
+    const visible = [];
+    for (const grapheme of (0, editor_1.splitGraphemes)(value)) {
+        const graphemeWidth = (0, terminal_text_1.terminalGraphemeWidth)(grapheme);
+        if (width + graphemeWidth > limit) {
+            break;
+        }
+        width += graphemeWidth;
+        visible.push(grapheme);
+    }
+    return `${visible.join("")}${ellipsis}`;
 }
 function TranscriptPosition({ React, Text, newerCount, }) {
     if (newerCount <= 0) {

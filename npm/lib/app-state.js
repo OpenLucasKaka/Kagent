@@ -4,9 +4,11 @@ exports.createAppRuntimeState = createAppRuntimeState;
 exports.appRuntimeReducer = appRuntimeReducer;
 const provider_setup_1 = require("./provider-setup");
 const transcript_1 = require("./transcript");
+const activity_1 = require("./activity");
 function createAppRuntimeState() {
     return {
         transcript: (0, transcript_1.createTranscriptState)(),
+        activity: null,
         status: "starting",
         statusText: "",
         approval: null,
@@ -25,6 +27,9 @@ function appRuntimeReducer(state, action) {
             }),
             status: "thinking",
             statusText: action.command ? "Running command" : "Thinking",
+            activity: action.command
+                ? state.activity
+                : activityFor(null, "Preparing your request"),
         };
     }
     if (action.type === "setup_action") {
@@ -38,10 +43,21 @@ function appRuntimeReducer(state, action) {
             approval: null,
             status: "thinking",
             statusText: action.approved ? "Continuing" : "Cancelling",
+            activity: activityFor(state.activity, action.approved ? "Continuing" : "Cancelling"),
         };
     }
     if (action.type === "cancel_requested") {
-        return { ...state, status: "cancelling", statusText: action.label };
+        return {
+            ...state,
+            status: "cancelling",
+            statusText: action.label,
+            activity: activityFor(state.activity, "Stopping"),
+        };
+    }
+    if (action.type === "activity_toggle") {
+        return state.activity
+            ? { ...state, activity: (0, activity_1.toggleRuntimeActivity)(state.activity) }
+            : state;
     }
     if (action.type === "transcript_action") {
         return {
@@ -73,6 +89,8 @@ function reduceLifecycleEvent(state, event) {
                 ...state,
                 provider: event.provider,
                 commandCatalog: event.session_commands || [],
+                approval: null,
+                activity: null,
                 setup: event.provider.configured
                     ? null
                     : (0, provider_setup_1.createProviderSetupState)(event.provider_options),
@@ -135,20 +153,31 @@ function reduceCommandEvent(state, event) {
 }
 function reduceRunEvent(state, event) {
     if (event.type === "run_started") {
-        return { ...state, status: "thinking", statusText: "Thinking" };
+        return {
+            ...state,
+            status: "thinking",
+            statusText: "Thinking",
+            activity: activityFor(null, "Planning next steps"),
+        };
     }
     if (event.type === "run_progress") {
         const transcriptAction = (0, transcript_1.progressTranscriptAction)(event.event);
         return {
             ...state,
             statusText: progressLabel(event.event),
+            activity: (0, activity_1.reduceRuntimeActivity)(state.activity ?? (0, activity_1.createRuntimeActivityState)(), event.event),
             transcript: transcriptAction
                 ? (0, transcript_1.transcriptReducer)(state.transcript, transcriptAction)
                 : state.transcript,
         };
     }
     if (event.type === "run_cancel_requested") {
-        return { ...state, status: "cancelling", statusText: "Stopping" };
+        return {
+            ...state,
+            status: "cancelling",
+            statusText: "Stopping",
+            activity: activityFor(state.activity, "Stopping"),
+        };
     }
     if (event.type === "run_steer_queued") {
         return {
@@ -164,7 +193,13 @@ function reduceRunEvent(state, event) {
         };
     }
     if (event.type === "approval_required") {
-        return { ...state, approval: event, status: "approval", statusText: "" };
+        return {
+            ...state,
+            approval: event,
+            status: "approval",
+            statusText: "",
+            activity: (0, activity_1.reduceRuntimeActivity)(state.activity ?? (0, activity_1.createRuntimeActivityState)(), event),
+        };
     }
     if (event.type === "run_completed") {
         if (event.status !== "done" && event.status !== "cancelled") {
@@ -174,6 +209,7 @@ function reduceRunEvent(state, event) {
         return {
             ...state,
             approval: null,
+            activity: null,
             status: "idle",
             statusText: "",
             transcript: (0, transcript_1.transcriptReducer)(state.transcript, {
@@ -209,10 +245,17 @@ function failureState(state, message) {
     return {
         ...state,
         approval: null,
+        activity: null,
         status: "error",
         statusText: "",
         transcript: (0, transcript_1.transcriptReducer)(state.transcript, { type: "error", text: message }),
     };
+}
+function activityFor(activity, phase) {
+    return (0, activity_1.reduceRuntimeActivity)(activity ?? (0, activity_1.createRuntimeActivityState)(), {
+        type: "tool_started",
+        presentation: { title: phase },
+    });
 }
 function progressLabel(event) {
     const type = String(event.type || "");

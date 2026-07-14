@@ -2,7 +2,10 @@ import json
 
 from kagent.providers.llm import FakeLLMProvider
 from kagent.runtime import run_runtime_agent
-from kagent.runtime.presentation import project_runtime_presentation
+from kagent.runtime.presentation import (
+    project_runtime_presentation,
+    project_runtime_start_presentation,
+)
 
 
 def test_projects_user_meaningful_success_results():
@@ -222,3 +225,80 @@ def test_runtime_agent_adds_presentation_only_to_presentable_tool_completion():
     assert "artifact" not in presentation_json.lower()
     assert "artifact-action-secret" not in presentation_json
     assert "input" not in completed[0]["presentation"]
+
+
+def test_projects_safe_artifact_start_without_exposing_raw_input():
+    presentation = project_runtime_start_presentation(
+        "artifact",
+        {"title": "Release sk-secret123", "content": "Bearer abcdef"},
+    )
+
+    assert presentation == {
+        "title": "Creating Release [REDACTED]",
+        "detail": "Preparing an artifact",
+    }
+    serialized = json.dumps(presentation)
+    assert "Bearer" not in serialized
+
+
+def test_projects_fixed_safe_start_for_supported_runtime_tools():
+    expected = {
+        "apply_patch": ("Updating workspace files", "Preparing a reviewed change"),
+        "workspace_diff": (
+            "Inspecting workspace changes",
+            "Preparing a safe comparison",
+        ),
+        "workspace_restore": (
+            "Restoring workspace asset",
+            "Preparing a reviewed restore",
+        ),
+        "open_url": ("Opening requested page", "Preparing a local browser action"),
+        "open_app": (
+            "Opening requested application",
+            "Preparing a local application action",
+        ),
+        "http_request": ("Fetching requested URL", "Preparing a network request"),
+        "shell_command": ("Running approved command", "Preparing a bounded command"),
+    }
+
+    for tool, (title, detail) in expected.items():
+        presentation = project_runtime_start_presentation(
+            tool,
+            {"secret": "raw secret input"},
+        )
+
+        assert presentation == {"title": title, "detail": detail}
+        serialized = json.dumps(presentation)
+        assert tool not in serialized
+        assert "raw secret input" not in serialized
+
+
+def test_runtime_agent_adds_safe_start_presentation_only_when_available():
+    provider = FakeLLMProvider(
+        '{"actions":['
+        '{"id":"artifact-action-secret","tool":"artifact",'
+        '"input":{"title":"Status report","kind":"report",'
+        '"format":"markdown","content":"Bearer secret-value"},'
+        '"reason":"create"},'
+        '{"id":"note-action-secret","tool":"note",'
+        '"input":{"text":"internal note"},"reason":"capture"}'
+        '],"final_answer":"done"}'
+    )
+
+    result = run_runtime_agent("prepare status", provider=provider)
+    started = [
+        event
+        for event in result["progress_events"]
+        if event["type"] == "tool_started"
+    ]
+
+    assert started[0]["presentation"] == {
+        "title": "Creating Status report",
+        "detail": "Preparing an artifact",
+    }
+    assert "presentation" not in started[1]
+    assert "resolved_input" not in started[0]
+    serialized = json.dumps(started[0]["presentation"])
+    assert "artifact-action-secret" not in serialized
+    assert "note-action-secret" not in serialized
+    assert "secret-value" not in serialized

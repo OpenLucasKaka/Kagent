@@ -26,7 +26,10 @@ from kagent.runtime.metadata import (
     validate_runtime_tags,
 )
 from kagent.runtime.policy import RuntimePolicy
-from kagent.runtime.presentation import project_runtime_presentation
+from kagent.runtime.presentation import (
+    project_runtime_presentation,
+    project_runtime_start_presentation,
+)
 from kagent.runtime.redaction import redact_runtime_payload, redact_runtime_text
 from kagent.runtime.steering import RuntimeSteeringBuffer
 from kagent.runtime.steps import derive_runtime_steps
@@ -1446,6 +1449,10 @@ def _run_runtime_agent_loop(
                     break
             if mark_cancelled():
                 break
+            start_presentation = project_runtime_start_presentation(
+                action.tool,
+                resolved_input,
+            )
             _emit_runtime_progress(
                 emit_progress,
                 "tool_started",
@@ -1454,6 +1461,7 @@ def _run_runtime_agent_loop(
                 action_id=action.id,
                 tool=action.tool,
                 status="started",
+                presentation=start_presentation or None,
             )
             observation = execute_runtime_tool(
                 active_tools,

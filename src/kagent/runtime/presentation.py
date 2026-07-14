@@ -1,10 +1,42 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from kagent.runtime.redaction import redact_runtime_text
 
 MAX_PRESENTATION_CONTENT_CHARS = 4000
+
+
+def project_runtime_start_presentation(
+    tool: str,
+    input_value: Mapping[str, Any],
+) -> Dict[str, Any]:
+    if not isinstance(input_value, Mapping):
+        return {}
+    if tool == "artifact":
+        title = _string(input_value.get("title"))
+        if title:
+            return _presentation(f"Creating {title}", "Preparing an artifact")
+    labels = {
+        "apply_patch": ("Updating workspace files", "Preparing a reviewed change"),
+        "workspace_diff": (
+            "Inspecting workspace changes",
+            "Preparing a safe comparison",
+        ),
+        "workspace_restore": (
+            "Restoring workspace asset",
+            "Preparing a reviewed restore",
+        ),
+        "open_url": ("Opening requested page", "Preparing a local browser action"),
+        "open_app": (
+            "Opening requested application",
+            "Preparing a local application action",
+        ),
+        "http_request": ("Fetching requested URL", "Preparing a network request"),
+        "shell_command": ("Running approved command", "Preparing a bounded command"),
+    }
+    label = labels.get(tool)
+    return _presentation(*label) if label else {}
 
 
 def project_runtime_presentation(

@@ -139,7 +139,7 @@ export type ProviderConfigurationFailedEvent = {
   type: "provider_configuration_failed";
   error_code: string;
   message: string;
-  field?: "base_url" | "model" | "api_key";
+  field?: "provider" | "base_url" | "model" | "api_key";
 };
 
 export type SessionCommandCompletedEvent = {

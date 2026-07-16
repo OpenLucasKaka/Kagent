@@ -24,7 +24,11 @@ export type ProviderSetupAction =
   | { type: "edit"; editor: SetupEditor }
   | { type: "next" }
   | { type: "back" }
-  | { type: "failure"; message: string; field?: "base_url" | "model" | "api_key" };
+  | {
+      type: "failure";
+      message: string;
+      field?: "provider" | "base_url" | "model" | "api_key";
+    };
 
 export function createProviderSetupState(options: ProviderOption[]): ProviderSetupState {
   if (options.length === 0) {

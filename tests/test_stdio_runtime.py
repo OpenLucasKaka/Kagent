@@ -78,6 +78,10 @@ def test_stdio_runtime_accepts_run_request_and_streams_jsonl_events(tmp_path):
         "ollama_openai_compatible",
         "openai_compatible",
     ]
+    assert all(
+        set(option) == {"provider", "label", "api_key_required"}
+        for option in events[0]["provider_options"]
+    )
     assert [event["type"] for event in events][1:3] == [
         "run_started",
         "run_progress",
@@ -485,6 +489,31 @@ def test_stdio_runtime_rejects_invalid_provider_config_without_echoing_secret(tm
     assert "absolute http or https URL" in events[-1]["message"]
     assert api_key not in completed.stdout
     assert not config_path.exists()
+
+
+def test_stdio_runtime_rejects_missing_provider_with_field_error(tmp_path):
+    request = {
+        "type": "provider_configure",
+        "provider": "",
+        "base_url": "https://gateway.example.test/v1",
+        "model": "user-model",
+        "api_key": "",
+    }
+
+    completed = subprocess.run(
+        [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
+        input=f"{json.dumps(request)}\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        env=_runtime_env(tmp_path),
+    )
+
+    event = _jsonl(completed.stdout)[-1]
+    assert event["type"] == "provider_configuration_failed"
+    assert event["error_code"] == "invalid_provider_config"
+    assert event["field"] == "provider"
+    assert "provider is required" in event["message"]
 
 
 def test_stdio_runtime_rejects_provider_config_symlink_path(tmp_path):

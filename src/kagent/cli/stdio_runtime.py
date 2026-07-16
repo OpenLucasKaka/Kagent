@@ -316,10 +316,11 @@ class StdioRuntimeSession:
             )
             return
         try:
+            provider_value = str(request.get("provider", "")).strip()
             config = LLMProviderConfig(
-                provider=str(request.get("provider", "")),
+                provider=provider_value or None,
                 base_url=str(request.get("base_url", "")).strip(),
-                api_key=str(request.get("api_key", "")).strip(),
+                api_key=str(request.get("api_key", "")),
                 model=str(request.get("model", "")).strip(),
             )
             validate_provider_setup_config(config)
@@ -955,6 +956,8 @@ def _normalize_local_open_app_name(value: str) -> str:
 
 def _provider_error_field(message: str) -> str:
     normalized = message.lower()
+    if "provider" in normalized:
+        return "provider"
     if "base_url" in normalized:
         return "base_url"
     if "model" in normalized:

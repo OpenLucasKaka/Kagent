@@ -580,7 +580,6 @@ def test_cli_interactive_runtime_can_persist_trace_to_trace_dir(tmp_path):
             "-m",
             "kagent.cli",
             "--runtime",
-            "--interactive",
             "--max-iterations",
             "1",
             "--runtime-plan",
@@ -613,7 +612,6 @@ def test_cli_interactive_runtime_trace_dir_failure_has_no_traceback(tmp_path):
             "-m",
             "kagent.cli",
             "--runtime",
-            "--interactive",
             "--max-iterations",
             "1",
             "--runtime-plan",
@@ -689,7 +687,6 @@ def test_cli_interactive_runtime_runs_goals_from_stdin_with_inline_plan(tmp_path
             "-m",
             "kagent.cli",
             "--runtime",
-            "--interactive",
             "--max-iterations",
             "1",
             "--runtime-plan",
@@ -764,7 +761,6 @@ def test_cli_interactive_runtime_can_update_file_with_inline_plan(tmp_path):
             "-m",
             "kagent.cli",
             "--runtime",
-            "--interactive",
             "--max-iterations",
             "1",
             "--runtime-plan",
@@ -2863,7 +2859,7 @@ def test_cli_session_memory_requires_interactive_runtime():
     )
 
     assert completed.returncode == 2
-    assert "--session-memory requires --interactive" in completed.stderr
+    assert "--session-memory requires interactive mode" in completed.stderr
     assert "Traceback" not in completed.stderr
 
 

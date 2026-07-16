@@ -169,7 +169,6 @@ mkdir -p /tmp/kagent-session-memory-dir
 chmod 0755 /tmp/kagent-session-memory-dir
 printf '我是卡卡\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
-    --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你好，卡卡。"}' \
     --session-memory /tmp/kagent-session-memory-dir/session-memory.json \
@@ -203,7 +202,6 @@ chmod 0644 /tmp/kagent-session-memory-dir/session-memory.json
 chmod 0755 /tmp/kagent-session-memory-dir
 if printf '我是谁\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
-    --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你是卡卡。"}' \
     --session-memory /tmp/kagent-session-memory-dir/session-memory.json \
@@ -237,7 +235,6 @@ chmod 0600 /tmp/kagent-session-memory-target.json
 ln -s /tmp/kagent-session-memory-target.json /tmp/kagent-session-memory-link.json
 if printf '我是谁\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
-    --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你是卡卡。"}' \
     --session-memory /tmp/kagent-session-memory-link.json \
@@ -254,7 +251,6 @@ if grep "Traceback" /tmp/kagent-session-memory-symlink.stderr >/dev/null; then
 fi
 if printf '/clear\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
-    --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"unused"}' \
     --session-memory /tmp/kagent-session-memory-link.json \
@@ -276,7 +272,6 @@ chmod 0700 /tmp/kagent-session-memory-parent-target/nested
 ln -s /tmp/kagent-session-memory-parent-target /tmp/kagent-session-memory-parent-link
 if printf '我是卡卡\nexit\n' | PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
     --runtime \
-    --interactive \
     --max-iterations 1 \
     --runtime-plan '{"actions":[],"final_answer":"你好，卡卡。"}' \
     --session-memory /tmp/kagent-session-memory-parent-link/nested/session-memory.json \

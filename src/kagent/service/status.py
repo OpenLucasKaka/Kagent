@@ -27,12 +27,15 @@ from kagent.service.trace_store import (
 def readiness_payload(config: Optional[ServiceConfig] = None) -> Dict[str, Any]:
     active_config = config or ServiceConfig()
     checks = {
-        "agent_config": _readiness_check(
-            _check_agent_config,
-            "agent_config_unavailable",
+        "runtime_config": _readiness_check(
+            _check_runtime_config,
+            "runtime_config_unavailable",
         ),
         "openapi": _readiness_check(service_openapi, "openapi_unavailable"),
-        "tools": _readiness_check(_check_tools, "tools_unavailable"),
+        "runtime_tools": _readiness_check(
+            _check_runtime_tools,
+            "runtime_tools_unavailable",
+        ),
     }
     if active_config.trace_dir:
         checks["trace_persistence"] = _readiness_check(
@@ -165,16 +168,14 @@ def _readiness_check(check: Callable[[], None], failure_code: str) -> str:
     return "ok"
 
 
-def _check_agent_config() -> None:
-    from kagent.core.state import AgentConfig
-
-    AgentConfig()
+def _check_runtime_config() -> None:
+    LLMProviderConfig.from_sources()
 
 
-def _check_tools() -> None:
-    from kagent.core.tools import registered_tool_names
+def _check_runtime_tools() -> None:
+    from kagent.runtime.tools import registered_runtime_tool_metadata
 
-    if not registered_tool_names():
+    if not registered_runtime_tool_metadata():
         raise RuntimeError("no tools registered")
 
 

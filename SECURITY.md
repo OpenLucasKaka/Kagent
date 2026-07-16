@@ -22,7 +22,8 @@ payloads in public reports.
 
 The HTTP service includes these production controls:
 
-- `KAGENT_SERVICE_AUTH_TOKEN` protects `POST /run` with bearer auth;
+- `KAGENT_SERVICE_AUTH_TOKEN` protects `POST /runtime/run` and
+  `POST /runtime/run/stream` with bearer auth;
   bearer token checks use constant-time comparison, and failed auth responses
   include `WWW-Authenticate: Bearer`. Production doctor gates require the token
   to be at least 16 characters and reject common placeholder values such as
@@ -33,8 +34,9 @@ The HTTP service includes these production controls:
   tokens that cannot be represented as safe HTTP header values with
   `auth_token_unsafe`.
 - `KAGENT_SERVICE_PROTECT_DIAGNOSTICS` reuses the bearer token for
-  diagnostic endpoints (`/config`, `/tools`, `/metrics`, `/metrics.prom`, and
-  `/openapi.json`) while keeping health, readiness, and version probes public.
+  diagnostic endpoints (`/config`, `/runtime/tools`, `/runtime/policy`,
+  `/metrics`, `/metrics.prom`, and `/openapi.json`) while keeping health,
+  readiness, and version probes public.
 - `kagent-doctor --require-auth` fails deployment self-checks
   when bearer auth is disabled; use it in externally exposed environments.
   `--require-auth` rejects placeholder tokens with `auth_token_placeholder`.
@@ -44,16 +46,16 @@ The HTTP service includes these production controls:
   configured. Placeholder bearer tokens fail with `auth_token_placeholder`.
   Enabling full trace HTTP responses in production fails with
   `full_trace_response_must_be_disabled`.
-- `KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` limits per-client `/run`
-  traffic.
+- `KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` limits per-client `/runtime/run`
+  and `/runtime/run/stream` traffic.
 - `KAGENT_SERVICE_TRUST_FORWARDED_FOR` is disabled by default; enable
   it only behind a trusted reverse proxy that overwrites `X-Forwarded-For`.
   Empty, overlong, control-character, or non-IP unsafe `X-Forwarded-For`
   values fall back to the socket remote address before rate limiting. Valid
   forwarded client IPs are normalized to a canonical address string before
   rate-limit keys are updated.
-- `KAGENT_SERVICE_MAX_CONCURRENT_RUNS` caps in-flight `/run`
-  executions to reduce resource exhaustion risk.
+- `KAGENT_SERVICE_MAX_CONCURRENT_RUNS` caps in-flight `/runtime/run`
+  and `/runtime/run/stream` executions to reduce resource exhaustion risk.
 - `KAGENT_SERVICE_MAX_REQUEST_BYTES` rejects oversized request bodies
   before the agent runs.
 - Duplicate, malformed, or negative HTTP `Content-Length` headers are rejected
@@ -64,7 +66,8 @@ The HTTP service includes these production controls:
 - Any HTTP `Expect` header is rejected with `expectation_failed`; the service
   does not support continue-style request body negotiation.
 - Duplicate HTTP `Content-Type` headers are rejected before request body parsing
-  or routing; `/run` requires a single-valued `application/json` header.
+  or routing; `/runtime/run` and `/runtime/run/stream` require a
+  single-valued `application/json` `Content-Type` header.
 - `Idempotency-Key` must be single-valued so intermediaries and clients cannot
   disagree about which retry key controls response reuse.
 - `KAGENT_SERVICE_AUTH_TOKENS` subject tokens can list or inspect only
@@ -89,8 +92,8 @@ The HTTP service includes these production controls:
 - `KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS` bounds HTTP request reads;
   stalled request bodies return controlled `408 request_body_timeout` JSON
   errors.
-- `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS` bounds `/run` execution and
-  returns controlled `504` JSON errors for slow runs.
+- `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS` bounds `/runtime/run` and
+  `/runtime/run/stream` execution and returns controlled errors for slow runs.
 - `KAGENT_SERVICE_ALLOW_FULL_TRACE_RESPONSE` is disabled by default;
   when disabled, client requests with `full_trace=true` return
   `full_trace_disabled` instead of exposing internal trace events in HTTP

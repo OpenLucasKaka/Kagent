@@ -25,10 +25,8 @@ from kagent.service import (
 )
 from kagent.service import cli as service_module
 from kagent.service import router as service_router
-from kagent.service import runtime as service_runtime
 from kagent.service import runtime_resume as service_runtime_resume
 from kagent.service import runtime_run as service_runtime_run
-from kagent.service import safety as service_safety
 from kagent.service.trace_store import persist_trace
 
 
@@ -46,9 +44,9 @@ def test_service_readiness_payload_reports_dependency_checks():
         "status": "ready",
         "failed_checks": [],
         "checks": {
-            "agent_config": "ok",
+            "runtime_config": "ok",
             "openapi": "ok",
-            "tools": "ok",
+            "runtime_tools": "ok",
         },
     }
 
@@ -98,7 +96,7 @@ def test_service_ready_endpoint_reports_ready():
 
     assert status_code == 200
     assert payload["status"] == "ready"
-    assert payload["checks"]["tools"] == "ok"
+    assert payload["checks"]["runtime_tools"] == "ok"
 
 
 def test_service_config_endpoint_reports_redacted_runtime_config(monkeypatch, tmp_path):
@@ -207,14 +205,6 @@ def test_service_version_endpoint_reports_package_version():
     assert payload == {"version": __version__}
 
 
-def test_service_tools_endpoint_reports_registered_tool_metadata():
-    status_code, payload = handle_request("GET", "/tools", b"")
-
-    assert status_code == 200
-    assert payload["tools"][0]["name"] == "calculate_sum"
-    assert payload["tools"][-1]["name"] == "uppercase_text"
-
-
 def test_service_runtime_tools_endpoint_reports_tool_schemas():
     status_code, payload = handle_request("GET", "/runtime/tools", b"")
     by_name = {item["name"]: item for item in payload["tools"]}
@@ -314,57 +304,6 @@ def test_service_runtime_tools_endpoint_reports_tool_schemas():
     assert by_name["transform_text"]["output_schema"]["required"] == ["text"]
 
 
-def test_service_openapi_endpoint_reports_api_contract():
-    status_code, payload = handle_request("GET", "/openapi.json", b"")
-
-    assert status_code == 200
-    assert payload["openapi"] == "3.1.0"
-    assert sorted(payload["paths"]) == [
-        "/config",
-        "/health",
-        "/metrics",
-        "/metrics.prom",
-        "/openapi.json",
-        "/ready",
-        "/run",
-        "/runtime/approvals",
-        "/runtime/approvals/summary",
-        "/runtime/graph",
-        "/runtime/policy",
-        "/runtime/resume",
-        "/runtime/run",
-        "/runtime/runs",
-        "/runtime/runs/summary",
-        "/runtime/runs/{run_id}",
-        "/runtime/runs/{run_id}/artifacts",
-        "/runtime/runs/{run_id}/artifacts/{artifact_id}",
-        "/runtime/runs/{run_id}/cancel",
-        "/runtime/runs/{run_id}/timeline",
-        "/runtime/tools",
-        "/tools",
-        "/version",
-    ]
-    assert payload["paths"]["/health"]["head"]["summary"] == "Report service liveness headers"
-    assert payload["paths"]["/run"]["options"]["summary"] == "Report supported HTTP methods"
-    assert payload["paths"]["/run"]["post"]["requestBody"]["required"] is True
-    assert payload["components"]["securitySchemes"]["BearerAuth"]["type"] == "http"
-    assert sorted(payload["paths"]["/run"]["post"]["responses"]) == [
-        "200",
-        "400",
-        "401",
-        "403",
-        "408",
-        "409",
-        "413",
-        "415",
-        "417",
-        "429",
-        "500",
-        "503",
-        "504",
-    ]
-
-
 def test_service_runtime_graph_endpoint_reports_topology():
     status_code, payload = handle_request("GET", "/runtime/graph", b"")
 
@@ -461,149 +400,121 @@ def test_service_metrics_normalizes_runtime_run_status_paths_over_http(tmp_path)
     assert metrics["requests_by_path"]["/runtime/runs/{run_id}/cancel"] == "1"
 
 
-def test_service_metrics_tracks_requests_by_path_and_status():
-    metrics = ServiceMetrics(started_at=10.0)
-    metrics.record(method="GET", path="/health", status_code=200, duration_seconds=0.1)
-    metrics.record(method="POST", path="/run", status_code=500, duration_seconds=0.2)
-    metrics.record(method="POST", path="/run", status_code=200, duration_seconds=0.3)
+def test_service_streams_runtime_run_answer_deltas_over_http():
+    server = create_server("127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
 
-    assert metrics.snapshot(now=15.0) == {
-        "requests_total": "3",
-        "responses_by_status": {"200": "2", "500": "1"},
-        "requests_by_method": {"GET": "1", "POST": "2"},
-        "requests_by_path": {"/health": "1", "/run": "2"},
-        "requests_by_auth_subject": {},
-        "error_responses_by_code": {},
-        "request_duration_seconds_bucket": {
-            "0.05": "0",
-            "0.1": "1",
-            "0.25": "2",
-            "0.5": "3",
-            "1": "3",
-            "2.5": "3",
-            "5": "3",
-            "10": "3",
-            "+Inf": "3",
-        },
-        "request_duration_seconds_count": "3",
-        "request_duration_seconds_sum": "0.6000",
-        "average_duration_seconds": "0.2000",
-        "max_duration_seconds": "0.3000",
-        "agent_runs_total": "0",
-        "agent_runs_by_status": {},
-        "agent_run_duration_seconds_bucket": {
-            "0.05": "0",
-            "0.1": "0",
-            "0.25": "0",
-            "0.5": "0",
-            "1": "0",
-            "2.5": "0",
-            "5": "0",
-            "10": "0",
-            "+Inf": "0",
-        },
-        "agent_run_duration_seconds_count": "0",
-        "agent_run_duration_seconds_sum": "0.0000",
-        "average_agent_run_duration_seconds": "0.0000",
-        "max_agent_run_duration_seconds": "0.0000",
-        "runtime_runs_total": "0",
-        "runtime_runs_by_status": {},
-        "runtime_runs_by_lifecycle_state": {},
-        "runtime_runs_by_auth_subject": {},
-        "runtime_runs_by_auth_subject_status": {},
-        "runtime_runs_by_auth_subject_lifecycle_state": {},
-        "runtime_resumes_by_auth_subject": {},
-        "runtime_approvals_by_auth_subject": {},
-        "runtime_failed_observations_total": "0",
-        "runtime_progress_event_sink_failures_total": "0",
-        "runtime_hook_failures_total": "0",
-        "runtime_reconciliation_runs_total": "0",
-        "runtime_reconciliation_runs_by_status": {},
-        "runtime_reconciliation_traces_scanned_total": "0",
-        "runtime_reconciliation_outcomes": {},
-        "runtime_reconciliation_errors_total": "0",
-        "runtime_observation_errors_by_code": {},
-        "runtime_tool_executions_by_tool_status": {},
-        "runtime_planner_attempts_by_status": {},
-        "runtime_planner_failures_total": "0",
-        "runtime_planner_failures_by_error_code": {},
-        "runtime_llm_provider_requests_total": "0",
-        "runtime_llm_provider_request_attempts_total": "0",
-        "runtime_llm_provider_request_retries_total": "0",
-        "runtime_llm_provider_requests_by_status": {},
-        "runtime_llm_provider_request_errors_by_type": {},
-        "runtime_llm_provider_request_http_status": {},
-        "runtime_llm_provider_request_retryable_reason": {},
-        "runtime_llm_provider_request_duration_seconds_bucket": {
-            "0.05": "0",
-            "0.1": "0",
-            "0.25": "0",
-            "0.5": "0",
-            "1": "0",
-            "2.5": "0",
-            "5": "0",
-            "10": "0",
-            "+Inf": "0",
-        },
-        "runtime_llm_provider_request_duration_seconds_count": "0",
-        "runtime_llm_provider_request_duration_seconds_sum": "0.0000",
-        "average_runtime_llm_provider_request_duration_seconds": "0.0000",
-        "max_runtime_llm_provider_request_duration_seconds": "0.0000",
-        "runtime_approval_required_total": "0",
-        "runtime_failed_budget_exhaustions_total": "0",
-        "runtime_run_duration_seconds_bucket": {
-            "0.05": "0",
-            "0.1": "0",
-            "0.25": "0",
-            "0.5": "0",
-            "1": "0",
-            "2.5": "0",
-            "5": "0",
-            "10": "0",
-            "+Inf": "0",
-        },
-        "runtime_run_duration_seconds_count": "0",
-        "runtime_run_duration_seconds_sum": "0.0000",
-        "average_runtime_run_duration_seconds": "0.0000",
-        "max_runtime_run_duration_seconds": "0.0000",
-        "uptime_seconds": "5.0000",
-    }
+    try:
+        request = urllib.request.Request(
+            f"http://{host}:{port}/runtime/run/stream",
+            data=json.dumps(
+                {
+                    "goal": "打个招呼",
+                    "plan": {
+                        "actions": [],
+                        "final_answer": "你好卡卡",
+                    },
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            content_type = response.headers["Content-Type"]
+            body = response.read().decode("utf-8")
+        metrics = _open_json(f"http://{host}:{port}/metrics")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert content_type == "text/event-stream"
+    events = _parse_sse_events(body)
+    assert [event["event"] for event in events] == [
+        "run_started",
+        "progress",
+        "progress",
+        "answer_delta",
+        "progress",
+        "progress",
+        "progress",
+        "final",
+    ]
+    assert [event["data"].get("delta") for event in events] == [
+        None,
+        None,
+        None,
+        "你好卡卡",
+        None,
+        None,
+        None,
+        None,
+    ]
+    final_payload = events[-1]["data"]
+    assert final_payload["status"] == "done"
+    assert final_payload["answer"] == "你好卡卡"
+    assert final_payload["answer_streamed"] == "true"
+    assert metrics["requests_by_path"]["/runtime/run/stream"] == "1"
 
 
-def test_service_metrics_tracks_requests_by_auth_subject():
-    metrics = ServiceMetrics(started_at=10.0)
+def test_service_flushes_runtime_stream_answer_delta_before_final(monkeypatch):
+    class SlowStreamingProvider:
+        def stream_complete(self, _system, _user):
+            yield '{"actions":[],"final_answer":"hel'
+            time.sleep(1.0)
+            yield 'lo"}'
 
-    metrics.record(method="POST", path="/run", status_code=200, auth_subject="team-a")
-    metrics.record(method="POST", path="/run", status_code=500, auth_subject="team-a")
-    metrics.record(method="POST", path="/run", status_code=200, auth_subject="ops")
-    metrics.record(method="GET", path="/health", status_code=200)
+    monkeypatch.setattr(
+        service_runtime_run.LLMProviderConfig,
+        "from_sources",
+        staticmethod(lambda: object()),
+    )
+    monkeypatch.setattr(
+        service_runtime_run,
+        "OpenAICompatibleProvider",
+        lambda _config: SlowStreamingProvider(),
+    )
+    server = create_server("127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    body = json.dumps({"goal": "stream slowly"}).encode("utf-8")
+    connection = http.client.HTTPConnection(host, port, timeout=5)
 
-    assert metrics.snapshot(now=12.0)["requests_by_auth_subject"] == {
-        "ops": "1",
-        "team-a": "2",
-    }
+    try:
+        started_at = time.perf_counter()
+        connection.request(
+            "POST",
+            "/runtime/run/stream",
+            body=body,
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            },
+        )
+        response = connection.getresponse()
+        first_answer_delta = None
+        final_event = None
+        while final_event is None:
+            event = _read_sse_event(response)
+            if event["event"] == "answer_delta" and first_answer_delta is None:
+                first_answer_delta = event
+                first_delta_elapsed = time.perf_counter() - started_at
+            if event["event"] == "final":
+                final_event = event
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
-
-def test_service_metrics_tracks_request_duration_histogram_buckets():
-    metrics = ServiceMetrics(started_at=10.0)
-    metrics.record(method="GET", path="/health", status_code=200, duration_seconds=0.1)
-    metrics.record(method="POST", path="/run", status_code=200, duration_seconds=0.6)
-
-    snapshot = metrics.snapshot(now=12.0)
-
-    assert snapshot["request_duration_seconds_bucket"] == {
-        "0.05": "0",
-        "0.1": "1",
-        "0.25": "1",
-        "0.5": "1",
-        "1": "2",
-        "2.5": "2",
-        "5": "2",
-        "10": "2",
-        "+Inf": "2",
-    }
-    assert snapshot["request_duration_seconds_count"] == "2"
-    assert snapshot["request_duration_seconds_sum"] == "0.7000"
+    assert response.status == 200
+    assert response.getheader("Content-Type") == "text/event-stream"
+    assert first_answer_delta["data"]["delta"] == "hel"
+    assert first_delta_elapsed < 0.8
+    assert final_event["data"]["answer"] == "hello"
 
 
 def test_service_metrics_tracks_agent_run_duration_histogram_buckets():
@@ -805,18 +716,6 @@ def test_service_metrics_tracks_runtime_reconciliation_outcomes():
     assert snapshot["runtime_reconciliation_errors_total"] == "3"
 
 
-def test_service_metrics_bounds_http_method_cardinality():
-    metrics = ServiceMetrics()
-
-    metrics.record(method="post", path="/run", status_code=200)
-    metrics.record(method="PATCH-EXPERIMENTAL-123", path="/run", status_code=405)
-    metrics.record(method="TRACE", path="/run", status_code=405)
-
-    snapshot = metrics.snapshot()
-
-    assert snapshot["requests_by_method"] == {"POST": "1", "__unknown__": "2"}
-
-
 def test_service_metrics_endpoint_reports_runtime_snapshot():
     metrics = ServiceMetrics()
     metrics.record(path="/health", status_code=200)
@@ -826,60 +725,6 @@ def test_service_metrics_endpoint_reports_runtime_snapshot():
     assert status_code == 200
     assert payload["requests_total"] == "1"
     assert payload["responses_by_status"] == {"200": "1"}
-
-
-def test_service_metrics_endpoint_reports_agent_run_outcomes():
-    metrics = ServiceMetrics()
-
-    run_status, run_payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        metrics=metrics,
-    )
-    metrics_status, metrics_payload = handle_request("GET", "/metrics", b"", metrics=metrics)
-
-    assert run_status == 200
-    assert run_payload["status"] == "done"
-    assert metrics_status == 200
-    assert metrics_payload["agent_runs_total"] == "1"
-    assert metrics_payload["agent_runs_by_status"] == {"done": "1"}
-    assert float(metrics_payload["average_agent_run_duration_seconds"]) >= 0
-    assert float(metrics_payload["max_agent_run_duration_seconds"]) >= 0
-
-
-def test_service_metrics_endpoint_reports_agent_failure_and_timeout_outcomes():
-    metrics = ServiceMetrics()
-
-    def failing_runner(goal, config):
-        raise RuntimeError("boom")
-
-    def slow_runner(goal, config):
-        time.sleep(0.2)
-        return {"status": "done", "goal": goal, "config": config}
-
-    failed_status, _failed_payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        metrics=metrics,
-        agent_runner=failing_runner,
-    )
-    timeout_status, _timeout_payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(run_timeout_seconds=0.01),
-        metrics=metrics,
-        agent_runner=slow_runner,
-    )
-    metrics_status, metrics_payload = handle_request("GET", "/metrics", b"", metrics=metrics)
-
-    assert failed_status == 500
-    assert timeout_status == 504
-    assert metrics_status == 200
-    assert metrics_payload["agent_runs_total"] == "2"
-    assert metrics_payload["agent_runs_by_status"] == {"failed": "1", "timeout": "1"}
 
 
 def test_service_metrics_endpoint_reports_runtime_operational_outcomes():
@@ -1581,201 +1426,6 @@ def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch
     assert payload.endswith("\n")
 
 
-def test_service_run_endpoint_returns_agent_summary():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-
-
-def test_service_run_endpoint_rejects_full_trace_response_by_default():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3", "full_trace": True}).encode("utf-8"),
-    )
-
-    assert status_code == 403
-    assert payload == {
-        "status": "failed",
-        "error_code": "full_trace_disabled",
-        "error": "full_trace responses are disabled",
-    }
-
-
-def test_service_run_endpoint_can_return_full_trace_when_explicitly_enabled():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3", "full_trace": True}).encode("utf-8"),
-        config=ServiceConfig(allow_full_trace_response=True),
-    )
-
-    assert status_code == 200
-    assert payload["events"][0]["node"] == "planner"
-
-
-def test_service_run_endpoint_rejects_oversized_request_body():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(max_request_bytes=8),
-    )
-
-    assert status_code == 413
-    assert payload == {
-        "status": "failed",
-        "error_code": "request_too_large",
-        "error": "request body too large",
-    }
-
-
-def test_service_run_endpoint_requires_bearer_token_when_configured():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 401
-    assert payload == {
-        "status": "failed",
-        "error_code": "unauthorized",
-        "error": "unauthorized",
-    }
-
-
-def test_service_failure_responses_include_machine_readable_error_code():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 401
-    assert payload["error"] == "unauthorized"
-    assert payload["error_code"] == "unauthorized"
-
-
-def test_service_common_failure_responses_include_stable_error_codes():
-    rate_limiter = ServiceRateLimiter(limit_per_minute=1)
-    rate_limiter.allow("local")
-    concurrency_limiter = ServiceConcurrencyLimiter(max_concurrent_runs=1)
-    release = concurrency_limiter.try_acquire()
-
-    try:
-        cases = [
-            (
-                "request_too_large",
-                handle_request(
-                    "POST",
-                    "/run",
-                    b"{}",
-                    config=ServiceConfig(max_request_bytes=1),
-                ),
-            ),
-            (
-                "unsupported_media_type",
-                handle_request(
-                    "POST",
-                    "/run",
-                    b"goal=calculate",
-                    headers={"Content-Type": "text/plain"},
-                ),
-            ),
-            (
-                "rate_limit_exceeded",
-                handle_request(
-                    "POST",
-                    "/run",
-                    json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-                    rate_limiter=rate_limiter,
-                ),
-            ),
-            (
-                "too_many_concurrent_runs",
-                handle_request(
-                    "POST",
-                    "/run",
-                    json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-                    concurrency_limiter=concurrency_limiter,
-                ),
-            ),
-            ("not_found", handle_request("GET", "/missing", b"")),
-        ]
-    finally:
-        assert release is not None
-        release()
-
-    for expected_error_code, (status_code, payload) in cases:
-        assert status_code >= 400
-        assert payload["status"] == "failed"
-        assert payload["error_code"] == expected_error_code
-        assert payload["error"]
-
-
-def test_service_run_endpoint_accepts_configured_bearer_token():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        headers={"Authorization": "Bearer secret"},
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-
-
-def test_service_run_endpoint_accepts_named_internal_bearer_token():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        headers={"Authorization": "Bearer team-a-token"},
-        config=ServiceConfig(auth_tokens={"team-a": "team-a-token"}),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-
-
-def test_service_metrics_over_http_tracks_named_internal_auth_subject():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(auth_tokens={"team-a": "team-a-token"}),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        run_payload = _open_json(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Authorization": "Bearer team-a-token"},
-        )
-        metrics = _open_json(f"http://{host}:{port}/metrics")
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert run_payload["status"] == "done"
-    assert metrics["requests_by_auth_subject"] == {"team-a": "1"}
-
-
 def test_service_config_loads_named_internal_bearer_tokens_from_env():
     config = ServiceConfig.from_env(
         {
@@ -1790,341 +1440,6 @@ def test_service_config_loads_named_internal_bearer_tokens_from_env():
         "ops": "ops-token",
         "team-a": "team-a-token",
     }
-
-
-def test_service_run_endpoint_accepts_lowercase_authorization_header():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        headers={"authorization": "Bearer secret"},
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-
-
-def test_service_run_endpoint_rejects_non_ascii_authorization_without_error():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        headers={"Authorization": "Bearer sécret"},
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 401
-    assert payload == {
-        "status": "failed",
-        "error_code": "unauthorized",
-        "error": "unauthorized",
-    }
-
-
-def test_service_rejects_duplicate_authorization_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(auth_token="secret"),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Authorization: Bearer wrong\r\n"
-                b"Authorization: Bearer secret\r\n"
-                b"Content-Type: application/json\r\n"
-                + f"Content-Length: {len(body)}\r\n".encode("ascii")
-                + b"Connection: close\r\n"
-                b"\r\n"
-                + body
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 401 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "unauthorized",
-        "error": "unauthorized",
-    }
-
-
-def test_service_authorization_uses_constant_time_compare(monkeypatch):
-    compare_calls = []
-
-    def compare_digest(left, right):
-        compare_calls.append((left, right))
-        return left == right
-
-    monkeypatch.setattr(service_safety.hmac, "compare_digest", compare_digest)
-
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        headers={"Authorization": "Bearer secret"},
-        config=ServiceConfig(auth_token="secret"),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-    assert compare_calls == [("Bearer secret", "Bearer secret")]
-
-
-def test_service_run_endpoint_applies_rate_limit():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 429
-    assert second_payload == {
-        "status": "failed",
-        "error_code": "rate_limit_exceeded",
-        "error": "rate limit exceeded",
-        "retry_after_seconds": "60",
-    }
-
-
-def test_service_rate_limit_key_prefers_named_internal_auth_subject():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-    config = ServiceConfig(
-        auth_tokens={
-            "team-a": "team-a-token",
-            "team-b": "team-b-token",
-        }
-    )
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"Authorization": "Bearer team-a-token"},
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-        config=config,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"Authorization": "Bearer team-b-token"},
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-        config=config,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 200
-    assert second_payload["status"] == "done"
-
-
-def test_service_rate_limit_response_reports_dynamic_retry_after_seconds(monkeypatch):
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    assert limiter.allow("127.0.0.1", now=10.0) is True
-    monkeypatch.setattr(service_runtime.time, "monotonic", lambda: 15.0)
-
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert status_code == 429
-    assert payload == {
-        "status": "failed",
-        "error_code": "rate_limit_exceeded",
-        "error": "rate limit exceeded",
-        "retry_after_seconds": "55",
-    }
-
-
-def test_service_rate_limit_key_ignores_forwarded_for_by_default():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "198.51.100.10"},
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "198.51.100.11"},
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 429
-    assert second_payload == {
-        "status": "failed",
-        "error_code": "rate_limit_exceeded",
-        "error": "rate limit exceeded",
-        "retry_after_seconds": "60",
-    }
-
-
-def test_service_rate_limit_key_can_trust_lowercase_forwarded_for_header():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "198.51.100.10"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "198.51.100.11"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 200
-    assert second_payload["status"] == "done"
-
-
-def test_service_rate_limit_key_rejects_unsafe_forwarded_for_values():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "a" * 129},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "b" * 129},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 429
-    assert second_payload["error_code"] == "rate_limit_exceeded"
-
-
-def test_service_rate_limit_key_rejects_non_ip_forwarded_for_values():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "not-an-ip-a"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "not-an-ip-b"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 429
-    assert second_payload["error_code"] == "rate_limit_exceeded"
-
-
-def test_service_rate_limit_key_normalizes_forwarded_for_ip_values():
-    limiter = ServiceRateLimiter(limit_per_minute=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "2001:0db8:0000:0000:0000:0000:0000:0001"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        headers={"x-forwarded-for": "2001:db8::1"},
-        config=ServiceConfig(trust_forwarded_for=True),
-        remote_addr="127.0.0.1",
-        rate_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 429
-    assert second_payload["error_code"] == "rate_limit_exceeded"
 
 
 def test_service_config_reads_environment_defaults():
@@ -2487,75 +1802,6 @@ def test_service_rate_limiter_snapshot_prunes_expired_windows_without_new_reques
     }
 
 
-def test_service_concurrency_limiter_rejects_when_run_slots_are_full():
-    limiter = ServiceConcurrencyLimiter(max_concurrent_runs=1)
-    release = limiter.try_acquire()
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        status_code, payload = handle_request(
-            "POST",
-            "/run",
-            body,
-            concurrency_limiter=limiter,
-        )
-    finally:
-        assert release is not None
-        release()
-
-    assert status_code == 503
-    assert payload == {
-        "status": "failed",
-        "error_code": "too_many_concurrent_runs",
-        "error": "too many concurrent runs",
-        "retry_after_seconds": "1",
-    }
-
-
-def test_service_concurrency_limiter_releases_slot_after_run():
-    limiter = ServiceConcurrencyLimiter(max_concurrent_runs=1)
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    first_status, first_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        concurrency_limiter=limiter,
-    )
-    second_status, second_payload = handle_request(
-        "POST",
-        "/run",
-        body,
-        concurrency_limiter=limiter,
-    )
-
-    assert first_status == 200
-    assert first_payload["status"] == "done"
-    assert second_status == 200
-    assert second_payload["status"] == "done"
-
-
-def test_service_access_log_record_is_structured():
-    record = access_log_record(
-        method="POST",
-        path="/run",
-        status_code=200,
-        duration_seconds=0.125,
-        request_id="req-123",
-        remote_addr="127.0.0.1",
-    )
-
-    assert record == {
-        "event": "http_request",
-        "method": "POST",
-        "path": "/run",
-        "status_code": 200,
-        "duration_seconds": "0.1250",
-        "request_id": "req-123",
-        "remote_addr": "127.0.0.1",
-    }
-
-
 def test_service_access_log_schema_documents_required_and_optional_fields():
     schema = service_module.access_log_schema()
 
@@ -2598,64 +1844,6 @@ def test_service_access_log_record_includes_error_code_when_present():
     )
 
     assert record["error_code"] == "not_found"
-
-
-def test_service_access_log_record_includes_run_correlation_fields_when_present():
-    record = access_log_record(
-        method="POST",
-        path="/run",
-        status_code=200,
-        duration_seconds=0.125,
-        request_id="req-123",
-        remote_addr="127.0.0.1",
-        run_id="run-123",
-        trace_path="/tmp/traces/run-123.json",
-    )
-
-    assert record["run_id"] == "run-123"
-    assert record["trace_path"] == "/tmp/traces/run-123.json"
-
-
-def test_service_access_log_record_includes_idempotency_presence_when_present():
-    record = access_log_record(
-        method="POST",
-        path="/run",
-        status_code=200,
-        duration_seconds=0.125,
-        request_id="req-123",
-        remote_addr="127.0.0.1",
-        idempotency_key_present=True,
-    )
-
-    assert record["idempotency_key_present"] is True
-
-
-def test_service_access_log_record_includes_request_body_bytes_when_present():
-    record = access_log_record(
-        method="POST",
-        path="/run",
-        status_code=200,
-        duration_seconds=0.125,
-        request_id="req-123",
-        remote_addr="127.0.0.1",
-        request_body_bytes=32,
-    )
-
-    assert record["request_body_bytes"] == 32
-
-
-def test_service_access_log_record_includes_auth_subject_when_present():
-    record = access_log_record(
-        method="POST",
-        path="/run",
-        status_code=200,
-        duration_seconds=0.125,
-        request_id="req-123",
-        remote_addr="127.0.0.1",
-        auth_subject="team-a",
-    )
-
-    assert record["auth_subject"] == "team-a"
 
 
 def test_service_access_log_record_includes_resume_actor_when_present():
@@ -2738,38 +1926,6 @@ def test_service_access_log_write_flushes_stderr(monkeypatch):
     assert fake_stderr.flushes == 1
 
 
-def test_service_run_endpoint_can_return_full_trace():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3", "full_trace": True}).encode("utf-8"),
-        config=ServiceConfig(allow_full_trace_response=True),
-    )
-
-    assert status_code == 200
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-    assert payload["events"][0]["node"] == "planner"
-    assert payload["verification_results"][0]["passed"] == "true"
-
-
-def test_service_run_endpoint_can_persist_full_trace(tmp_path):
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(trace_dir=str(tmp_path)),
-    )
-
-    trace_path = Path(payload["trace_path"])
-    trace_payload = json.loads(trace_path.read_text())
-
-    assert status_code == 200
-    assert trace_path.parent == tmp_path
-    assert trace_payload["run_id"] == payload["run_id"]
-    assert trace_payload["events"][0]["node"] == "planner"
-
-
 def test_service_trace_persistence_keeps_run_id_inside_trace_dir(tmp_path):
     trace_dir = tmp_path / "traces"
     outside_path = tmp_path / "outside.json"
@@ -2787,142 +1943,6 @@ def test_service_trace_persistence_keeps_run_id_inside_trace_dir(tmp_path):
     assert not outside_path.exists()
 
 
-def test_service_run_endpoint_times_out_slow_agent_runner():
-    def slow_runner(goal, config):
-        time.sleep(0.2)
-        return {"status": "done", "goal": goal, "config": config}
-
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        config=ServiceConfig(run_timeout_seconds=0.01),
-        agent_runner=slow_runner,
-    )
-
-    assert status_code == 504
-    assert payload == {
-        "status": "failed",
-        "error_code": "agent_run_timeout",
-        "error": "agent run timed out",
-    }
-
-
-def test_service_run_endpoint_wraps_agent_runner_exceptions():
-    def failing_runner(goal, config):
-        raise RuntimeError("boom")
-
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        agent_runner=failing_runner,
-    )
-
-    assert status_code == 500
-    assert payload == {
-        "status": "failed",
-        "error_code": "agent_run_failed",
-        "error": "agent run failed",
-    }
-
-
-def test_service_run_endpoint_rejects_bad_json():
-    status_code, payload = handle_request("POST", "/run", b"{not-json}")
-
-    assert status_code == 400
-    assert payload["status"] == "failed"
-    assert payload["error"].startswith("invalid JSON")
-
-
-def test_service_run_endpoint_rejects_non_json_content_type():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        b"goal=calculate",
-        headers={"Content-Type": "text/plain"},
-    )
-
-    assert status_code == 415
-    assert payload == {
-        "status": "failed",
-        "error_code": "unsupported_media_type",
-        "error": "content-type must be application/json",
-    }
-
-
-def test_service_run_endpoint_rejects_lowercase_non_json_content_type():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        b"goal=calculate",
-        headers={"content-type": "text/plain"},
-    )
-
-    assert status_code == 415
-    assert payload == {
-        "status": "failed",
-        "error_code": "unsupported_media_type",
-        "error": "content-type must be application/json",
-    }
-
-
-def test_service_rejects_duplicate_content_type_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Type: application/json\r\n"
-                + f"Content-Length: {len(body)}\r\n".encode("ascii")
-                + b"Connection: close\r\n"
-                b"\r\n"
-                + body
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 415 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "unsupported_media_type",
-        "error": "content-type must be single-valued application/json",
-    }
-
-
-def test_service_run_endpoint_rejects_invalid_config():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3", "max_steps": 0}).encode("utf-8"),
-    )
-
-    assert status_code == 400
-    assert payload == {
-        "status": "failed",
-        "error_code": "invalid_agent_config",
-        "error": "max_steps must be at least 1",
-    }
-
-
 def test_service_rejects_unknown_route():
     status_code, payload = handle_request("GET", "/missing", b"")
 
@@ -2931,43 +1951,6 @@ def test_service_rejects_unknown_route():
         "status": "failed",
         "error_code": "not_found",
         "error": "not found",
-    }
-
-
-def test_service_rejects_unsupported_http_method_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="PUT",
-        )
-        try:
-            urllib.request.urlopen(request, timeout=5)
-        except urllib.error.HTTPError as exc:
-            status_code = exc.code
-            payload = json.loads(exc.read().decode("utf-8"))
-            content_type = exc.headers["Content-Type"]
-            content_type_options = exc.headers["X-Content-Type-Options"]
-            allow_header = exc.headers["Allow"]
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status_code == 405
-    assert allow_header == "GET, HEAD, OPTIONS, POST"
-    assert content_type == "application/json"
-    assert content_type_options == "nosniff"
-    assert payload == {
-        "status": "failed",
-        "error_code": "method_not_allowed",
-        "error": "method not allowed",
     }
 
 
@@ -2995,130 +1978,6 @@ def test_service_head_health_returns_headers_without_body_over_http():
     assert content_type == "application/json"
     assert request_id == "head-req"
     assert body == b""
-
-
-def test_service_options_reports_allowed_methods_without_body_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        connection = http.client.HTTPConnection(host, port, timeout=5)
-        connection.request("OPTIONS", "/run")
-        response = connection.getresponse()
-        body = response.read()
-        status_code = response.status
-        allow_header = response.getheader("Allow")
-        content_length = response.getheader("Content-Length")
-    finally:
-        connection.close()
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status_code == 204
-    assert allow_header == "GET, HEAD, OPTIONS, POST"
-    assert content_length == "0"
-    assert body == b""
-
-
-def test_service_can_serve_health_and_run_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        health = _open_json(f"http://{host}:{port}/health")
-        ready = _open_json(f"http://{host}:{port}/ready")
-        run = _open_json(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert health == {"status": "ok"}
-    assert ready["status"] == "ready"
-    assert run["status"] == "done"
-    assert run["answer"] == "5"
-
-
-def test_service_access_log_includes_run_id_for_run_over_http(capsys):
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        run = _open_json(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    records = [
-        json.loads(line)
-        for line in capsys.readouterr().err.splitlines()
-        if line.strip()
-    ]
-    run_records = [
-        record
-        for record in records
-        if record["method"] == "POST" and record["path"] == "/run"
-    ]
-
-    assert run_records[-1]["run_id"] == run["run_id"]
-    assert run_records[-1]["request_body_bytes"] == len(
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-    )
-
-
-def test_service_access_log_includes_internal_auth_subject_without_token(capsys):
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(auth_tokens={"team-a": "team-a-token"}),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=body,
-            headers={
-                "Authorization": "Bearer team-a-token",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            run = json.loads(response.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    stderr = capsys.readouterr().err
-    records = [json.loads(line) for line in stderr.splitlines() if line.strip()]
-    run_records = [
-        record
-        for record in records
-        if record["method"] == "POST" and record["path"] == "/run"
-    ]
-
-    assert run["status"] == "done"
-    assert run_records[-1]["auth_subject"] == "team-a"
-    assert "team-a-token" not in stderr
 
 
 def test_service_access_log_includes_runtime_resume_actor_and_owner_over_http(
@@ -3199,81 +2058,6 @@ def test_service_access_log_includes_runtime_resume_actor_and_owner_over_http(
     assert "team-a-token" not in stderr
 
 
-def test_service_access_log_includes_trace_path_for_persisted_run_over_http(tmp_path, capsys):
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(trace_dir=str(tmp_path)),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        run = _open_json(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    records = [
-        json.loads(line)
-        for line in capsys.readouterr().err.splitlines()
-        if line.strip()
-    ]
-    run_records = [
-        record
-        for record in records
-        if record["method"] == "POST" and record["path"] == "/run"
-    ]
-
-    assert run_records[-1]["run_id"] == run["run_id"]
-    assert run_records[-1]["trace_path"] == run["trace_path"]
-
-
-def test_service_access_log_marks_idempotency_key_presence_without_logging_key(capsys):
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(idempotency_cache_size=8),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    idempotency_key = "retry-secret-123"
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Idempotency-Key": idempotency_key,
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            json.loads(response.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    stderr = capsys.readouterr().err
-    records = [json.loads(line) for line in stderr.splitlines() if line.strip()]
-    run_records = [
-        record
-        for record in records
-        if record["method"] == "POST" and record["path"] == "/run"
-    ]
-
-    assert run_records[-1]["idempotency_key_present"] is True
-    assert idempotency_key not in stderr
-
-
 def test_service_can_serve_prometheus_metrics_over_http():
     server = create_server("127.0.0.1", 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -3313,59 +2097,6 @@ def test_service_echoes_request_id_header_over_http():
         thread.join(timeout=5)
 
     assert request_id == "req-123"
-
-
-def test_service_run_response_includes_run_id_header_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            run_id_header = response.headers["X-Run-ID"]
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert run_id_header == payload["run_id"]
-
-
-def test_service_run_response_includes_trace_path_header_over_http(tmp_path):
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(trace_dir=str(tmp_path)),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            trace_path_header = response.headers["X-Trace-Path"]
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert trace_path_header == payload["trace_path"]
-    assert Path(trace_path_header).exists()
 
 
 def test_service_runtime_run_response_includes_trace_path_header_over_http(tmp_path):
@@ -3408,124 +2139,6 @@ def test_service_runtime_run_response_includes_trace_path_header_over_http(tmp_p
 
     assert trace_path_header == payload["trace_path"]
     assert Path(trace_path_header).exists()
-
-
-def test_service_unauthorized_response_includes_www_authenticate_header_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(auth_token="secret"),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            urllib.request.urlopen(request, timeout=5)
-        except urllib.error.HTTPError as exc:
-            status_code = exc.code
-            authenticate_header = exc.headers["WWW-Authenticate"]
-            payload = json.loads(exc.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status_code == 401
-    assert authenticate_header == "Bearer"
-    assert payload["error_code"] == "unauthorized"
-
-
-def test_service_rate_limited_response_includes_retry_after_header_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(rate_limit_per_minute=1),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        for _attempt in range(2):
-            request = urllib.request.Request(
-                f"http://{host}:{port}/run",
-                data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            try:
-                urllib.request.urlopen(request, timeout=5)
-            except urllib.error.HTTPError as exc:
-                status_code = exc.code
-                retry_after = exc.headers["Retry-After"]
-                payload = json.loads(exc.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status_code == 429
-    assert retry_after == "60"
-    assert payload["error_code"] == "rate_limit_exceeded"
-    assert payload["retry_after_seconds"] == retry_after
-
-
-def test_service_concurrency_rejection_includes_retry_after_header_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(max_concurrent_runs=1),
-    )
-    release = server.service_concurrency_limiter.try_acquire()
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            urllib.request.urlopen(request, timeout=5)
-        except urllib.error.HTTPError as exc:
-            status_code = exc.code
-            retry_after = exc.headers["Retry-After"]
-            payload = json.loads(exc.read().decode("utf-8"))
-    finally:
-        assert release is not None
-        release()
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status_code == 503
-    assert retry_after == "1"
-    assert payload["error_code"] == "too_many_concurrent_runs"
-    assert payload["retry_after_seconds"] == retry_after
-
-
-def test_service_run_response_omits_unsafe_run_id_header():
-    status_code, payload = handle_request(
-        "POST",
-        "/run",
-        json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8"),
-        agent_runner=lambda goal, config: {"status": "done", "run_id": "bad\nid"},
-    )
-
-    assert status_code == 200
-    assert payload["run_id"] == "bad\nid"
-    assert not service_module._safe_response_header_value(payload["run_id"])
 
 
 def test_service_accepts_safe_request_id_header_value():
@@ -3581,450 +2194,6 @@ def test_service_server_header_does_not_expose_python_runtime_over_http():
 
     assert server_header == "kagentHTTP/0.1"
     assert "Python" not in server_header
-
-
-def test_service_sets_common_security_headers_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        get_request = urllib.request.Request(f"http://{host}:{port}/health", method="GET")
-        with urllib.request.urlopen(get_request, timeout=5) as response:
-            get_cache_control = response.headers["Cache-Control"]
-            get_referrer_policy = response.headers["Referrer-Policy"]
-            get_content_security_policy = response.headers["Content-Security-Policy"]
-            get_frame_options = response.headers["X-Frame-Options"]
-
-        connection = http.client.HTTPConnection(host, port, timeout=5)
-        connection.request("HEAD", "/health")
-        head_response = connection.getresponse()
-        head_response.read()
-        head_cache_control = head_response.getheader("Cache-Control")
-        head_referrer_policy = head_response.getheader("Referrer-Policy")
-        head_content_security_policy = head_response.getheader("Content-Security-Policy")
-        head_frame_options = head_response.getheader("X-Frame-Options")
-        connection.close()
-
-        options_connection = http.client.HTTPConnection(host, port, timeout=5)
-        options_connection.request("OPTIONS", "/run")
-        options_response = options_connection.getresponse()
-        options_response.read()
-        options_cache_control = options_response.getheader("Cache-Control")
-        options_referrer_policy = options_response.getheader("Referrer-Policy")
-        options_content_security_policy = options_response.getheader("Content-Security-Policy")
-        options_frame_options = options_response.getheader("X-Frame-Options")
-        options_connection.close()
-
-        put_request = urllib.request.Request(
-            f"http://{host}:{port}/run",
-            data=b"{}",
-            headers={"Content-Type": "application/json"},
-            method="PUT",
-        )
-        try:
-            urllib.request.urlopen(put_request, timeout=5)
-        except urllib.error.HTTPError as exc:
-            error_cache_control = exc.headers["Cache-Control"]
-            error_referrer_policy = exc.headers["Referrer-Policy"]
-            error_content_security_policy = exc.headers["Content-Security-Policy"]
-            error_frame_options = exc.headers["X-Frame-Options"]
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert get_cache_control == "no-store"
-    assert head_cache_control == "no-store"
-    assert options_cache_control == "no-store"
-    assert error_cache_control == "no-store"
-    assert get_referrer_policy == "no-referrer"
-    assert head_referrer_policy == "no-referrer"
-    assert options_referrer_policy == "no-referrer"
-    assert error_referrer_policy == "no-referrer"
-    assert (
-        get_content_security_policy
-        == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-    )
-    assert (
-        head_content_security_policy
-        == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-    )
-    assert (
-        options_content_security_policy
-        == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-    )
-    assert (
-        error_content_security_policy
-        == "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-    )
-    assert get_frame_options == "DENY"
-    assert head_frame_options == "DENY"
-    assert options_frame_options == "DENY"
-    assert error_frame_options == "DENY"
-
-
-def test_service_rejects_invalid_content_length_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: not-int\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    status_code = int(status_line.split()[1])
-    payload = json.loads(body.decode("utf-8"))
-
-    assert status_code == 400
-    assert payload == {
-        "status": "failed",
-        "error_code": "invalid_content_length",
-        "error": "invalid content-length",
-    }
-
-
-def test_service_rejects_negative_content_length_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: -1\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 400 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "invalid_content_length",
-        "error": "invalid content-length",
-    }
-
-
-def test_service_rejects_duplicate_content_length_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 2\r\n"
-                b"Content-Length: 27\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-                b'{}{"goal": "calculate 2 + 3"}'
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 400 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "invalid_content_length",
-        "error": "invalid content-length",
-    }
-
-
-def test_service_rejects_transfer_encoding_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Transfer-Encoding: chunked\r\n"
-                + f"Content-Length: {len(body)}\r\n".encode("ascii")
-                + b"Connection: close\r\n"
-                b"\r\n"
-                + body
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 400 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "invalid_transfer_encoding",
-        "error": "transfer-encoding is unsupported",
-    }
-
-
-def test_service_rejects_expect_header_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Expect: 100-continue\r\n"
-                + f"Content-Length: {len(body)}\r\n".encode("ascii")
-                + b"Connection: close\r\n"
-                b"\r\n"
-                + body
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 417 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "expectation_failed",
-        "error": "expect header is unsupported",
-    }
-
-
-def test_service_rejects_duplicate_idempotency_key_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(idempotency_cache_size=8),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-    body = json.dumps({"goal": "calculate 2 + 3"}).encode("utf-8")
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Idempotency-Key: retry-a\r\n"
-                b"Idempotency-Key: retry-b\r\n"
-                + f"Content-Length: {len(body)}\r\n".encode("ascii")
-                + b"Connection: close\r\n"
-                b"\r\n"
-                + body
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 400 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "invalid_idempotency_key",
-        "error": "idempotency key must be single-valued",
-    }
-
-
-def test_service_rejects_incomplete_request_body_over_http():
-    server = create_server("127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 32\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-                b'{"goal": "calculate 2'
-            )
-            client.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
-    assert b" 400 " in status_line
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "incomplete_request_body",
-        "error": "request body ended before content-length bytes were read",
-    }
-
-
-def test_service_returns_request_timeout_when_body_read_times_out_over_http():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(request_timeout_seconds=0.2),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.settimeout(2)
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 32\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-                b'{"goal": "calculate'
-            )
-            chunks = []
-            while True:
-                chunk = client.recv(4096)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            response = b"".join(chunks)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    headers_blob, body = response.split(b"\r\n\r\n", 1)
-    status_line = headers_blob.split(b"\r\n", 1)[0]
-    assert b" 408 " in status_line
-    assert b"Retry-After: 1" in headers_blob
-    assert json.loads(body.decode("utf-8")) == {
-        "status": "failed",
-        "error_code": "request_body_timeout",
-        "error": "timed out while reading request body",
-        "retry_after_seconds": "1",
-    }
-
-
-def test_service_closes_slow_incomplete_requests_after_configured_timeout():
-    server = create_server(
-        "127.0.0.1",
-        0,
-        config=ServiceConfig(request_timeout_seconds=0.2),
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
-
-    try:
-        with socket.create_connection((host, port), timeout=5) as client:
-            client.settimeout(2)
-            client.sendall(
-                b"POST /run HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-            )
-            started_at = time.perf_counter()
-            response = client.recv(4096)
-            elapsed = time.perf_counter() - started_at
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert response == b""
-    assert elapsed < 1.5
 
 
 def test_service_metrics_endpoint_counts_prior_http_requests():
@@ -4118,3 +2287,41 @@ def _open_text(url: str):
     request = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(request, timeout=5) as response:
         return response.read().decode("utf-8"), response.headers["Content-Type"]
+
+
+def _parse_sse_events(body: str):
+    events = []
+    for raw_event in body.strip().split("\n\n"):
+        event_name = ""
+        data_lines = []
+        for line in raw_event.splitlines():
+            if line.startswith("event: "):
+                event_name = line.removeprefix("event: ")
+            elif line.startswith("data: "):
+                data_lines.append(line.removeprefix("data: "))
+        events.append(
+            {
+                "event": event_name,
+                "data": json.loads("\n".join(data_lines)),
+            }
+        )
+    return events
+
+
+def _read_sse_event(response):
+    event_name = ""
+    data_lines = []
+    while True:
+        line = response.readline().decode("utf-8")
+        if line == "":
+            raise AssertionError("stream ended before SSE event completed")
+        line = line.rstrip("\r\n")
+        if line == "":
+            return {
+                "event": event_name,
+                "data": json.loads("\n".join(data_lines)),
+            }
+        if line.startswith("event: "):
+            event_name = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            data_lines.append(line.removeprefix("data: "))

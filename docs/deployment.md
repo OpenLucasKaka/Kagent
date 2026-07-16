@@ -72,9 +72,10 @@ The service reads these environment variables:
 - `KAGENT_SERVICE_PORT`: bind port, default `8000`.
 - `KAGENT_SERVICE_MAX_REQUEST_BYTES`: maximum request body size,
   default `65536`.
-- `KAGENT_SERVICE_MAX_GOAL_CHARS`: maximum accepted `/run` goal text
-  length, default `4096`.
-- `KAGENT_SERVICE_AUTH_TOKEN`: optional bearer token for `POST /run`.
+- `KAGENT_SERVICE_MAX_GOAL_CHARS`: maximum accepted `/runtime/run` or
+  `/runtime/run/stream` goal text length, default `4096`.
+- `KAGENT_SERVICE_AUTH_TOKEN`: optional bearer token for `POST /runtime/run`
+  and `POST /runtime/run/stream`.
   Use `kagent-doctor --require-auth` in release automation when
   this service is reachable outside localhost, or `--production` when the gate
   should also require diagnostic endpoint protection, trace persistence, rate
@@ -86,12 +87,13 @@ The service reads these environment variables:
   `{"team-a":"...","ops":"..."}`. The object keys become redacted
   `auth_subject` audit labels and per-subject rate-limit keys; raw tokens are
   never logged.
-- `KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE`: per-client `/run` request
-  limit, default `0` for disabled.
-- `KAGENT_SERVICE_MAX_CONCURRENT_RUNS`: maximum in-flight `/run`
-  executions, default `4`; set `0` to disable this service-level cap.
+- `KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE`: per-client `/runtime/run` and
+  `/runtime/run/stream` request limit, default `0` for disabled.
+- `KAGENT_SERVICE_MAX_CONCURRENT_RUNS`: maximum in-flight `/runtime/run` and
+  `/runtime/run/stream` executions, default `4`; set `0` to disable this
+  service-level cap.
 - `KAGENT_SERVICE_IDEMPOTENCY_CACHE_SIZE`: number of successful
-  `POST /run` responses retained for `Idempotency-Key` retry reuse, default
+  `POST /runtime/run` responses retained for `Idempotency-Key` retry reuse, default
   `0` for disabled.
 - `KAGENT_SERVICE_IDEMPOTENCY_CACHE_PATH`: optional SQLite file for
   persistent/shared idempotency reuse across service restarts and same-volume
@@ -136,7 +138,7 @@ The service reads these environment variables:
   `X-Forwarded-For`, default `false`; enable only behind a trusted reverse proxy.
 - `KAGENT_SERVICE_TRACE_DIR`: optional directory for persisted full
   run traces. When set, `/ready` validates that the directory can be created
-  and written, `/run` responses include `trace_path`, and trace files are
+  and written, `/runtime/run` responses include `trace_path`, and trace files are
   atomically replaced after a successful temporary-file write. A deployment
   with more than one service replica must mount the same shared directory at
   this path on every replica. Cross-replica runtime cancellation, owner
@@ -186,8 +188,7 @@ The service reads these environment variables:
 - `KAGENT_EXTERNAL_BACKEND_TIMEOUT_SECONDS`: readiness timeout for Redis,
   Milvus, and Kafka probes, default `2`.
 - `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS`: maximum wall-clock time for
-  one execution route (`/run`, `/runtime/run`, or `/runtime/resume`) before
-  returning `504`, default `30`.
+  `/runtime/run` or `/runtime/resume` before returning `504`, default `30`.
 - `KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS`: maximum time to read a
   complete HTTP request before returning a structured slow-client timeout,
   default `10`.
@@ -231,7 +232,7 @@ The unit declares `StateDirectory=kagent` and
 `ReadWritePaths=/var/lib/kagent`, then uses `ProtectSystem=strict`
 so persisted traces and runtime workspace assets have an explicit writable
 state boundary. The unit passes `--trace-dir /var/lib/kagent/traces` and
-`--runtime-workspace-dir /var/lib/kagent/runtime-workspace` to both the
+`--runtime-workspace-dir /var/lib/kagent/runtime/runtime-workspace` to both the
 production doctor and the service process so trace persistence and the virtual
 workspace are validated before startup and used at runtime.
 It also sets `UMask=0077` so newly written trace and state files default to
@@ -370,7 +371,7 @@ panels.
 Before publishing an image, run the local gate:
 
 ```sh
-scripts/run_checks.sh
+scripts/runtime/run_checks.sh
 ```
 
 For a focused service check, run:
@@ -385,8 +386,11 @@ After deployment, validate the live service:
 curl -s http://127.0.0.1:8000/version
 curl -s http://127.0.0.1:8000/openapi.json
 curl -s http://127.0.0.1:8000/metrics.prom
-curl -i -X OPTIONS http://127.0.0.1:8000/run
-curl -s -X POST http://127.0.0.1:8000/run \
+curl -i -X OPTIONS http://127.0.0.1:8000/runtime/run
+curl -s -X POST http://127.0.0.1:8000/runtime/run \
+  -H 'Content-Type: application/json' \
+  -d '{"goal":"calculate 2 + 3"}'
+curl -N -X POST http://127.0.0.1:8000/runtime/run/stream \
   -H 'Content-Type: application/json' \
   -d '{"goal":"calculate 2 + 3"}'
 ```
@@ -397,7 +401,7 @@ The service writes structured JSON access logs to stderr. Each record includes
 one and echoes it in the response. The access log schema also reserves optional
 `error_code`, `run_id`, `trace_path`, and `idempotency_key_present` fields for
 failure triage, trace correlation, and retry correlation without logging raw
-idempotency keys. Successful `/run` responses include `X-Run-ID`, and include
+idempotency keys. Successful `/runtime/run` responses include `X-Run-ID`, and include
 `X-Trace-Path` when trace persistence writes a trace artifact.
 
 Set `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS` below the upstream reverse

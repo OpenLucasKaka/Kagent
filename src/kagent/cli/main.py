@@ -43,13 +43,7 @@ def main() -> None:
     parser.add_argument(
         "--runtime",
         action="store_true",
-        help="Run the plan-act-observe runtime.",
-    )
-    parser.add_argument(
-        "--deterministic",
-        "--legacy-graph",
-        action="store_true",
-        help="Run the deterministic regression graph instead of the default runtime.",
+        help="Run the plan-act-observe runtime. This is the default.",
     )
     parser.add_argument(
         "--interactive",
@@ -105,7 +99,7 @@ def main() -> None:
     parser.add_argument(
         "--list-tools",
         action="store_true",
-        help="Print the registered deterministic tool names as JSON.",
+        help="Print the registered runtime tool names as JSON.",
     )
     parser.add_argument(
         "--verbose",
@@ -113,14 +107,9 @@ def main() -> None:
         help="Print richer metadata for discovery commands that support it.",
     )
     parser.add_argument(
-        "--list-faults",
-        action="store_true",
-        help="Print supported fault injection names as JSON.",
-    )
-    parser.add_argument(
         "--graph",
         action="store_true",
-        help="Print the graph topology as JSON.",
+        help="Print the runtime graph topology as JSON.",
     )
     parser.add_argument(
         "--version",
@@ -131,30 +120,6 @@ def main() -> None:
         "--configure",
         action="store_true",
         help="Configure the local OpenAI-compatible runtime provider.",
-    )
-    parser.add_argument(
-        "--inject-wrong-answer",
-        action="append",
-        default=[],
-        metavar="STEP",
-        help="Force one wrong answer for STEP to demonstrate reflection and retry.",
-    )
-    parser.add_argument(
-        "--inject-fault",
-        action="append",
-        default=[],
-        metavar="STEP=FAULT",
-        help="Force a named fault for STEP, such as STEP=empty-answer.",
-    )
-    parser.add_argument(
-        "--summary",
-        action="store_true",
-        help="Print a compact run summary instead of the full trace.",
-    )
-    parser.add_argument(
-        "--plan",
-        action="store_true",
-        help="Print planner output and validation without executing the graph.",
     )
     parser.add_argument(
         "--fail-on-agent-failure",
@@ -170,20 +135,12 @@ def main() -> None:
     args = parser.parse_args()
     _apply_default_cli_mode(args)
 
-    if args.max_steps is not None and args.max_steps < 1:
-        parser.error("--max-steps must be at least 1")
-    if args.max_retries is not None and args.max_retries < 0:
-        parser.error("--max-retries must be non-negative")
+    if args.max_steps is not None:
+        parser.error("--max-steps is no longer supported; use --max-iterations")
+    if args.max_retries is not None:
+        parser.error("--max-retries is no longer supported")
     if args.max_iterations is not None and args.max_iterations < 1:
         parser.error("--max-iterations must be at least 1")
-    if args.deterministic and args.runtime_plan:
-        parser.error("--deterministic cannot be combined with --runtime-plan")
-    if args.deterministic:
-        args.runtime = False
-    if args.deterministic and args.interactive:
-        parser.error("--deterministic cannot be combined with --interactive")
-    if args.runtime and args.plan:
-        parser.error("--plan is not supported with --runtime")
     if args.interactive_json and not args.interactive:
         parser.error("--interactive-json requires --interactive")
     if args.configure and args.goal is not None:
@@ -192,23 +149,11 @@ def main() -> None:
         parser.error("--session-memory requires --interactive")
     if args.interactive and args.output:
         parser.error("--output is not supported with --interactive")
-    if args.trace_dir and not args.runtime:
-        parser.error("--trace-dir requires --runtime")
-    if (args.tag or args.metadata) and not args.runtime:
-        parser.error("--tag and --metadata require --runtime")
     runtime_metadata, runtime_tags = _runtime_labels_from_args(
         args.metadata,
         args.tag,
         parser,
     )
-
-    if args.goal is not None:
-        try:
-            fault_plan = _build_fault_plan(args.inject_wrong_answer, args.inject_fault)
-        except ValueError as exc:
-            parser.error(str(exc))
-    else:
-        fault_plan = {}
 
     warning_sink = io.StringIO()
     config_error = ""
@@ -216,18 +161,6 @@ def main() -> None:
     with contextlib.redirect_stderr(warning_sink), warnings.catch_warnings():
         warnings.simplefilter("ignore")
         from kagent import __version__
-        from kagent.core.agent import (
-            AgentConfig,
-            agent_topology,
-            preview_plan,
-            run_agent,
-        )
-        from kagent.core.faults import SUPPORTED_FAULTS
-        from kagent.core.summary import summarize_run
-        from kagent.core.tools import (
-            registered_tool_metadata,
-            registered_tool_names,
-        )
         from kagent.providers.llm import (
             DEFAULT_LLM_MODEL,
             FakeLLMProvider,
@@ -243,25 +176,13 @@ def main() -> None:
         from kagent.service.trace_store import persist_trace
 
         if args.list_tools:
-            if args.runtime:
-                runtime_tools = registered_runtime_tool_metadata()
-                tools = (
-                    runtime_tools
-                    if args.verbose
-                    else [tool["name"] for tool in runtime_tools]
-                )
-            else:
-                tools = registered_tool_metadata() if args.verbose else registered_tool_names()
+            runtime_tools = registered_runtime_tool_metadata()
+            tools = runtime_tools if args.verbose else [tool["name"] for tool in runtime_tools]
             _emit_json_payload({"tools": tools}, args.output, parser)
             return
 
-        if args.list_faults:
-            _emit_json_payload({"faults": sorted(SUPPORTED_FAULTS)}, args.output, parser)
-            return
-
         if args.graph:
-            topology = runtime_topology() if args.runtime else agent_topology()
-            _emit_json_payload(topology, args.output, parser)
+            _emit_json_payload(runtime_topology(), args.output, parser)
             return
 
         if args.version:
@@ -317,10 +238,10 @@ def main() -> None:
         elif args.goal is None:
             parser.error(
                 "goal is required unless --interactive, --list-tools, "
-                "--list-faults, --graph, or --version is used"
+                "--graph, --version, or --configure is used"
             )
 
-        elif args.runtime:
+        else:
             try:
                 provider = (
                     _runtime_provider_from_args(
@@ -349,27 +270,11 @@ def main() -> None:
                 config_error = str(exc)
             except OSError as exc:
                 config_error = f"could not persist --trace-dir trace: {exc}"
-        else:
-            try:
-                config = _config_from_args(AgentConfig, args.max_steps, args.max_retries)
-            except ValueError as exc:
-                config_error = str(exc)
-            else:
-                if args.plan:
-                    result = preview_plan(args.goal, config=config)
-                else:
-                    result = run_agent(
-                        args.goal,
-                        config=config,
-                        fault_plan=fault_plan,
-                    )
-                if args.summary and not args.plan:
-                    result = summarize_run(result)
     if config_error:
         parser.error(config_error)
     payload = json_ready(result)
     _emit_json_payload(payload, args.output, parser)
-    if args.fail_on_agent_failure and not args.plan and payload.get("status") == "failed":
+    if args.fail_on_agent_failure and payload.get("status") == "failed":
         raise SystemExit(1)
 
 
@@ -559,36 +464,15 @@ def _exit_runtime_provider_config_error(message: str) -> None:
 def _apply_default_cli_mode(args: argparse.Namespace) -> None:
     if getattr(args, "configure", False):
         return
-    if _uses_deterministic_graph(args):
-        args.deterministic = True
-        return
-    if args.runtime_plan:
-        args.runtime = True
-    if args.interactive:
-        args.runtime = True
-    if args.goal is not None and not _is_introspection_command(args):
-        args.runtime = True
+    args.runtime = True
     if args.goal is None and not _is_introspection_command(args):
         args.runtime = True
         args.interactive = True
 
 
-def _uses_deterministic_graph(args: argparse.Namespace) -> bool:
-    return bool(
-        args.deterministic
-        or args.plan
-        or args.summary
-        or args.max_steps is not None
-        or args.max_retries is not None
-        or args.inject_wrong_answer
-        or args.inject_fault
-    )
-
-
 def _is_introspection_command(args: argparse.Namespace) -> bool:
     return bool(
         args.list_tools
-        or args.list_faults
         or args.graph
         or args.version
         or getattr(args, "configure", False)
@@ -645,40 +529,6 @@ def _emit_json_payload(
     except OSError as exc:
         parser.error(f"could not write --output file: {exc}")
     print(json_payload)
-
-
-def _build_fault_plan(injected_steps: list, injected_faults: list) -> dict:
-    fault_plan = {}
-    for step in injected_steps:
-        _append_fault(fault_plan, step, "wrong-answer")
-    for item in injected_faults:
-        step, fault = _parse_fault(item)
-        _append_fault(fault_plan, step, fault)
-    return fault_plan
-
-
-def _config_from_args(AgentConfig, max_steps, max_retries):
-    config = AgentConfig.from_env()
-    return AgentConfig(
-        max_steps=max_steps if max_steps is not None else config.max_steps,
-        max_retries=max_retries if max_retries is not None else config.max_retries,
-    )
-
-
-def _append_fault(fault_plan: dict, step: str, fault: str) -> None:
-    from kagent.core.faults import validate_faults
-    from kagent.core.normalization import normalize_goal
-
-    validate_faults([fault])
-    normalized_step = normalize_goal(step)
-    fault_plan.setdefault(normalized_step, []).append(fault)
-
-
-def _parse_fault(item: str) -> tuple:
-    if "=" not in item:
-        raise ValueError("--inject-fault must use STEP=FAULT")
-    step, fault = item.rsplit("=", 1)
-    return step, fault.strip()
 
 
 if __name__ == "__main__":

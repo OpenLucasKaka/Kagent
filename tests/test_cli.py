@@ -47,175 +47,6 @@ def test_cli_defaults_goal_runs_to_runtime_mode():
     assert args.deterministic is False
 
 
-def test_cli_deterministic_flag_keeps_goal_on_legacy_graph():
-    from kagent.cli.main import _apply_default_cli_mode
-
-    args = Namespace(
-        deterministic=True,
-        runtime=False,
-        runtime_plan="",
-        interactive=False,
-        goal="calculate 2 + 3",
-        list_tools=False,
-        list_faults=False,
-        graph=False,
-        version=False,
-        plan=False,
-        summary=False,
-        max_steps=None,
-        max_retries=None,
-        inject_wrong_answer=[],
-        inject_fault=[],
-    )
-
-    _apply_default_cli_mode(args)
-
-    assert args.runtime is False
-    assert args.interactive is False
-
-
-def test_cli_accepts_legacy_runtime_deterministic_mix_for_local_smoke_tests():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--runtime",
-            "--deterministic",
-            "calculate 2 + 3",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0
-    payload = json.loads(completed.stdout)
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-    assert completed.stderr == ""
-
-
-def test_cli_rejects_deterministic_runtime_plan_mix():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "capture hello",
-            "--runtime-plan",
-            '{"actions":[]}',
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "--deterministic cannot be combined with --runtime-plan" in completed.stderr
-
-
-def test_cli_runs_goal_and_prints_json_trace():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 2 + 3",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-    assert payload["events"][0]["node"] == "planner"
-
-
-def test_cli_can_demonstrate_self_correction_with_fault_injection():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 2 + 3",
-            "--inject-wrong-answer",
-            "calculate 2 + 3",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "done"
-    assert payload["answer"] == "5"
-    assert payload["retry_count"] == 1
-    assert [event["node"] for event in payload["events"]] == [
-        "planner",
-        "executor",
-        "verifier",
-        "reflector",
-        "executor",
-        "verifier",
-    ]
-
-
-def test_cli_accepts_generic_fault_injection():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "uppercase text in 'agent loop'",
-            "--inject-fault",
-            "uppercase text in 'agent loop'=empty-answer",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "done"
-    assert payload["answer"] == "AGENT LOOP"
-    assert payload["reflections"][-1]["actual"] == ""
-
-
-def test_cli_fault_injection_preserves_quoted_text_case_when_matching():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "Uppercase Text in 'Agent Loop'",
-            "--inject-fault",
-            "Uppercase Text in 'Agent Loop'=empty-answer",
-            "--summary",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["retry_count"] == "1"
-    assert payload["faults"] == ["empty-answer"]
-
-
 def test_cli_lists_registered_tools():
     completed = subprocess.run(
         [
@@ -232,18 +63,10 @@ def test_cli_lists_registered_tools():
     payload = json.loads(completed.stdout)
 
     assert completed.stderr == ""
-    assert payload == {
-        "tools": [
-            "calculate_sum",
-            "count_words",
-            "lowercase_text",
-            "multiply_numbers",
-            "reverse_text",
-            "subtract_numbers",
-            "trim_text",
-            "uppercase_text",
-        ]
-    }
+    assert "apply_patch" in payload["tools"]
+    assert "artifact" in payload["tools"]
+    assert "note" in payload["tools"]
+    assert "calculate_sum" not in payload["tools"]
 
 
 def test_cli_lists_verbose_tool_metadata():
@@ -263,13 +86,11 @@ def test_cli_lists_verbose_tool_metadata():
     payload = json.loads(completed.stdout)
 
     assert completed.stderr == ""
-    assert payload["tools"][0] == {
-        "name": "calculate_sum",
-        "command": "calculate N + M",
-        "description": "Add two integers.",
-        "example": "calculate 2 + 3",
-    }
-    assert payload["tools"][-1]["name"] == "uppercase_text"
+    first_tool = payload["tools"][0]
+    assert first_tool["name"] == "apply_patch"
+    assert first_tool["approval_required_by_default"] == "false"
+    assert "input_schema" in first_tool
+    assert "output_schema" in first_tool
 
 
 def test_cli_lists_runtime_tool_metadata_when_runtime_mode_is_enabled():
@@ -362,25 +183,6 @@ def test_cli_lists_runtime_tool_metadata_when_runtime_mode_is_enabled():
     ]
 
 
-def test_cli_lists_supported_faults():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--list-faults",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload == {"faults": ["empty-answer", "tool-error", "wrong-answer"]}
-
-
 def test_cli_can_print_graph_topology_without_goal():
     completed = subprocess.run(
         [
@@ -397,18 +199,10 @@ def test_cli_can_print_graph_topology_without_goal():
     payload = json.loads(completed.stdout)
 
     assert completed.stderr == ""
-    assert payload == {
-        "nodes": ["planner", "executor", "verifier", "reflector"],
-        "edges": [
-            "planner -> executor",
-            "executor -> verifier",
-            "verifier -> reflector",
-            "reflector -> executor",
-            "verifier -> executor",
-            "verifier -> END",
-            "planner -> END",
-        ],
-    }
+    assert payload["runtime_engine"] == "langgraph"
+    assert payload["entry_point"] == "prepare"
+    assert "runtime_loop" in payload["nodes"]
+    assert "runtime_loop -> finalize" in payload["edges"]
 
 
 def test_cli_can_print_runtime_graph_topology_without_goal():
@@ -520,147 +314,6 @@ def test_cli_output_file_also_applies_to_introspection_commands(tmp_path):
     assert json.loads(output_path.read_text()) == json.loads(completed.stdout)
 
 
-def test_cli_can_preview_plan_without_execution():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "calculate 2 + 3 then subtract 10 - 4",
-            "--plan",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "ready"
-    assert payload["plan"] == ["calculate 2 + 3", "subtract 10 - 4"]
-    assert payload["plan_validations"][-1]["tool"] == "subtract_numbers"
-    assert "events" not in payload
-
-
-def test_cli_uses_environment_config_defaults_when_flags_are_omitted():
-    env = os.environ.copy()
-    env["KAGENT_MAX_STEPS"] = "1"
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 1 + 1 then calculate 2 + 2",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "failed"
-    assert payload["config"]["max_steps"] == 1
-    assert payload["errors"] == ["planned steps exceed max_steps"]
-
-
-def test_cli_flags_override_environment_config_defaults():
-    env = os.environ.copy()
-    env["KAGENT_MAX_STEPS"] = "1"
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "calculate 1 + 1 then calculate 2 + 2",
-            "--max-steps",
-            "2",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "done"
-    assert payload["config"]["max_steps"] == 2
-
-
-def test_cli_reports_invalid_environment_config_without_traceback():
-    env = os.environ.copy()
-    env["KAGENT_MAX_STEPS"] = "many"
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 2 + 3",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    assert completed.returncode == 2
-    assert "KAGENT_MAX_STEPS must be an integer" in completed.stderr
-    assert "Traceback" not in completed.stderr
-
-
-def test_cli_can_exit_nonzero_when_agent_run_fails():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 1 + 1 then search the web",
-            "--fail-on-agent-failure",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.returncode == 1
-    assert completed.stderr == ""
-    assert payload["status"] == "failed"
-    assert payload["errors"] == ["unsupported planned step: search the web"]
-
-
-def test_cli_can_write_json_payload_to_output_file(tmp_path):
-    output_path = tmp_path / "trace.json"
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "calculate 2 + 3",
-            "--summary",
-            "--output",
-            str(output_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    stdout_payload = json.loads(completed.stdout)
-    file_payload = json.loads(output_path.read_text())
-
-    assert completed.stderr == ""
-    assert stdout_payload == file_payload
-    assert file_payload["status"] == "done"
-
-
 def test_cli_can_run_codex_style_runtime_with_inline_plan():
     completed = subprocess.run(
         [
@@ -691,34 +344,6 @@ def test_cli_can_run_codex_style_runtime_with_inline_plan():
     )
     assert '"score_percent": 100.0' in payload["answer"]
     assert payload["observations"][0]["output"]["score_percent"] == 100.0
-
-
-def test_cli_missing_runtime_provider_config_prints_actionable_error_without_usage(tmp_path):
-    env = os.environ.copy()
-    env.pop("KAGENT_LLM_BASE_URL", None)
-    env.pop("KAGENT_LLM_MODEL", None)
-    env.pop("KAGENT_LLM_API_KEY", None)
-    env["KAGENT_LLM_CONFIG_PATH"] = str(tmp_path / "missing-provider.json")
-
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    assert completed.returncode == 2
-    assert completed.stdout == ""
-    assert "kagent runtime provider is not configured." in completed.stderr
-    assert "KAGENT_LLM_BASE_URL" in completed.stderr
-    assert "KAGENT_LLM_MODEL" in completed.stderr
-    assert "kagent --deterministic 'calculate 2 + 3'" in completed.stderr
-    assert "usage:" not in completed.stderr
-    assert "Traceback" not in completed.stderr
 
 
 def test_cli_missing_runtime_provider_config_for_goal_avoids_argparse_usage(tmp_path):
@@ -3769,90 +3394,6 @@ def test_cli_interactive_runtime_reports_declined_approval(monkeypatch, capsys):
     assert "Approval skipped\n  action not approved" in captured.out
 
 
-def test_cli_writes_output_file_before_failure_exit(tmp_path):
-    output_path = tmp_path / "failed-trace.json"
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "--deterministic",
-            "calculate 1 + 1 then search the web",
-            "--fail-on-agent-failure",
-            "--output",
-            str(output_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 1
-    assert json.loads(output_path.read_text()) == json.loads(completed.stdout)
-
-
-def test_cli_can_print_run_summary():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "uppercase text in 'agent loop'",
-            "--inject-fault",
-            "uppercase text in 'agent loop'=empty-answer",
-            "--summary",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    payload = json.loads(completed.stdout)
-
-    assert completed.stderr == ""
-    assert payload["status"] == "done"
-    assert payload["retry_count"] == "1"
-    assert payload["failed_verifications"] == "1"
-    assert payload["faults"] == ["empty-answer"]
-
-
-def test_cli_reports_invalid_fault_format_without_traceback():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "calculate 2 + 3",
-            "--inject-fault",
-            "calculate 2 + 3",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "--inject-fault must use STEP=FAULT" in completed.stderr
-    assert "Traceback" not in completed.stderr
-
-
-def test_cli_reports_unknown_fault_name_without_traceback():
-    completed = subprocess.run(
-        [
-            ".venv/bin/python",
-            "-m",
-            "kagent.cli",
-            "calculate 2 + 3",
-            "--inject-fault",
-            "calculate 2 + 3=typo",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "unsupported fault: typo" in completed.stderr
-    assert "Traceback" not in completed.stderr
-
-
 def test_cli_reports_invalid_retry_config_without_traceback():
     completed = subprocess.run(
         [
@@ -3868,7 +3409,7 @@ def test_cli_reports_invalid_retry_config_without_traceback():
     )
 
     assert completed.returncode == 2
-    assert "--max-retries must be non-negative" in completed.stderr
+    assert "--max-retries is no longer supported" in completed.stderr
     assert "Traceback" not in completed.stderr
 
 
@@ -3887,5 +3428,5 @@ def test_cli_reports_invalid_step_config_without_traceback():
     )
 
     assert completed.returncode == 2
-    assert "--max-steps must be at least 1" in completed.stderr
+    assert "--max-steps is no longer supported; use --max-iterations" in completed.stderr
     assert "Traceback" not in completed.stderr

@@ -9,7 +9,6 @@ def test_makefile_exposes_standard_developer_targets():
     assert "check:" in makefile
     assert "test:" in makefile
     assert "lint:" in makefile
-    assert "eval:" in makefile
     assert "clean:" in makefile
     assert "smoke-service:" in makefile
     assert "readiness-audit:" in makefile

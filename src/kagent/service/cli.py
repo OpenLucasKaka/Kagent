@@ -26,10 +26,10 @@ from kagent.service import (
     router as service_router,
 )
 from kagent.service import (
-    run as service_run,
+    runtime as service_runtime,
 )
 from kagent.service import (
-    runtime as service_runtime,
+    runtime_run as service_runtime_run,
 )
 from kagent.service import (
     safety as service_safety,
@@ -66,7 +66,6 @@ _KNOWN_METRICS_PATHS = frozenset(
         "/metrics.prom",
         "/openapi.json",
         "/ready",
-        "/run",
         "/runtime/resume",
         "/runtime/approvals",
         "/runtime/approvals/summary",
@@ -80,8 +79,8 @@ _KNOWN_METRICS_PATHS = frozenset(
         "/runtime/runs/{run_id}/cancel",
         "/runtime/runs/{run_id}/timeline",
         "/runtime/run",
+        "/runtime/run/stream",
         "/runtime/tools",
-        "/tools",
         "/version",
     }
 )
@@ -98,9 +97,6 @@ _rate_limit_key = service_safety.rate_limit_key
 _request_id_from_headers = service_safety.request_id_from_headers
 _persist_trace = service_trace_store.persist_trace
 handle_request = service_router.handle_request
-_handle_run = service_run.execute_run_request
-_run_with_timeout = service_run.run_with_timeout
-_optional_int = service_run.optional_int
 _payload_error_code = service_transport.error_code_from_payload
 _metrics_snapshot = service_router.metrics_snapshot
 _agent_run_status = service_router.agent_run_status
@@ -197,7 +193,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--allow-full-trace-response",
         action=argparse.BooleanOptionalAction,
         default=defaults.allow_full_trace_response,
-        help="Allow POST /run full_trace=true to return internal trace bodies.",
+        help="Retained config flag for deployments that still expose stored trace artifacts.",
     )
     parser.add_argument(
         "--protect-diagnostics",
@@ -272,9 +268,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     server = create_server(config.host, config.port, config=config)
     host, port = server.server_address
-    print(json.dumps({"status": "serving", "host": host, "port": port}), flush=True)
     previous_sigterm = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, _raise_signal_shutdown)
+    print(json.dumps({"status": "serving", "host": host, "port": port}), flush=True)
     try:
         server.serve_forever()
     except _SignalShutdown as exc:
@@ -489,6 +485,9 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
                 ),
             )
             return
+        if urlparse(self.path).path == "/runtime/run/stream":
+            self._send_runtime_run_stream(body)
+            return
         self._send_response(
             *handle_request(
                 "POST",
@@ -504,6 +503,47 @@ class _AgentRequestHandler(BaseHTTPRequestHandler):
                 remote_addr=self._remote_addr(),
             )
         )
+
+    def _send_runtime_run_stream(self, body: bytes) -> None:
+        status_code, payload = service_router.prepare_runtime_run_stream(
+            body,
+            headers=dict(self.headers.items()),
+            config=self._config(),
+            rate_limiter=self._rate_limiter(),
+            concurrency_limiter=self._concurrency_limiter(),
+            active_run_registry=self._active_run_registry(),
+            remote_addr=self._remote_addr(),
+        )
+        if not isinstance(payload, service_runtime_run.RuntimeRunEventStream):
+            self._send_response(status_code, payload)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("X-Content-Type-Options", service_transport.NOSNIFF_HEADER_VALUE)
+        self.send_header("Cache-Control", "no-store, no-transform")
+        self.send_header("Referrer-Policy", service_transport.REFERRER_POLICY_HEADER_VALUE)
+        self.send_header(
+            "Content-Security-Policy",
+            service_transport.CONTENT_SECURITY_POLICY_HEADER_VALUE,
+        )
+        self.send_header("X-Frame-Options", service_transport.X_FRAME_OPTIONS_HEADER_VALUE)
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.send_header("X-Request-ID", self._request_id())
+        self.end_headers()
+        final_payload: Any = {}
+        try:
+            for event_name, event_payload in payload.events:
+                if event_name in {"final", "error"}:
+                    final_payload = event_payload
+                self.wfile.write(_sse_event_bytes(event_name, event_payload))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionError):
+            final_payload = _failure_payload(
+                service_errors.AGENT_RUN_FAILED,
+                "client disconnected during runtime stream",
+            )
+        self._write_access_log(200, final_payload)
 
     def do_DELETE(self) -> None:
         self._send_method_not_allowed()
@@ -731,6 +771,11 @@ def _retry_after_value(status_code: int, payload: Any) -> str:
         retry_after_seconds = _payload_field(payload, "retry_after_seconds")
         return retry_after_seconds if retry_after_seconds else "1"
     return ""
+
+
+def _sse_event_bytes(event_name: str, payload: Mapping[str, Any]) -> bytes:
+    data = json.dumps(_json_ready(payload), ensure_ascii=False, sort_keys=True)
+    return f"event: {event_name}\ndata: {data}\n\n".encode("utf-8")
 
 
 if __name__ == "__main__":

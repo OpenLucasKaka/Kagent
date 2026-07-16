@@ -87,16 +87,6 @@ def service_openapi() -> Dict[str, Any]:
                         "version": {"type": "string"},
                     },
                 },
-                "ToolsResponse": {
-                    "type": "object",
-                    "required": ["tools"],
-                    "properties": {
-                        "tools": {
-                            "type": "array",
-                            "items": {"type": "object"},
-                        },
-                    },
-                },
                 "RuntimeGraphResponse": {
                     "type": "object",
                     "required": [
@@ -196,38 +186,6 @@ def service_openapi() -> Dict[str, Any]:
                             },
                         ]
                     },
-                },
-                "RunRequest": {
-                    "type": "object",
-                    "required": ["goal"],
-                    "properties": {
-                        "goal": {"type": "string", "maxLength": 4096},
-                        "max_steps": {"type": "integer", "minimum": 1},
-                        "max_retries": {"type": "integer", "minimum": 0},
-                        "full_trace": {
-                            "type": "boolean",
-                            "description": (
-                                "Request a full internal trace response; disabled by default "
-                                "unless the service is explicitly configured to allow it."
-                            ),
-                        },
-                    },
-                },
-                "RunResponse": {
-                    "type": "object",
-                    "required": ["status"],
-                    "properties": {
-                        "status": {
-                            "type": "string",
-                            "enum": ["done", "failed"],
-                        },
-                        "answer": {"type": "string"},
-                        "error": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "trace_path": {"type": "string"},
-                        "steps": {"type": "array", "items": {"type": "object"}},
-                    },
-                    "additionalProperties": True,
                 },
                 "RuntimeRunRequest": {
                     "type": "object",
@@ -922,15 +880,6 @@ def service_openapi() -> Dict[str, Any]:
                     "responses": {"200": _json_response("Package version", "VersionResponse")},
                 }
             },
-            "/tools": {
-                "get": {
-                    "summary": "List deterministic tool metadata",
-                    "description": _diagnostic_description(),
-                    "security": _diagnostic_security(),
-                    "operationId": "getTools",
-                    "responses": {"200": _json_response("Tool metadata", "ToolsResponse")},
-                }
-            },
             "/runtime/graph": {
                 "get": {
                     "summary": "Report Codex-style runtime graph topology",
@@ -1001,116 +950,6 @@ def service_openapi() -> Dict[str, Any]:
                     "responses": {"200": _object_response("OpenAPI contract")},
                 }
             },
-            "/run": {
-                "options": {
-                    "summary": "Report supported HTTP methods",
-                    "operationId": "optionsRun",
-                    "responses": {
-                        "204": {
-                            "description": f"Allow: {ALLOWED_HTTP_METHODS}",
-                            "headers": _response_headers(
-                                {
-                                    "Allow": {
-                                        "description": "Supported HTTP methods",
-                                        "schema": {
-                                            "type": "string",
-                                            "const": ALLOWED_HTTP_METHODS,
-                                        },
-                                    }
-                                }
-                            ),
-                        }
-                    },
-                },
-                "post": {
-                    "summary": "Run one bounded agent goal",
-                    "operationId": "postRun",
-                    "security": [{"BearerAuth": []}],
-                    "parameters": [_idempotency_key_parameter()],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/RunRequest"}
-                            }
-                        },
-                    },
-                    "responses": {
-                        "200": _json_response(
-                            "Agent run completed or failed structurally",
-                            "RunResponse",
-                            headers={
-                                "X-Run-ID": {
-                                    "description": (
-                                        "Agent run identifier for request/log/trace correlation"
-                                    ),
-                                    "schema": {"type": "string"},
-                                },
-                                "X-Trace-Path": {
-                                    "description": (
-                                        "Persisted trace artifact path when trace persistence "
-                                        "is enabled"
-                                    ),
-                                    "schema": {"type": "string"},
-                                }
-                            },
-                        ),
-                        "400": _error_response(
-                            "Malformed JSON, incomplete body, unsupported transfer encoding, "
-                            "missing goal, or invalid config"
-                        ),
-                        "401": _error_response(
-                            "Missing or invalid bearer token",
-                            headers={
-                                "WWW-Authenticate": {
-                                    "description": "Bearer authentication challenge",
-                                    "schema": {"type": "string", "const": "Bearer"},
-                                }
-                            },
-                        ),
-                        "403": _error_response("Full trace responses are disabled"),
-                        "408": _error_response(
-                            "Request body read timed out",
-                            headers={
-                                "Retry-After": {
-                                    "description": "Suggested retry delay in seconds",
-                                    "schema": {"type": "string", "const": "1"},
-                                }
-                            },
-                        ),
-                        "409": _error_response(
-                            "Idempotency key conflicts with another request body or the "
-                            "matching request is still in progress"
-                        ),
-                        "413": _error_response("Request body is too large"),
-                        "415": _error_response(
-                            "Content-Type is missing, duplicated, or not "
-                            "single-valued application/json"
-                        ),
-                        "417": _error_response("Expect request headers are unsupported"),
-                        "429": _error_response(
-                            "Rate limit exceeded",
-                            headers={
-                                "Retry-After": {
-                                    "description": "Suggested retry delay in seconds",
-                                    "schema": {"type": "string", "pattern": r"^[1-9]\d*$"},
-                                }
-                            },
-                        ),
-                        "500": _error_response("Agent run or trace persistence failed"),
-                        "503": _error_response(
-                            "Too many concurrent agent runs",
-                            headers={
-                                "Retry-After": {
-                                    "description": "Suggested retry delay in seconds",
-                                    "schema": {"type": "string", "const": "1"},
-                                }
-                            },
-                        ),
-                        "504": _error_response("Agent run timed out"),
-                    },
-                }
-            },
             "/runtime/run": {
                 "post": {
                     "summary": "Run one Codex-style runtime goal",
@@ -1168,6 +1007,48 @@ def service_openapi() -> Dict[str, Any]:
                         ),
                         "503": _error_response("Run concurrency limit is full"),
                         "504": _error_response("Agent run timed out"),
+                    },
+                }
+            },
+            "/runtime/run/stream": {
+                "post": {
+                    "summary": "Stream one Codex-style runtime goal",
+                    "description": (
+                        "Execute the LLM-planned runtime path and stream progress, "
+                        "answer_delta, final, and error events as Server-Sent Events. "
+                        "Use this endpoint for interactive user-facing clients."
+                    ),
+                    "operationId": "postRuntimeRunStream",
+                    "security": [{"BearerAuth": []}],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RuntimeRunRequest"
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": _sse_response("Runtime run event stream"),
+                        "400": _error_response("Malformed runtime request or provider config"),
+                        "401": _error_response("Missing or invalid bearer token"),
+                        "413": _error_response("Request body is too large"),
+                        "415": _error_response(
+                            "Content-Type is missing, duplicated, or not "
+                            "single-valued application/json"
+                        ),
+                        "429": _error_response(
+                            "Rate limit exceeded",
+                            headers={
+                                "Retry-After": {
+                                    "description": "Suggested retry delay in seconds",
+                                    "schema": {"type": "string", "pattern": r"^[1-9]\d*$"},
+                                }
+                            },
+                        ),
+                        "503": _error_response("Run concurrency limit is full"),
                     },
                 }
             },
@@ -2221,6 +2102,25 @@ def _text_response(description: str) -> Dict[str, Any]:
         "headers": _response_headers(),
         "content": {
             "text/plain": {
+                "schema": {"type": "string"},
+            }
+        },
+    }
+
+
+def _sse_response(description: str) -> Dict[str, Any]:
+    return {
+        "description": description,
+        "headers": _response_headers(
+            {
+                "X-Accel-Buffering": {
+                    "description": "Set to no so reverse proxies do not buffer events",
+                    "schema": {"type": "string", "const": "no"},
+                }
+            }
+        ),
+        "content": {
+            "text/event-stream": {
                 "schema": {"type": "string"},
             }
         },

@@ -20,7 +20,8 @@ def runtime_provider_config_message(missing: list[str]) -> str:
         "Provider can be openai_compatible, deepseek, qwen, or ollama; "
         "kagent can usually infer it from Base URL and model.\n\n"
         "For a local LLM-free smoke test, run:\n"
-        "  kagent --deterministic 'calculate 2 + 3'"
+        "  kagent 'capture hello' --runtime-plan "
+        '\'{"actions":[],"final_answer":"captured hello"}\''
     )
 
 

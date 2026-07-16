@@ -68,7 +68,7 @@ groups:
           severity: warning
         annotations:
           summary: kagent runs are timing out
-          description: At least one /run request has exceeded the configured run timeout.
+          description: At least one /runtime/run request has exceeded the configured run timeout.
 
       - alert: kagentRunFailures
         expr: sum(rate(kagent_run_status_total{status="failed"}[5m])) > 0
@@ -322,7 +322,7 @@ groups:
           severity: warning
         annotations:
           summary: kagent run concurrency is saturated
-          description: /run requests are being rejected because all run slots are occupied.
+          description: /runtime/run requests are being rejected because all run slots are occupied.
 
       - alert: kagentRateLimited
         expr: |
@@ -334,7 +334,7 @@ groups:
           severity: info
         annotations:
           summary: kagent clients are being rate limited
-          description: One or more clients are hitting the configured /run rate limit.
+          description: One or more clients are hitting the configured /runtime/run rate limit.
 
       - alert: kagentIdempotencyConflicts
         expr: |
@@ -346,7 +346,7 @@ groups:
           severity: info
         annotations:
           summary: kagent clients are misusing idempotency keys
-          description: One or more clients reused an Idempotency-Key with a different /run body.
+          description: One or more clients reused an Idempotency-Key with a different /runtime/run body.
 
       - alert: kagentIdempotencyCacheEvictions
         expr: |
@@ -401,7 +401,7 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: kagent is rejecting malformed /run requests
+          summary: kagent is rejecting malformed /runtime/run requests
           description: Clients are sending invalid lengths, incomplete bodies, or non-JSON media types.
 
       - alert: kagentOversizedRunRequests
@@ -415,8 +415,8 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: kagent is rejecting oversized /run requests
-          description: Request bodies or goals are exceeding configured /run size limits.
+          summary: kagent is rejecting oversized /runtime/run requests
+          description: Request bodies or goals are exceeding configured /runtime/run size limits.
 
       - alert: kagentSuspiciousHttpFraming
         expr: |
@@ -430,7 +430,7 @@ groups:
           severity: info
         annotations:
           summary: kagent received unsupported HTTP framing headers
-          description: Transfer-Encoding or Expect headers reached /run; check gateways and clients.
+          description: Transfer-Encoding or Expect headers reached /runtime/run; check gateways and clients.
 
       - alert: kagentUnknownMethodTraffic
         expr: |

@@ -1,4 +1,4 @@
-.PHONY: install test lint eval smoke-service readiness-audit release-evidence production-approval-bundle wheel docker-build check clean
+.PHONY: install test lint smoke-service readiness-audit release-evidence production-approval-bundle wheel docker-build check clean
 
 install:
 	python3 -m venv .venv
@@ -9,9 +9,6 @@ test:
 
 lint:
 	PYTHONWARNINGS=ignore .venv/bin/python -m ruff check src tests
-
-eval:
-	PYTHONWARNINGS=ignore .venv/bin/python -m kagent.evaluator
 
 smoke-service:
 	PYTHONWARNINGS=ignore sh scripts/smoke_service.sh

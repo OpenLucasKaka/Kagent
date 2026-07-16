@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 from concurrent.futures import TimeoutError
-from typing import Any, Dict, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterator, Tuple
 from uuid import uuid4
 
 from kagent.integrations.audit import KafkaRestAuditHook, KafkaRestProgressEventSink
@@ -17,7 +20,6 @@ from kagent.runtime.policy import RuntimePolicy
 from kagent.service import errors as service_errors
 from kagent.service.active_runs import ActiveRunRegistry, ExecutionSlotLease
 from kagent.service.errors import failure_payload
-from kagent.service.run import run_with_timeout
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_approval import (
     validate_approved_action_ids,
@@ -33,8 +35,18 @@ from kagent.service.runtime_metadata import (
     validate_runtime_metadata,
     validate_runtime_tags,
 )
+from kagent.service.timeout import run_with_timeout
 from kagent.service.trace_store import persist_trace
 from kagent.utils.json_output import json_ready
+
+RuntimeProgressSink = Callable[[Dict[str, Any]], None]
+RuntimeStreamEvent = Tuple[str, Dict[str, Any]]
+_STREAM_SENTINEL = object()
+
+
+@dataclass(frozen=True)
+class RuntimeRunEventStream:
+    events: Iterator[RuntimeStreamEvent]
 
 
 def execute_runtime_run_request(
@@ -44,6 +56,8 @@ def execute_runtime_run_request(
     *,
     active_run_registry: ActiveRunRegistry | None = None,
     execution_slot_lease: ExecutionSlotLease | None = None,
+    progress_event_sink: RuntimeProgressSink | None = None,
+    stream_answers: bool = False,
 ) -> Tuple[int, Dict[str, Any]]:
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -130,7 +144,9 @@ def execute_runtime_run_request(
                 service_errors.INVALID_REQUEST_BODY,
                 "plan must be a JSON object",
             )
-        provider = FakeLLMProvider(json.dumps(plan_payload, sort_keys=True))
+        provider = FakeLLMProvider(
+            json.dumps(plan_payload, ensure_ascii=False, sort_keys=True)
+        )
     elif plan_sequence_payload is not None:
         if not isinstance(plan_sequence_payload, list) or not plan_sequence_payload:
             return 400, failure_payload(
@@ -143,7 +159,10 @@ def execute_runtime_run_request(
                 "plan_sequence must be a non-empty array of JSON objects",
             )
         provider = SequentialFakeLLMProvider(
-            [json.dumps(item, sort_keys=True) for item in plan_sequence_payload]
+            [
+                json.dumps(item, ensure_ascii=False, sort_keys=True)
+                for item in plan_sequence_payload
+            ]
         )
     else:
         try:
@@ -211,8 +230,12 @@ def execute_runtime_run_request(
                 approved_action_ids=set(approved_action_ids),
                 metadata=metadata,
                 tags=tags,
-                event_sink=_runtime_event_sink(_service_config),
+                event_sink=_combined_runtime_event_sink(
+                    _runtime_event_sink(_service_config),
+                    progress_event_sink,
+                ),
                 hooks=_runtime_hooks(_service_config),
+                stream_answers=stream_answers,
                 runtime_workspace_dir=_service_config.runtime_workspace_dir,
                 redis_url=_service_config.redis_url,
                 milvus_url=_service_config.milvus_url,
@@ -295,6 +318,67 @@ def execute_runtime_run_request(
     return 200, json_ready(result)
 
 
+def stream_runtime_run_request(
+    body: bytes,
+    service_config: ServiceConfig,
+    auth_subject: str = "",
+    *,
+    active_run_registry: ActiveRunRegistry | None = None,
+    execution_slot_lease: ExecutionSlotLease | None = None,
+) -> RuntimeRunEventStream:
+    events: queue.Queue[RuntimeStreamEvent | object] = queue.Queue()
+    events.put(("run_started", {"status": "started"}))
+
+    def emit_progress(event: Dict[str, Any]) -> None:
+        payload = json_ready(event)
+        event_name = "answer_delta" if payload.get("type") == "answer_delta" else "progress"
+        events.put((event_name, payload))
+
+    def worker() -> None:
+        try:
+            status_code, payload = execute_runtime_run_request(
+                body,
+                service_config,
+                auth_subject,
+                active_run_registry=active_run_registry,
+                execution_slot_lease=execution_slot_lease,
+                progress_event_sink=emit_progress,
+                stream_answers=True,
+            )
+            event_name = "final" if status_code == 200 else "error"
+            event_payload = json_ready(payload)
+            if status_code != 200:
+                event_payload["http_status"] = str(status_code)
+            events.put((event_name, event_payload))
+        except Exception as exc:
+            events.put(
+                (
+                    "error",
+                    failure_payload(
+                        service_errors.AGENT_RUN_FAILED,
+                        f"agent run failed: {exc}",
+                    ),
+                )
+            )
+        finally:
+            if execution_slot_lease is not None:
+                execution_slot_lease.release_if_owned()
+            events.put(_STREAM_SENTINEL)
+
+    threading.Thread(target=worker, name="kagent-runtime-stream", daemon=True).start()
+    return RuntimeRunEventStream(_runtime_stream_events(events))
+
+
+def _runtime_stream_events(
+    events: queue.Queue[RuntimeStreamEvent | object],
+) -> Iterator[RuntimeStreamEvent]:
+    while True:
+        event = events.get()
+        if event is _STREAM_SENTINEL:
+            return
+        yield event  # type: ignore[misc]
+
+
 def _runtime_hooks(config: ServiceConfig) -> list[Any]:
     hooks: list[Any] = []
     if config.kafka_audit_url:
@@ -317,6 +401,22 @@ def _runtime_event_sink(config: ServiceConfig):
         timeout_seconds=config.external_backend_timeout_seconds,
         fail_closed=True,
     )
+
+
+def _combined_runtime_event_sink(
+    primary: RuntimeProgressSink | None,
+    secondary: RuntimeProgressSink | None,
+) -> RuntimeProgressSink | None:
+    if primary is None:
+        return secondary
+    if secondary is None:
+        return primary
+
+    def emit(event: Dict[str, Any]) -> None:
+        secondary(event)
+        primary(event)
+
+    return emit
 
 
 def _planned_action_ids(

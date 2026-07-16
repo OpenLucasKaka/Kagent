@@ -23,9 +23,7 @@ dev = [
 
 [project.scripts]
 kagent = "kagent.cli:main"
-kagent-batch = "kagent.ops.batch:main"
 kagent-doctor = "kagent.ops.doctor:main"
-kagent-eval = "kagent.eval.evaluator:main"
 kagent-metrics = "kagent.ops.metrics:main"
 kagent-release-evidence = "kagent.ops.release_evidence:main"
 kagent-release-manifest = "kagent.ops.release_manifest:main"

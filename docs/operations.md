@@ -7,7 +7,7 @@ This runbook covers local and CI operation for the bounded LangGraph agent.
 Use the standard gate before shipping changes:
 
 ```sh
-scripts/run_checks.sh
+scripts/runtime/run_checks.sh
 ```
 
 The same command runs in CI. It covers tests, Ruff linting, byte-compilation,
@@ -42,7 +42,7 @@ deployment:
 scripts/smoke_real_llm_runtime.sh
 ```
 
-This real LLM runtime smoke is intentionally not part of `scripts/run_checks.sh`
+This real LLM runtime smoke is intentionally not part of `scripts/runtime/run_checks.sh`
 because it needs network access, provider credentials, and a live
 OpenAI-compatible model. It verifies CLI runtime planning, HTTP `/runtime/run`,
 trace persistence, `/runtime/runs/{run_id}`, timeline lookup, metrics, and the
@@ -192,14 +192,13 @@ scripts/continuous_iterate.sh 10800 60 /tmp/kagent.log /tmp/kagent.jsonl
 ```
 
 Arguments are duration seconds, interval seconds, text log path, and JSONL
-metrics path. Every iteration clears stale evaluator output before running the
-check command, then appends a metrics record.
+metrics path. Every iteration runs the check command, then appends a metrics
+record. Evaluator fields remain optional for older metrics files.
 
 Custom check commands are supported:
 
 ```sh
 KAGENT_CHECK_COMMAND="scripts/run_checks.sh" \
-KAGENT_EVAL_FILE="/tmp/kagent-eval.json" \
 scripts/continuous_iterate.sh 3600 60 /tmp/agent.log /tmp/agent.jsonl
 ```
 
@@ -236,22 +235,15 @@ Use this order when an iteration fails:
 6. If `malformed_lines` is non-empty, inspect the JSONL producer or any manual
    edits to the metrics file.
 
-Targeted evaluator examples:
-
-```sh
-.venv/bin/python -m kagent.eval.evaluator --list-cases
-.venv/bin/python -m kagent.eval.evaluator --category recovery
-.venv/bin/python -m kagent.eval.evaluator --case subtraction_tool_success --output /tmp/evaluator.json
-.venv/bin/python -m kagent.eval.evaluator --fail-on-failure
-```
-
 ## Artifact capture
 
 The CLI writes JSON to stdout by default. Use `--output PATH` to also write the
 same payload to an artifact file:
 
 ```sh
-.venv/bin/python -m kagent.cli --deterministic "calculate 2 + 3" --summary --output /tmp/agent-summary.json
+.venv/bin/python -m kagent.cli "capture hello" \
+  --runtime-plan '{"actions":[],"final_answer":"captured hello"}' \
+  --output /tmp/runtime-output.json
 ```
 
 When paired with `--fail-on-agent-failure`, the output file is written before
@@ -261,25 +253,6 @@ named by `run_id`. One-shot runs write one trace; interactive sessions write one
 trace for each submitted goal. Persisted traces include `trace_path`, use
 owner-only trace directory/file permissions through the shared trace store, and
 are intended for local audit capture outside the HTTP service.
-
-## Batch jobs
-
-For repeatable job-style execution, write one JSON object per line with an `id`
-and `goal`, then run the batch entry point:
-
-```sh
-printf '{"id":"sum","goal":"calculate 2 + 3"}\n' >/tmp/goals.jsonl
-kagent-batch /tmp/goals.jsonl /tmp/results.jsonl --fail-on-failure
-```
-
-Malformed JSON and missing goals become failed output records. The batch keeps
-processing later lines so one bad input does not stop the whole job. Add
-`--fail-on-failure` when the scheduler should mark the overall batch failed.
-Add `--full-trace` when operators need complete per-run traces for audit or
-debugging.
-Input records can include `max_steps` and `max_retries` when one job needs a
-different budget from the defaults. These values must be JSON integers; strings,
-floats, and booleans become failed batch records without stopping later jobs.
 
 ## Service operation
 
@@ -329,7 +302,7 @@ when the npm launcher next needs Python. Update-check metadata is stored at
 is recorded by its `.migration-v1-complete` marker.
 
 Do not confuse that user-level root with repository state. The project-local
-`$PWD/.kagent/runtime-workspace` and `$PWD/.kagent/skills` directories remain
+`$PWD/.kagent/runtime/runtime-workspace` and `$PWD/.kagent/skills` directories remain
 bound to the current workspace and separate from the resolved user-level Kagent
 root (default `~/.kagent`).
 
@@ -385,10 +358,12 @@ Use `kagent-doctor --production --require-runtime-provider` to
 turn these settings into a release gate. Missing provider settings report
 `llm_base_url_required`, `llm_model_required`, or `llm_api_key_required`; a
 runtime budget lower than two iterations reports `runtime_iterations_too_low`.
-Phase 1 exposes the runtime through Python APIs while the existing deterministic
-HTTP `/run` surface remains stable. `POST /runtime/run` exposes the same
-runtime over HTTP and reuses the service trust boundary for `Content-Type`,
-request-size limits, auth, rate limiting, concurrency, and idempotency.
+Phase 1 exposes the runtime through Python APIs while the HTTP runtime surface
+remains stable. `POST /runtime/run` exposes the runtime over HTTP and reuses the
+service trust boundary for `Content-Type`, request-size limits, auth, rate
+limiting, concurrency, and idempotency. `POST /runtime/run/stream` shares the
+same request schema and safety boundary, but streams progress and answer deltas
+as Server-Sent Events for user-facing clients.
 Use `max_iterations` to allow bounded plan-act-observe replanning. Runtime
 responses include the latest `plan`, the full `plans` sequence, and accumulated
 `observations`, which lets operators audit how the agent moved from each
@@ -501,7 +476,7 @@ persisted runtime responses include `trace_path`, HTTP responses include
 trace files include `trace_type: "codex_runtime"`. `GET /runtime/runs`,
 `GET /runtime/runs/{run_id}`, and `POST /runtime/resume` require that marker
 and treat other JSON trace files as not found, which keeps older deterministic
-`/run` artifacts from appearing in runtime dashboards or approval workflows.
+`/runtime/run` artifacts from appearing in runtime dashboards or approval workflows.
 Runtime status and list responses derive `trace_path` from the configured trace
 store path and `run_id`; they do not trust a `trace_path` value embedded inside
 the trace JSON.
@@ -553,7 +528,6 @@ Inspect runtime metadata:
 ```sh
 curl -s http://127.0.0.1:8000/config
 curl -s http://127.0.0.1:8000/version
-curl -s http://127.0.0.1:8000/tools
 curl -s http://127.0.0.1:8000/runtime/tools
 curl -s http://127.0.0.1:8000/runtime/policy
 curl -s 'http://127.0.0.1:8000/runtime/approvals?tool=http_request'
@@ -570,7 +544,7 @@ curl -s -X POST http://127.0.0.1:8000/runtime/runs/<run-id>/cancel \
 curl -s http://127.0.0.1:8000/metrics
 curl -s http://127.0.0.1:8000/metrics.prom
 curl -s http://127.0.0.1:8000/openapi.json
-curl -i -X OPTIONS http://127.0.0.1:8000/run
+curl -i -X OPTIONS http://127.0.0.1:8000/runtime/run
 curl -s -X POST http://127.0.0.1:8000/runtime/run \
   -H 'Content-Type: application/json' \
   -d '{"goal":"capture hello","max_iterations":1,"plan":{"actions":[{"id":"step-1","tool":"note","input":{"text":"hello"}}]}}'
@@ -596,9 +570,13 @@ normal transcript.
 The private stdio runtime enables final-answer streaming. Only plans with an
 empty action list stream answer deltas, so executable plans never display a
 premature final answer before their actions complete.
+HTTP user interfaces should use `POST /runtime/run/stream`, which returns
+`text/event-stream` events for `run_started`, `progress`, `answer_delta`,
+`final`, and `error`. Keep `POST /runtime/run` for non-streaming scripts,
+idempotent automation, and clients that need one JSON response.
 
-Run `kagent "goal"` for a one-shot runtime turn. Use `--deterministic` only for
-the legacy, LLM-free LangGraph regression path.
+Run `kagent "goal"` for a one-shot runtime turn. Use `--runtime-plan` for
+LLM-free runtime replay tests.
 
 The input editor is grapheme-aware, so long Chinese text, emoji, pasted text,
 Backspace, forward Delete, Home, End, and history navigation remain usable when
@@ -722,7 +700,7 @@ provider diagnostics use the same redacted pattern: `embedding_provider`,
 Operators should use configured/not-configured fields only to confirm whether
 endpoints and keys are present.
 Probe and integration endpoints such as `HEAD /health`, `HEAD /ready`,
-`OPTIONS /run`, and `GET /metrics.prom` also declare response headers and
+`OPTIONS /runtime/run`, and `GET /metrics.prom` also declare response headers and
 content types in the OpenAPI document.
 Every OpenAPI operation also has a stable `operationId`, such as `postRun`,
 for generated clients and gateway contract checks.
@@ -1102,7 +1080,7 @@ request duration histogram to separate agent work from HTTP transport,
 auth, rate-limit, and trace persistence overhead.
 Use `requests_by_method` and
 `kagent_requests_by_method_total` to separate probe, diagnostic,
-preflight, and `/run` traffic by HTTP method during rollout or gateway debugging.
+preflight, and `/runtime/run` traffic by HTTP method during rollout or gateway debugging.
 Known HTTP methods are normalized to uppercase, and unknown HTTP methods are
 aggregated under `__unknown__` to keep method metrics bounded while access logs
 still keep the original method for request-level triage.
@@ -1120,7 +1098,7 @@ queries over HTTP request latency. These bucketed metrics support percentile
 and SLO burn-rate views that average and max gauges cannot provide on their own.
 Use `kagent_runtime_runs_total` and
 `kagent_runtime_run_status_total` to trend Codex-style runtime
-traffic separately from the deterministic `/run` path. Use
+traffic separately from the deterministic `/runtime/run` path. Use
 `runtime_runs_by_lifecycle_state` and
 `kagent_runtime_run_lifecycle_state_total` for operator-facing lifecycle
 dashboards over `waiting_approval`, `running`, `succeeded`, and `failed`
@@ -1212,7 +1190,7 @@ Use `kagent_runtime_run_duration_seconds_bucket`,
 `kagent_runtime_run_duration_seconds_count`, and
 `kagent_runtime_run_duration_seconds_sum` for percentile and SLO
 views over Codex-style runtime latency, separate from HTTP transport latency and
-the deterministic `/run` histogram.
+the deterministic `/runtime/run` histogram.
 Unknown HTTP paths are aggregated under `__unknown__` in request path metrics
 to avoid high-cardinality labels from scanners or malformed client URLs; access
 logs still keep the original path for request-level triage.
@@ -1233,17 +1211,17 @@ stable `error_code`. Use `service_version`, `bind_host`, `bind_port`,
 version, trace storage policy, and key runtime controls without exposing the
 bearer token. Structured
 access logs include `error_code` on failed
-responses for request-level correlation. Successful `/run` access log records
+responses for request-level correlation. Successful `/runtime/run` access log records
 include `run_id`, and include `trace_path` when trace persistence is enabled,
 so operators can correlate HTTP requests, compact responses, and persisted
 trace artifacts without parsing response bodies from client logs.
-`POST /run` access logs also include `idempotency_key_present` when a client
+`POST /runtime/run` access logs also include `idempotency_key_present` when a client
 sent `Idempotency-Key`; the raw key is never logged.
-Successful `/run` responses also include `X-Run-ID`, matching the `run_id`
+Successful `/runtime/run` responses also include `X-Run-ID`, matching the `run_id`
 field in the JSON body and access log record, so clients can propagate the run
 identifier through their own logs even when they do not persist full response
 bodies. When trace persistence is enabled and the response contains
-`trace_path`, `/run` responses also include `X-Trace-Path` so gateways and APM
+`trace_path`, `/runtime/run` responses also include `X-Trace-Path` so gateways and APM
 systems can index the persisted trace artifact path without parsing JSON bodies.
 Persisted `/runtime/run` responses follow the same `trace_path` and
 `X-Trace-Path` convention, with runtime `events`, `plans`, and `observations`
@@ -1251,7 +1229,7 @@ inside the trace artifact.
 The access log schema has required fields `event`, `method`, `path`,
 `status_code`, `duration_seconds`, `request_id`, and `remote_addr`. Optional
 fields are `error_code` for failed responses and `run_id`/`trace_path` for
-successful persisted `/run` responses, plus `idempotency_key_present` for
+successful persisted `/runtime/run` responses, plus `idempotency_key_present` for
 retry correlation without exposing retry keys. `auth_subject` is present when a
 request authenticates through the default token or a named internal token,
 without exposing the bearer token itself. For persisted runtime responses, the
@@ -1266,7 +1244,7 @@ tokens.
 Run one agent goal through the service:
 
 ```sh
-curl -s -X POST http://127.0.0.1:8000/run \
+curl -s -X POST http://127.0.0.1:8000/runtime/run \
   -H 'Content-Type: application/json' \
   -d '{"goal":"calculate 2 + 3","max_steps":6,"max_retries":2}'
 ```
@@ -1277,7 +1255,7 @@ use `error_code` for client branching, dashboards, and alerts. Use HTTP 400
 responses for malformed JSON, missing goals, and invalid config. Use HTTP 404
 responses for unknown routes. Unsupported methods return structured HTTP `405`
 responses with `Allow: GET, HEAD, OPTIONS, POST`. Full trace HTTP responses
-are disabled by default: a `/run` request with `"full_trace": true` returns
+are disabled by default: a `/runtime/run` request with `"full_trace": true` returns
 `403 full_trace_disabled` unless
 `KAGENT_SERVICE_ALLOW_FULL_TRACE_RESPONSE=true` is configured. Prefer
 persisted traces through `KAGENT_SERVICE_TRACE_DIR` for production
@@ -1326,11 +1304,11 @@ Codex-style runtime run latency from
 `kagent_runtime_run_duration_seconds_bucket` stays above 5
 seconds. If this fires without `kagentSlowAgentRuns`, focus on
 runtime planning depth, approval gates, external tool latency, and iteration
-budget pressure rather than the deterministic `/run` path.
+budget pressure rather than the deterministic `/runtime/run` path.
 The `kagentMalformedRunRequests` alert fires when malformed
-`/run` requests persist, including invalid `Content-Length`, incomplete bodies,
+`/runtime/run` requests persist, including invalid `Content-Length`, incomplete bodies,
 or missing/duplicated/non-JSON `Content-Type`. Check gateway normalization,
-client HTTP libraries, and whether probes or scanners are reaching `/run`.
+client HTTP libraries, and whether probes or scanners are reaching `/runtime/run`.
 The `kagentOversizedRunRequests` alert fires when
 `request_too_large` or `goal_too_large` responses persist. Check whether a
 client is sending unbounded prompts, whether a gateway body limit is higher
@@ -1339,10 +1317,10 @@ and `KAGENT_SERVICE_MAX_GOAL_CHARS` need an intentional rollout
 change.
 Set `KAGENT_SERVICE_IDEMPOTENCY_CACHE_SIZE` above `0` to enable
 execution-route response reuse for clients that send
-`Idempotency-Key` to `POST /run`, `POST /runtime/run`, or
-`POST /runtime/resume`. The same key with the same request body on the same
-route returns the cached response; the same key with a different body on that
-route and authenticated internal subject returns
+`Idempotency-Key` to `POST /runtime/run`, `POST /runtime/resume`, or
+`POST /runtime/runs/{run_id}/cancel`. The same key with the same request body
+on the same route returns the cached response; the same key with a different
+body on that route and authenticated internal subject returns
 `409 idempotency_key_conflict`. The cache scopes keys by execution route and
 authenticated internal subject so the same key and body on a different route or
 for a different team run independently. Anonymous traffic uses a separate
@@ -1417,7 +1395,7 @@ complete.
   `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS`.
 - `full_trace_disabled`: a client requested `full_trace=true` while HTTP full trace
   responses are disabled.
-- `goal_too_large`: `/run` goal text exceeded `KAGENT_SERVICE_MAX_GOAL_CHARS`.
+- `goal_too_large`: `/runtime/run` goal text exceeded `KAGENT_SERVICE_MAX_GOAL_CHARS`.
 - `expectation_failed`: HTTP `Expect` is present; the service does not support
   continue-style request body negotiation.
 - `idempotency_key_conflict`: `Idempotency-Key` was reused with a different
@@ -1437,9 +1415,9 @@ complete.
 - `invalid_json`: request body is not valid JSON.
 - `invalid_request_body`: request body JSON is not an object.
 - `method_not_allowed`: HTTP method is unsupported.
-- `missing_goal`: `/run` request omitted a non-empty `goal`.
+- `missing_goal`: `/runtime/run` request omitted a non-empty `goal`.
 - `not_found`: route is unknown.
-- `rate_limit_exceeded`: per-client `/run` rate limit rejected the request.
+- `rate_limit_exceeded`: per-client `/runtime/run` rate limit rejected the request.
 - `readiness_failed`: `/ready` found one or more failed dependency checks; use
   `failed_checks` for the specific dependency names.
 - `request_body_timeout`: client did not finish sending the declared request
@@ -1453,7 +1431,7 @@ complete.
   single-valued `application/json` header.
 
 Set `KAGENT_SERVICE_AUTH_TOKEN` to require `Authorization: Bearer ...`
-for `POST /run`; unauthorized responses include `WWW-Authenticate: Bearer` for
+for `POST /runtime/run`; unauthorized responses include `WWW-Authenticate: Bearer` for
 standard client and gateway handling. `kagent-doctor
 --production` requires this token to be at least 16 characters and rejects
 placeholder values with `auth_token_placeholder`. Malformed or non-ASCII `Authorization`
@@ -1474,9 +1452,9 @@ with the same `auth_subject`, while the primary bearer token can perform
 operator cleanup across subjects and the trace records
 `cancelled_by_auth_subject`. Set
 `KAGENT_SERVICE_PROTECT_DIAGNOSTICS=true` to require the same bearer
-token for diagnostic GET endpoints: `/config`, `/tools`, `/metrics`,
-`/metrics.prom`, and `/openapi.json`. `/health`, `/ready`, and `/version`
-remain public for probes and rollout checks. `kagent-doctor
+token for diagnostic GET endpoints: `/config`, `/runtime/tools`,
+`/runtime/policy`, `/metrics`, `/metrics.prom`, and `/openapi.json`.
+`/health`, `/ready`, and `/version` remain public for probes and rollout checks. `kagent-doctor
 --production` requires diagnostic protection to be enabled.
 Set
 `KAGENT_SERVICE_MAX_REQUEST_BYTES` to cap request body size before the
@@ -1486,8 +1464,8 @@ length independently of the raw HTTP body size. Set
 execution-route responses can be reused by `Idempotency-Key`; the cache is
 in-memory by default or SQLite-backed when
 `KAGENT_SERVICE_IDEMPOTENCY_CACHE_PATH` is set, with keys scoped by
-execution route and authenticated internal subject for `/run`, `/runtime/run`,
-and `/runtime/resume`. Anonymous traffic uses a separate anonymous scope.
+execution route and authenticated internal subject for `/runtime/run` and
+`/runtime/resume`. Anonymous traffic uses a separate anonymous scope.
 `/config`, `/metrics`, and `/metrics.prom` expose whether the idempotency cache
 backend is `memory` or `sqlite` without exposing the SQLite path. Cache entries,
 hits, misses, conflicts, stores, evictions, claims, waits, wait timeouts, and
@@ -1501,7 +1479,7 @@ control which runtime tools execute without approval in this deployment. Set
 `auth_subject` teams need stricter or broader runtime tool policies. Set
 `KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS` to cap
 the accepted planner iteration budget for Codex-style runtime requests. Set
-`KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` to cap per-client `/run`
+`KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE` to cap per-client `/runtime/run`
 traffic. By default the limiter uses the socket remote address and ignores
 caller-supplied `X-Forwarded-For`; set
 `KAGENT_SERVICE_TRUST_FORWARDED_FOR=true` only behind a trusted reverse
@@ -1513,7 +1491,7 @@ client IPs are normalized to canonical address strings before rate limiting so
 equivalent IPv6 spellings share the same quota. Rate-limited `429`
 responses include
 dynamic `Retry-After` headers and a JSON `retry_after_seconds` field based on
-the current fixed-window reset. `/run` concurrency-saturation `503` responses
+the current fixed-window reset. `/runtime/run` concurrency-saturation `503` responses
 include `Retry-After: 1` and `retry_after_seconds: "1"` for the same client
 backoff path. Stalled request-body `408 request_body_timeout` responses also
 include `Retry-After: 1` and `retry_after_seconds: "1"`. The
@@ -1521,7 +1499,7 @@ service writes structured access logs to
 stderr, flushes each JSON log record after writing, and echoes safe
 `X-Request-ID` values for request correlation. Empty, control-character, or
 longer-than-128-character request IDs are replaced with service-generated UUIDs
-before logging or response echoing. `POST /run` access log records include
+before logging or response echoing. `POST /runtime/run` access log records include
 `request_body_bytes` so operators can distinguish empty, truncated, oversized,
 and normal request bodies without logging body contents.
 Responses include `Cache-Control: no-store` so runtime config, metrics, run
@@ -1540,7 +1518,7 @@ HTTP responses. Keep it `false` for normal production traffic.
 `kagent-doctor --production` rejects enabled full trace HTTP
 responses with `full_trace_response_must_be_disabled`.
 Set `KAGENT_SERVICE_TRACE_DIR` to persist full per-run traces and
-return `trace_path` in `/run` responses. The trace directory is tightened to
+return `trace_path` in `/runtime/run` responses. The trace directory is tightened to
 `0700`, and trace files are written through a same-directory owner-only
 temporary file and atomically replaced as final `0600` JSON files, so failed
 writes do not corrupt an existing trace for the same run ID and persisted trace
@@ -1548,7 +1526,7 @@ contents stay owner-only even outside systemd `UMask` deployments. When trace
 persistence is enabled, `/ready` creates or tightens the trace directory to
 `0700` and performs a small owner-only temporary-file write/delete probe; failures return
 `503 not_ready` with `error_code=readiness_failed` and a stable failure label
-before traffic is sent to `/run`, without exposing local filesystem paths or
+before traffic is sent to `/runtime/run`, without exposing local filesystem paths or
 raw dependency exceptions. Access logs, JSON `/metrics`, and Prometheus
 `kagent_error_responses_total` record the same error code.
 When SQLite idempotency persistence is configured, `/ready` checks
@@ -1563,8 +1541,8 @@ before enabling deletion. Production jobs should include `--fail-on-errors`
 so corrupt trace files, unreadable JSON, or failed deletes surface as failed
 job runs instead of quiet JSON-only warnings.
 Set `KAGENT_SERVICE_RUN_TIMEOUT_SECONDS` to cap execution-route
-wall-clock time for `/run`, `/runtime/run`, and `/runtime/resume`; timed-out
-runs return a structured HTTP `504` response. Keep this value lower than the
+wall-clock time for `/runtime/run` and `/runtime/resume`; timed-out runs return
+a structured HTTP `504` response. Keep this value lower than the
 upstream proxy timeout so clients receive service-owned JSON errors instead of
 proxy-generated responses.
 Set `KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS` to cap how long a client

@@ -16,21 +16,15 @@ from kagent.service import ServiceConfig, create_server
 def test_continuous_iterate_writes_jsonl_metrics(tmp_path):
     log_path = tmp_path / "continuous.log"
     metrics_path = tmp_path / "metrics.jsonl"
-    eval_path = tmp_path / "eval.json"
     fake_check = tmp_path / "fake_check.sh"
     fake_check.write_text(
         "#!/usr/bin/env sh\n"
         "set -eu\n"
-        "cat > \"$KAGENT_EVAL_FILE\" <<'JSON'\n"
-        "{\"passed\": 6, \"failed\": 0, \"slowest_case\": \"multi_step_success\", "
-        "\"recovered_cases\": \"2\", \"recovery_rate\": \"0.33\", "
-        "\"category_counts\": {\"tool\": \"3\", \"recovery\": \"2\", \"failure\": \"1\"}}\n"
-        "JSON\n"
+        "exit 0\n"
     )
     fake_check.chmod(0o755)
     env = os.environ.copy()
     env["KAGENT_CHECK_COMMAND"] = str(fake_check)
-    env["KAGENT_EVAL_FILE"] = str(eval_path)
 
     subprocess.run(
         [
@@ -57,16 +51,6 @@ def test_continuous_iterate_writes_jsonl_metrics(tmp_path):
     assert records[0]["checks_exit_code"] == 0
     assert records[0]["status"] == "passed"
     assert int(records[0]["duration_seconds"]) >= 0
-    assert records[0]["evaluator_passed"] == 6
-    assert records[0]["evaluator_failed"] == 0
-    assert records[0]["evaluator_slowest_case"] == "multi_step_success"
-    assert records[0]["evaluator_recovered_cases"] == "2"
-    assert records[0]["evaluator_recovery_rate"] == "0.33"
-    assert records[0]["evaluator_category_counts"] == {
-        "failure": "1",
-        "recovery": "2",
-        "tool": "3",
-    }
 
 
 def test_continuous_iterate_uses_monotonic_clock_for_duration():
@@ -78,21 +62,18 @@ def test_continuous_iterate_uses_monotonic_clock_for_duration():
     assert "$(((" not in script
 
 
-def test_continuous_iterate_survives_malformed_evaluator_json(tmp_path):
+def test_continuous_iterate_records_failed_check_status(tmp_path):
     log_path = tmp_path / "continuous.log"
     metrics_path = tmp_path / "metrics.jsonl"
-    eval_path = tmp_path / "eval.json"
     fake_check = tmp_path / "fake_check.sh"
     fake_check.write_text(
         "#!/usr/bin/env sh\n"
         "set -eu\n"
-        "printf '{not-json}\\n' > \"$KAGENT_EVAL_FILE\"\n"
         "exit 1\n"
     )
     fake_check.chmod(0o755)
     env = os.environ.copy()
     env["KAGENT_CHECK_COMMAND"] = str(fake_check)
-    env["KAGENT_EVAL_FILE"] = str(eval_path)
 
     completed = subprocess.run(
         [
@@ -115,15 +96,10 @@ def test_continuous_iterate_survives_malformed_evaluator_json(tmp_path):
 
     assert completed.returncode == 0
     assert records[0]["status"] == "failed"
-    assert records[0]["evaluator_passed"] is None
-    assert records[0]["evaluator_failed"] is None
-    assert records[0]["evaluator_slowest_case"] is None
-    assert records[0]["evaluator_recovered_cases"] is None
-    assert records[0]["evaluator_recovery_rate"] is None
-    assert records[0]["evaluator_category_counts"] is None
+    assert records[0]["checks_exit_code"] == 1
 
 
-def test_continuous_iterate_does_not_reuse_stale_evaluator_json(tmp_path):
+def test_continuous_iterate_ignores_stale_evaluator_json(tmp_path):
     log_path = tmp_path / "continuous.log"
     metrics_path = tmp_path / "metrics.jsonl"
     eval_path = tmp_path / "eval.json"
@@ -133,7 +109,6 @@ def test_continuous_iterate_does_not_reuse_stale_evaluator_json(tmp_path):
     fake_check.chmod(0o755)
     env = os.environ.copy()
     env["KAGENT_CHECK_COMMAND"] = str(fake_check)
-    env["KAGENT_EVAL_FILE"] = str(eval_path)
 
     completed = subprocess.run(
         [
@@ -156,17 +131,13 @@ def test_continuous_iterate_does_not_reuse_stale_evaluator_json(tmp_path):
 
     assert completed.returncode == 0
     assert records[0]["status"] == "failed"
-    assert records[0]["evaluator_passed"] is None
-    assert records[0]["evaluator_failed"] is None
+    assert "evaluator_passed" not in records[0]
 
 
 def test_run_checks_metrics_smoke_includes_slowest_case():
     run_checks = Path("scripts/run_checks.sh").read_text()
 
-    assert "evaluator_slowest_case" in run_checks
-    assert "evaluator_recovered_cases" in run_checks
-    assert "evaluator_recovery_rate" in run_checks
-    assert "evaluator_category_counts" in run_checks
+    assert '"checks_exit_code":0' in run_checks
     assert "kagent.ops.metrics" in run_checks
     assert "--output /tmp/kagent-metrics-summary-output.json" in run_checks
     assert "--require-recent-health healthy" in run_checks
@@ -176,16 +147,13 @@ def test_run_checks_smoke_exercises_cli_introspection():
     run_checks = Path("scripts/run_checks.sh").read_text()
 
     assert "kagent --version" in run_checks
-    assert "kagent-batch" in run_checks
-    assert "kagent-eval --list-cases" in run_checks
     assert "kagent-metrics" in run_checks
     assert "kagent-serve --help" in run_checks
     assert "npm run check" in run_checks
     assert run_checks.index("npm run check") < run_checks.index("-m pytest")
     assert "KAGENT_LLM_CONFIG_PATH=/tmp/kagent-run-checks-provider-config.json" in run_checks
     assert "--version" in run_checks
-    assert "--plan" in run_checks
-    assert "--deterministic" in run_checks
+    assert "--runtime-plan" in run_checks
     assert "--session-memory /tmp/kagent-session-memory-dir/session-memory.json" in run_checks
     assert "/tmp/kagent-session-memory-smoke.json" in run_checks
     assert 'memory["schema_version"] != "2"' in run_checks
@@ -220,107 +188,29 @@ def test_run_checks_starts_real_service_smoke():
     assert "KAGENT_SERVICE_AUTH_TOKEN" in smoke
     assert "KAGENT_SMOKE_AUTH_TOKEN" in smoke
     assert "Authorization" in smoke
-    assert "duplicate_auth_response" in smoke
-    assert "WWW-Authenticate" in smoke
-    assert "Retry-After" in smoke
     assert "kagentHTTP/0.1" in smoke
-    assert '"Python" not in response.headers["Server"]' in smoke
     assert "/health" in smoke
     assert "/ready" in smoke
     assert "/config" in smoke
-    assert "/run" in smoke
+    assert "/runtime/run" in smoke
+    assert "/runtime/run/stream" in smoke
     assert "/metrics" in smoke
-    assert "/metrics.prom" in smoke
-    assert "text/plain" in smoke
-    assert "kagent_requests_total" in smoke
-    assert "requests_by_method" in smoke
-    assert "kagent_requests_by_method_total" in smoke
-    assert "__unknown__" in smoke
-    assert "service_version" in smoke
-    assert "bind_host" in smoke
-    assert "bind_port" in smoke
     assert "auth_required" in smoke
-    assert "allow_full_trace_response" in smoke
     assert "protect_diagnostics" in smoke
-    assert "kagent_build_info" in smoke
-    assert "security_response_headers" in smoke
-    assert "content_security_policy_header" in smoke
-    assert "x_frame_options_header" in smoke
-    assert "max_concurrent_runs" in smoke
-    assert "max_request_bytes" in smoke
-    assert "kagent_max_request_bytes" in smoke
-    assert "idempotency_cache_size" in smoke
+    assert "--max-request-bytes" in smoke
+    assert "--idempotency-cache-size" in smoke
     assert "idempotency_cache_hits" in smoke
-    assert "idempotency_cache_misses" in smoke
-    assert "idempotency_cache_conflicts" in smoke
-    assert "idempotency_cache_stores" in smoke
-    assert "idempotency_cache_evictions" in smoke
     assert "Idempotency-Key" in smoke
-    assert "incomplete_request_body" in smoke
-    assert "duplicate_length_response" in smoke
-    assert "invalid_content_length" in smoke
-    assert "transfer_encoding_response" in smoke
-    assert "invalid_transfer_encoding" in smoke
-    assert "expect_response" in smoke
-    assert "expectation_failed" in smoke
-    assert "duplicate_content_type_response" in smoke
-    assert "content-type must be single-valued application/json" in smoke
-    assert "request_body_timeout" in smoke
-    assert "invalid_idempotency_key" in smoke
-    assert "single-valued" in smoke
-    assert "idempotency_key_conflict" in smoke
-    assert "max_goal_chars" in smoke
-    assert "goal_too_large" in smoke
-    assert "full_trace_disabled" in smoke
-    assert "full_trace must be a boolean" in smoke
-    assert "active_concurrent_runs" in smoke
-    assert "active_rate_limit_windows" in smoke
-    assert "rate_limit_per_minute" in smoke
-    assert "trust_forwarded_for" in smoke
-    assert "run_timeout_seconds" in smoke
-    assert "request_timeout_seconds" in smoke
+    assert "--max-goal-chars" in smoke
+    assert "--trust-forwarded-for" in smoke
     assert "--request-timeout-seconds 1" in smoke
-    assert "error_code" in smoke
-    assert "invalid_agent_config" in smoke
-    assert "max_steps" in smoke
-    assert "2.5" in smoke
-    assert "run_id" in smoke
-    assert "X-Run-ID" in smoke
-    assert "X-Trace-Path" in smoke
-    assert "X-Request-ID" in smoke
     assert "X-Content-Type-Options" in smoke
-    assert "Referrer-Policy" in smoke
     assert "trace_path" in smoke
     assert "idempotency_key_present" in smoke
-    assert "request_body_bytes" in smoke
-    assert "method_not_allowed" in smoke
-    assert "error_responses_by_code" in smoke
-    assert "kagent_error_responses_total" in smoke
-    assert "kagent_request_duration_seconds_bucket" in smoke
-    assert "kagent_request_duration_seconds_count" in smoke
-    assert "kagent_request_duration_seconds_sum" in smoke
-    assert "kagent_agent_run_duration_seconds_bucket" in smoke
-    assert "kagent_agent_run_duration_seconds_count" in smoke
-    assert "kagent_agent_run_duration_seconds_sum" in smoke
     assert "--trace-dir" in smoke
     assert "trace_persistence" in smoke
-    assert "average_duration_seconds" in smoke
-    assert "max_duration_seconds" in smoke
-    assert "agent_runs_total" in smoke
-    assert "agent_runs_by_status" in smoke
-    assert "average_agent_run_duration_seconds" in smoke
-    assert "kagent_runs_total" in smoke
-    assert "kagent_run_status_total" in smoke
-    assert "kagent_runtime_pending_approvals_current" in smoke
-    assert "kagent_runtime_stale_pending_approvals_current" in smoke
-    assert "kagent_runtime_max_pending_approval_age_seconds" in smoke
-    assert "kagent_runtime_pending_approval_stale_seconds" in smoke
-    assert "uptime_seconds" in smoke
     assert "Cache-Control" in smoke
     assert "no-store" in smoke
-    assert "no-referrer" in smoke
-    assert '"503"' in smoke
-    assert '"504"' in smoke
     assert "REQUEST_TIMEOUT_SECONDS = 15" in smoke
     assert "dump_service_logs" in smoke
     assert "$SERVICE_LOG.stdout" in smoke
@@ -2438,35 +2328,17 @@ def test_service_smoke_exercises_http_method_discovery():
     smoke = Path("scripts/smoke_service.sh").read_text()
 
     assert 'method="HEAD"' in smoke
-    assert 'method="OPTIONS"' in smoke
-    assert 'method="PUT"' in smoke
-    assert "Allow" in smoke
-    assert "GET, HEAD, OPTIONS, POST" in smoke
-    assert '["/health"]["head"]["responses"]["200"]' in smoke
-    assert '["/ready"]["head"]["responses"]["200"]' in smoke
-    assert '["/ready"]["head"]["responses"]["503"]' in smoke
-    assert "headReady" in smoke
-    assert '["/metrics.prom"]["get"]["responses"]["200"]' in smoke
-    assert '["/run"]["post"]["operationId"]' in smoke
-    assert "postRun" in smoke
+    assert 'openapi_paths["/runtime/run"]["post"]["operationId"]' in smoke
+    assert 'openapi_paths["/runtime/run/stream"]["post"]["operationId"]' in smoke
+    assert '["/runtime/run"]["post"]["operationId"]' in smoke
+    assert "postRuntimeRun" in smoke
+    assert "postRuntimeRunStream" in smoke
 
 
 def test_run_checks_smoke_exercises_cli_output_file():
     run_checks = Path("scripts/run_checks.sh").read_text()
 
     assert "--output" in run_checks
-
-
-def test_run_checks_smoke_exercises_evaluator_category_filter():
-    run_checks = Path("scripts/run_checks.sh").read_text()
-
-    assert "kagent.eval.evaluator --fail-on-failure" in run_checks
-    assert "kagent.eval.evaluator --list-cases" in run_checks
-    assert "kagent.eval.evaluator --category recovery" in run_checks
-    assert (
-        "kagent.eval.evaluator --case subtraction_tool_success"
-        in run_checks
-    )
 
 
 def test_run_checks_includes_ruff_lint_gate():

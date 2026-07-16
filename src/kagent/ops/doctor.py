@@ -4,8 +4,8 @@ import argparse
 from typing import Any, Dict, List, Optional
 
 from kagent import __version__
-from kagent.core.tools import registered_tool_names
 from kagent.providers.llm import LLMProviderConfig
+from kagent.runtime.tools import registered_runtime_tool_metadata
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_policy import (
     execute_runtime_policy_request,
@@ -63,7 +63,7 @@ def doctor_payload(
         "policy": policy,
         "runtime_policy": runtime_policy,
         "config": config_snapshot,
-        "tool_count": str(len(registered_tool_names())),
+        "tool_count": str(len(registered_runtime_tool_metadata())),
     }
 
 
@@ -84,7 +84,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--require-auth",
         action="store_true",
-        help="Fail the self-check when POST /run bearer auth is disabled.",
+        help="Fail the self-check when runtime execution bearer auth is disabled.",
     )
     parser.add_argument(
         "--production",

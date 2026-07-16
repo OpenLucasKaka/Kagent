@@ -17,7 +17,6 @@ from kagent.runtime.policy import RuntimePolicy
 from kagent.service import errors as service_errors
 from kagent.service.active_runs import ActiveRunRegistry, ExecutionSlotLease
 from kagent.service.errors import failure_payload
-from kagent.service.run import run_with_timeout
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_approval import (
     validate_approved_action_ids,
@@ -36,6 +35,7 @@ from kagent.service.runtime_resume_claim import (
     release_runtime_resume_claim,
 )
 from kagent.service.runtime_status import is_runtime_trace
+from kagent.service.timeout import run_with_timeout
 from kagent.service.trace_store import (
     load_trace_by_run_id,
     persist_trace,

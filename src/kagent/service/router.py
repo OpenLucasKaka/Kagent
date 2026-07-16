@@ -8,9 +8,6 @@ from kagent.service import (
     errors as service_errors,
 )
 from kagent.service import (
-    run as service_run,
-)
-from kagent.service import (
     runtime_cancel as service_runtime_cancel,
 )
 from kagent.service import (
@@ -94,10 +91,6 @@ def handle_request(
         from kagent import __version__
 
         return 200, {"version": __version__}
-    if method.upper() == "GET" and route == "/tools":
-        from kagent.core.tools import registered_tool_metadata
-
-        return 200, {"tools": registered_tool_metadata()}
     if method.upper() == "GET" and route == "/runtime/graph":
         from kagent.runtime import runtime_topology
 
@@ -199,19 +192,6 @@ def handle_request(
                 active_config,
             )
         )
-    if method.upper() == "POST" and route == "/run":
-        return _handle_run_route(
-            body,
-            headers=headers or {},
-            config=active_config,
-            metrics=metrics,
-            rate_limiter=rate_limiter,
-            concurrency_limiter=concurrency_limiter,
-            active_run_registry=active_run_registry,
-            idempotency_cache=idempotency_cache,
-            remote_addr=remote_addr,
-            agent_runner=agent_runner,
-        )
     if method.upper() == "POST" and route == "/runtime/run":
         return _handle_execution_route(
             body,
@@ -290,6 +270,78 @@ def handle_request(
                 acquire_run_slot=False,
             )
     return 404, service_errors.failure_payload(service_errors.NOT_FOUND, "not found")
+
+
+def prepare_runtime_run_stream(
+    body: bytes,
+    *,
+    headers: Mapping[str, str],
+    config: ServiceConfig,
+    rate_limiter: Optional[ServiceRateLimiter],
+    concurrency_limiter: Optional[ServiceConcurrencyLimiter],
+    remote_addr: str,
+    active_run_registry: Optional[ActiveRunRegistry] = None,
+) -> Tuple[int, Any]:
+    if not service_safety.json_content_type(headers):
+        return 415, service_errors.failure_payload(
+            service_errors.UNSUPPORTED_MEDIA_TYPE,
+            "content-type must be application/json",
+        )
+    if len(body) > config.max_request_bytes:
+        return 413, service_errors.failure_payload(
+            service_errors.REQUEST_TOO_LARGE,
+            "request body too large",
+        )
+    auth_subject = service_safety.authenticated_subject(
+        headers,
+        config.auth_token,
+        config.auth_tokens,
+    )
+    if config.auth_required and not auth_subject:
+        return 401, service_errors.failure_payload(service_errors.UNAUTHORIZED, "unauthorized")
+    idempotency_key = service_safety.header_value(headers, "Idempotency-Key")
+    if idempotency_key and not service_safety.safe_idempotency_key(idempotency_key):
+        return 400, service_errors.failure_payload(
+            service_errors.INVALID_IDEMPOTENCY_KEY,
+            "idempotency key must be 1-128 printable ASCII characters",
+        )
+    rate_limit_key = service_safety.rate_limit_key(
+        headers,
+        remote_addr,
+        trust_forwarded_for=config.trust_forwarded_for,
+        auth_token=config.auth_token,
+        auth_tokens=config.auth_tokens,
+        auth_subject=auth_subject,
+    )
+    if rate_limiter is not None and not rate_limiter.allow(rate_limit_key):
+        payload = service_errors.failure_payload(
+            service_errors.RATE_LIMIT_EXCEEDED,
+            "rate limit exceeded",
+        )
+        payload["retry_after_seconds"] = str(
+            rate_limiter.retry_after_seconds(rate_limit_key)
+        )
+        return 429, payload
+    release_run_slot = (
+        concurrency_limiter.try_acquire()
+        if concurrency_limiter is not None
+        else None
+    )
+    if concurrency_limiter is not None and release_run_slot is None:
+        payload = service_errors.failure_payload(
+            service_errors.TOO_MANY_CONCURRENT_RUNS,
+            "too many concurrent runs",
+        )
+        payload["retry_after_seconds"] = "1"
+        return 503, payload
+    execution_slot_lease = ExecutionSlotLease(release_run_slot)
+    return 200, service_runtime_run.stream_runtime_run_request(
+        body,
+        config,
+        auth_subject,
+        active_run_registry=active_run_registry,
+        execution_slot_lease=execution_slot_lease,
+    )
 
 
 def metrics_snapshot(
@@ -444,7 +496,6 @@ def agent_run_status(status_code: int, payload: Any) -> str:
 _PROTECTED_DIAGNOSTIC_ROUTES = frozenset(
     {
         "/config",
-        "/tools",
         "/runtime/graph",
         "/runtime/tools",
         "/metrics",
@@ -509,49 +560,6 @@ def _runtime_cancel_route(route: str) -> str | None:
     if separator and run_id and suffix == "":
         return run_id
     return None
-
-
-def _handle_run_route(
-    body: bytes,
-    *,
-    headers: Mapping[str, str],
-    config: ServiceConfig,
-    metrics: Optional[ServiceMetrics],
-    rate_limiter: Optional[ServiceRateLimiter],
-    concurrency_limiter: Optional[ServiceConcurrencyLimiter],
-    idempotency_cache: Optional[IdempotencyCache],
-    remote_addr: str,
-    agent_runner: Optional[Callable[[str, Any], Dict[str, Any]]],
-    active_run_registry: Optional[ActiveRunRegistry],
-) -> Tuple[int, Any]:
-    def execute_request(
-        request_body: bytes,
-        service_config: ServiceConfig,
-        _auth_subject: str,
-        _auth_is_admin: bool,
-        lease: ExecutionSlotLease,
-    ) -> Tuple[int, Any]:
-        return service_run.execute_run_request(
-            request_body,
-            service_config,
-            agent_runner,
-            execution_slot_lease=lease,
-        )
-
-    return _handle_execution_route(
-        body,
-        headers=headers,
-        config=config,
-        metrics=metrics,
-        rate_limiter=rate_limiter,
-        concurrency_limiter=concurrency_limiter,
-        active_run_registry=active_run_registry,
-        idempotency_cache=idempotency_cache,
-        remote_addr=remote_addr,
-        idempotency_scope="POST /run",
-        include_auth_admin=False,
-        execute_request=execute_request,
-    )
 
 
 def _handle_execution_route(

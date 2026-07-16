@@ -27,12 +27,6 @@ def test_build_system_declares_wheel_builder():
     assert 'requires = ["setuptools>=61", "wheel>=0.45,<1"]' in pyproject
 
 
-def test_package_declares_batch_console_script():
-    pyproject = Path("pyproject.toml").read_text()
-
-    assert 'kagent-batch = "kagent.ops.batch:main"' in pyproject
-
-
 def test_package_declares_service_console_script():
     pyproject = Path("pyproject.toml").read_text()
 

@@ -2,12 +2,10 @@
 
 Production-shaped LangGraph agent runtime for internal, non-coding workflows.
 
-It provides two execution paths:
-
-- deterministic graph runs for local tests, smoke checks, and regression checks;
-- an agent runtime that plans with a configured LLM provider,
-  executes policy-gated tools, records structured observations, and can replan
-  after failures.
+It provides one runtime path that plans with a configured LLM provider, executes
+policy-gated tools, records structured observations, and can replan after
+failures. Tests and smoke checks use strict runtime plans with `FakeLLMProvider`
+instead of a separate legacy graph.
 
 The project is intentionally conservative: bounded iterations, strict JSON
 plan parsing, explicit tool schemas, approval gates for risky actions, compact
@@ -134,11 +132,11 @@ Run a one-shot runtime goal through the same default agent path:
 kagent "draft an internal rollout checklist"
 ```
 
-Run the deterministic regression graph explicitly when you need local,
-LLM-free checks:
+Run a deterministic runtime check without an LLM by supplying a strict runtime
+plan:
 
 ```sh
-.venv/bin/python -m kagent.cli --deterministic "calculate 2 + 3"
+kagent "capture hello" --runtime-plan '{"actions":[],"final_answer":"captured hello"}'
 ```
 
 Inspect the default Codex-style runtime LangGraph topology:
@@ -192,8 +190,8 @@ turns. Long sessions automatically compact older turns before they are reused
 in prompts; `/compact-memory` forces compaction immediately and `/memory`
 shows the current summary/facts/open-items/recent-turns view. The CLI
 defaults to the runtime for both `kagent` and `kagent "goal"`; use
-`--deterministic` only for the legacy regression graph. Runtime turns use three
-planning iterations by default. Without a home override, TTY sessions persist
+`--runtime-plan` for LLM-free replay tests. Runtime turns use three planning
+iterations by default. Without a home override, TTY sessions persist
 memory at `~/.kagent/state/session-memory.json`; set
 `KAGENT_SESSION_MEMORY_PATH` to override that path or to an empty value to
 disable default persistence. Without a home override, prompt history is stored
@@ -240,8 +238,9 @@ kagent-serve --host 127.0.0.1 --port 8000
 Useful endpoints include:
 
 - `GET /health`, `HEAD /health`, `GET /ready`, `HEAD /ready`
-- `GET /config`, `GET /version`, `GET /tools`, `GET /runtime/graph`, `GET /runtime/tools`
-- `POST /run`, `POST /runtime/run`, `POST /runtime/resume`
+- `GET /config`, `GET /version`, `GET /runtime/graph`, `GET /runtime/tools`
+- `POST /runtime/run/stream` for interactive clients
+- `POST /runtime/run`, `POST /runtime/resume` for non-streaming automation
 - `GET /runtime/runs`, `GET /runtime/runs/summary`
 - `GET /runtime/approvals`, `GET /runtime/approvals/summary`
 - `GET /metrics`, `GET /metrics.prom`, `GET /openapi.json`
@@ -252,7 +251,6 @@ tool policy, diagnostics protection, and production preflight checks.
 
 ## Code Organization
 
-- `src/kagent/core/`: deterministic LangGraph loop.
 - `src/kagent/runtime/`: LLM runtime, policies, tools,
   and typed runtime data.
 - `src/kagent/service/`: stdlib HTTP service, routing,
@@ -261,9 +259,8 @@ tool policy, diagnostics protection, and production preflight checks.
   terminal UI.
 - `src/kagent/providers/`: provider detection, OpenAI-compatible protocol
   adapter, and fake provider test support.
-- `src/kagent/eval/`: evaluation cases and runner.
 - `src/kagent/ops/`: doctor, metrics, release
-  evidence, release manifest, batch, and trace replay commands.
+  evidence, release manifest, and trace replay commands.
 
 ## Console Scripts
 
@@ -271,9 +268,7 @@ Installed entry points:
 
 ```sh
 kagent --version
-kagent-batch /tmp/goals.jsonl /tmp/results.jsonl
 kagent-doctor --production --require-runtime-provider
-kagent-eval --list-cases
 kagent-metrics /tmp/kagent-continuous.jsonl
 kagent-release-evidence --help
 kagent-release-manifest --help
@@ -313,13 +308,7 @@ Stable package-level imports are available for automation:
 ```python
 from kagent import (
     FakeLLMProvider,
-    evaluate_agent,
-    preview_plan,
-    registered_evaluation_cases,
-    registered_tool_metadata,
-    run_agent,
     run_runtime_agent,
-    summarize_run,
 )
 ```
 
@@ -346,13 +335,12 @@ The package ships a `py.typed` marker for downstream type checkers.
 - Internal client example: `examples/internal_runtime_client.py`
 - Release notes: `CHANGELOG.md`
 
-## Current Graph
+## Current Runtime Graph
 
 ```text
-planner -> executor -> verifier -> END
-                       verifier -> reflector -> executor
+prepare -> planner -> prepare_action -> mark_action_executing
+                                      -> execute_action -> runtime_loop -> finalize
 ```
 
-The deterministic graph retries failed verification through the reflector until
-the step budget is exhausted. The runtime path uses bounded plan-act-observe
-iterations with strict plan validation and policy-gated tool execution.
+The runtime uses bounded plan-act-observe iterations with strict plan validation
+and policy-gated tool execution.

@@ -1,11 +1,9 @@
 # Architecture
 
-This project is a bounded LangGraph agent service with two compatible runtime
-surfaces. The original deterministic runtime remains stable for predictable
-plans, structured traces, explicit failure states, and repeatable verification.
-The newer Codex-style runtime adds the first non-coding agent layer: LLM-compatible
-planning, strict JSON plan parsing, policy-gated tool execution, structured
-observations, and fake-provider tests that do not require network credentials.
+This project is a bounded LangGraph agent service with one Codex-style runtime
+surface: LLM-compatible planning, strict JSON plan parsing, policy-gated tool
+execution, structured observations, and fake-provider tests that do not require
+network credentials.
 
 ## User and project storage boundaries
 
@@ -44,7 +42,7 @@ npm self-update metadata is stored separately at
 `cache/npm-self-update.json` beneath that root.
 
 This user-level boundary does not absorb project data. The project-local
-`$PWD/.kagent/runtime-workspace` and `$PWD/.kagent/skills` directories retain
+`$PWD/.kagent/runtime/runtime-workspace` and `$PWD/.kagent/skills` directories retain
 their current working-directory semantics and remain separate from the resolved
 user-level Kagent root (default `~/.kagent`) and its configuration, durable
 state, and cache.
@@ -70,31 +68,12 @@ launchers converge on one validated runtime.
 
 ## LangGraph runtime
 
-`core/agent.py` owns the LangGraph runtime topology:
+`runtime/agent.py` owns the LangGraph runtime topology:
 
 ```text
-planner -> executor -> verifier -> END
-                       verifier -> reflector -> executor
+prepare -> planner -> prepare_action -> mark_action_executing
+                                      -> execute_action -> runtime_loop -> finalize
 ```
-
-The planner normalizes a goal into supported steps. `core/planning.py` validates
-those steps, classifies planner errors, and normalizes injected fault plans. The
-executor runs exactly one current step. The verifier compares the result with
-the deterministic expected answer. The reflector records why verification
-failed and routes the same step back through the executor while retry budget
-remains.
-
-## Deterministic tools
-
-`core/tools.py` is the tool registry. Each `ToolSpec` defines command metadata, a
-full-match pattern, and a handler. The registry is the source of truth for:
-
-- execution through `execute_step()`
-- expected-answer verification through `expected_answer()`
-- planner validation through `matching_tool_name()`
-- CLI discovery through `registered_tool_metadata()`
-
-This keeps planner, executor, verifier, and docs aligned around one contract.
 
 ## Codex-style runtime
 
@@ -218,8 +197,7 @@ replanning required by failures or steering.
 This keeps the public runtime on explicit LangGraph phases while preserving the
 current loop semantics. Every runtime trace carries `trace_type: "codex_runtime"` and
 `runtime_engine: "langgraph"` so persisted status, listing, and resume flows can
-distinguish Codex-style runtime traces from deterministic legacy `/run` traces
-stored in the same directory.
+ignore unrelated JSON files stored in the same directory.
 The graph state contains only durable JSON-compatible values: goal, run ID,
 iteration budget, approved action IDs, metadata, tags, result, and graph phase
 timings. Live dependencies such as the provider, cancellation and steering
@@ -314,18 +292,14 @@ without moving UI implementation into the package root.
 
 ## State and traces
 
-`core/state.py` defines the typed state shape and `AgentConfig`. Configuration can
-come from explicit CLI flags, direct Python construction, or environment
-defaults via `AgentConfig.from_env()`.
+Runtime trace state lives in `runtime/types.py`, `runtime/task_state.py`, and
+`runtime/checkpoint_state.py`. Service trace persistence is handled by
+`service_trace_store.py`, which stores runtime-marked traces with owner-only
+permissions and supports trace replay and approval workflows.
 
-`core/trace.py` owns trace-safe state copying and structured trace append helpers.
-Node functions should call these helpers instead of mutating nested trace
-collections by hand. Full traces include run metadata, events, execution
-attempts, tool calls, verification results, reflections, and errors.
-
-`core/summary.py` converts a full trace into a compact automation-friendly summary.
-`utils/json_output.py` provides shared JSON-ready conversion, formatting, and optional
-artifact writing for CLI, batch, and service surfaces.
+`ops/trace_replay.py` converts persisted runtime traces into compact replay
+summaries. `utils/json_output.py` provides shared JSON-ready conversion,
+formatting, and optional artifact writing for CLI and service surfaces.
 
 ## Service boundary
 
@@ -344,7 +318,6 @@ The service intentionally keeps a narrow API:
   not need a response body.
 - `GET /config` returns redacted runtime configuration.
 - `GET /version` returns the package version.
-- `GET /tools` returns registered deterministic tool metadata.
 - `GET /runtime/graph` returns Codex-style runtime graph topology, including
   `runtime_engine`, entry point, terminal, LangGraph nodes, edges, loop
   ownership, `runtime_loop_nodes`, and the end-to-end `execution_flow` from CLI
@@ -476,11 +449,6 @@ The service intentionally keeps a narrow API:
   JSON.
 - `GET /metrics.prom` returns the same service metrics as Prometheus text.
 - `GET /openapi.json` returns the lightweight API contract.
-- `OPTIONS /run` reports supported HTTP methods through the `Allow` header.
-- `POST /run` accepts a JSON object with `goal`, optional `max_steps`, and
-  optional `max_retries`, then returns the compact run summary. A full trace
-  response is available only when `full_trace` is set and the service is
-  explicitly configured to allow HTTP full trace responses.
 - `POST /runtime/run` accepts a Codex-style runtime goal. It may include a
   strict `plan` object for deterministic tests, or use configured
   OpenAI-compatible provider settings when the plan is omitted. Tests and
@@ -516,10 +484,15 @@ The service intentionally keeps a narrow API:
   presentation fields instead of repeating side effects or returning stale text.
   Finalization rejects any response that still contains actions, and both planner
   prompts answer only the current request without unrelated follow-up offers.
-  When a terminal tool failure or planner failure exhausts the iteration
-  budget, the final failed observation's `error_code` and `error` are promoted
-  to the run top level so clients and status summaries do not need to inspect
-  the full trace for the failure cause.
+	  When a terminal tool failure or planner failure exhausts the iteration
+	  budget, the final failed observation's `error_code` and `error` are promoted
+	  to the run top level so clients and status summaries do not need to inspect
+	  the full trace for the failure cause.
+- `POST /runtime/run/stream` accepts the same request body as
+  `POST /runtime/run`, but returns `text/event-stream` for interactive clients.
+  It emits `run_started`, `progress`, `answer_delta`, `final`, and `error`
+  events. The non-streaming route remains available for scripts, idempotent
+  retries, and clients that need a single JSON response.
   Strict runtime plans are capped by `MAX_PLAN_ACTIONS` to protect approval,
   executor, and trace systems from unbounded action lists.
   Actions may include `depends_on` references to prior action IDs; the parser
@@ -557,7 +530,7 @@ The service intentionally keeps a narrow API:
 	  record the resuming subject in `resumed_by_auth_subject` plus approval audit
 	  fields `approved_by_auth_subject` and `approved_at`.
 - `/runtime/run trace persistence` uses the same configured trace directory as
-  `/run`; successful persisted runtime responses include `trace_path`, and HTTP
+  `/runtime/run`; successful persisted runtime responses include `trace_path`, and HTTP
   responses expose it through `X-Trace-Path`. Runtime status and list surfaces
   derive `trace_path` from the configured trace store and `run_id` instead of
   trusting a `trace_path` field embedded in trace JSON.
@@ -566,16 +539,16 @@ The service intentionally keeps a narrow API:
   `status`, machine-readable `error_code`, and human-readable `error` fields.
 
 The HTTP boundary enforces a configurable request body limit before running the
-agent, supports optional bearer-token protection for `POST /run`, applies
+agent, supports optional bearer-token protection for `POST /runtime/run`, applies
 optional per-client rate limiting, and bounds agent execution with a
-configurable timeout that returns a structured `504` across `/run`,
-`/runtime/run`, and `/runtime/resume`. Responses include
+configurable timeout that returns a structured `504` across `/runtime/run` and
+`/runtime/resume`. Responses include
 `X-Request-ID`, unsupported methods return structured `405` responses with
 `Allow`, and access logs are emitted as structured JSON records on stderr.
 Execution-route idempotency is scoped internally by route before consulting the
 shared cache, and by authenticated internal subject before storing or reusing a
 response. Identical `Idempotency-Key` and body values cannot cross-reuse
-responses between `/run`, `/runtime/run`, `/runtime/resume`, or different
+responses between `/runtime/run`, `/runtime/resume`, or different
 internal subjects; unauthenticated traffic uses an anonymous scope. The default
 backend is an in-memory per-process LRU cache, while
 `KAGENT_SERVICE_IDEMPOTENCY_CACHE_PATH` enables a stdlib SQLite cache
@@ -633,16 +606,16 @@ lookup, and JSON-ready conversion. Keeping these helpers outside the handler
 keeps HTTP transport code separate from security and serialization rules.
 
 `service/contract.py` owns the OpenAPI contract and allowed-method list used by
-`/openapi.json`, `OPTIONS /run`, structured error response schemas, and
-structured `405` responses. Error response schemas expose the shared service
-error-code catalog as an enum. Success schemas such as `RunRequest`,
-`RunResponse`, readiness, config, tools, version, and metrics responses are
-also named in the contract, and common response headers are declared for
-request correlation, no-store caching, content sniffing protection, referrer
-leakage reduction, and browser execution/framing hardening. This includes probe
-and integration responses such as `HEAD /health`, `HEAD /ready`,
-`OPTIONS /run`, and `/metrics.prom`, keeping API review, generated clients, and
-service runtime changes easier to reason about independently. Each operation
+`/openapi.json`, structured error response schemas, and structured `405`
+responses. Error response schemas expose the shared service error-code catalog
+as an enum. Success schemas such as `RuntimeRunRequest`, `RuntimeRunResponse`,
+`RuntimeToolsResponse`, readiness, config, version, and metrics responses are
+also named in the contract, and common response headers are declared for request
+correlation, no-store caching, content sniffing protection, referrer leakage
+reduction, and browser execution/framing hardening. This includes probe and
+integration responses such as `HEAD /health`, `HEAD /ready`, and
+`/metrics.prom`, keeping API review, generated clients, and service runtime
+changes easier to reason about independently. Each operation
 declares a stable `operationId` so generated clients, gateway policy checks,
 and smoke tests can refer to API operations without depending on summary text.
 Config and metrics schemas explicitly document trace permission audit fields so
@@ -682,25 +655,21 @@ keeps process bootstrap separate from request handling while giving persisted
 runtime state a crash-recovery boundary.
 
 `service_router.py` owns pure request routing for the service. It maps method
-and path to readiness, config, metrics, OpenAPI, tool metadata, and `/run`
-execution responses without depending on `BaseHTTPRequestHandler`. This keeps
-route behavior directly unit-testable while `service/cli.py` stays focused on CLI,
-server lifecycle, HTTP headers, and access logging.
+and path to readiness, config, metrics, OpenAPI, runtime tool metadata, and
+runtime execution responses without depending on `BaseHTTPRequestHandler`.
+This keeps route behavior directly unit-testable while `service/cli.py` stays
+focused on CLI, server lifecycle, HTTP headers, and access logging.
 
-`service_run.py` owns `POST /run` request execution after the HTTP trust
-boundary has accepted the request. It parses the run request body, builds the
-agent configuration, enforces the run timeout, converts agent exceptions into
-structured service failures, and returns either compact summaries or full
-traces.
-
-`service_runtime_run.py` owns `POST /runtime/run` execution after the same HTTP
-trust boundary has accepted the request. It converts an optional strict plan
-object into a fake provider for deterministic service tests, otherwise builds
-an OpenAI-compatible provider from environment-backed LLM settings. It validates
-`max_iterations` against `runtime_max_iterations` before calling the runtime
-loop so HTTP callers cannot create unbounded replanning cycles. When trace
-persistence is configured, it persists the runtime result through
-`service_trace_store.py` and returns
+`service_runtime_run.py` owns the runtime run request after the same HTTP trust
+boundary has accepted `POST /runtime/run` or `POST /runtime/run/stream`. It
+converts an optional strict plan object into a fake provider for deterministic
+service tests, otherwise builds an OpenAI-compatible provider from
+environment-backed LLM settings. It validates `max_iterations` against
+`runtime_max_iterations` before calling the runtime loop so HTTP callers cannot
+create unbounded replanning cycles. The streaming path uses the same runtime
+worker and forwards progress events as Server-Sent Events while preserving the
+non-streaming JSON route for automation. When trace persistence is configured,
+it persists the runtime result through `service_trace_store.py` and returns
 `trace_persistence_failed` if the trace cannot be written.
 
 `service_runtime_resume.py` owns `POST /runtime/resume`. It requires configured
@@ -818,7 +787,7 @@ visibility, category counts, and recommendations for follow-up.
 
 ## Operational gates
 
-`scripts/run_checks.sh` is the standard project gate. It runs:
+`scripts/runtime/run_checks.sh` is the standard project gate. It runs:
 
 - pytest
 - Ruff linting
@@ -847,17 +816,16 @@ a JSONL metrics record with the check exit code and any fresh evaluator report.
 Stable package-level imports are exposed from `kagent`
 for application code:
 
-- `run_agent`
-- `preview_plan`
-- `evaluate_agent`
-- `registered_evaluation_cases`
-- `summarize_run`
-- `registered_tool_metadata`
-- `registered_tool_names`
+- `FakeLLMProvider`
+- `LLMProviderConfig`
+- `ProviderKind`
+- `detect_provider_kind`
+- `run_runtime_agent`
+- `runtime_topology`
 
 The CLI is optimized for automation: JSON output by default, clean argparse
-errors, optional `--summary`, `--plan`, `--fail-on-agent-failure`, and
-`--output PATH` artifact writing. Runtime CLI runs can also persist
+errors, optional `--runtime-plan`, `--fail-on-agent-failure`, and `--output PATH`
+artifact writing. Runtime CLI runs can also persist
 service-compatible full traces with `--trace-dir PATH`, reusing the shared trace
 store permissions and filename sanitization; interactive sessions write one
 trace per submitted goal.

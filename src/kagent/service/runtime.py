@@ -1049,7 +1049,7 @@ def prometheus_metrics_text(snapshot: Mapping[str, Any]) -> str:
     )
     lines.extend(
         [
-            "# HELP kagent_runs_total Total agent runs handled by /run.",
+            "# HELP kagent_runs_total Total runtime runs handled by execution routes.",
             "# TYPE kagent_runs_total counter",
             f"kagent_runs_total {snapshot.get('agent_runs_total', '0')}",
             "# HELP kagent_run_status_total Agent runs by final status.",

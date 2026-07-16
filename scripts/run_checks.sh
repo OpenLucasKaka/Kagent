@@ -20,8 +20,6 @@ PYTHONWARNINGS=ignore .venv/bin/python -m ruff check src tests
 rm -rf /tmp/kagent-pycache
 PYTHONPYCACHEPREFIX=/tmp/kagent-pycache PYTHONWARNINGS=ignore .venv/bin/python -m compileall -q src tests
 PYTHONWARNINGS=ignore .venv/bin/kagent --version >/tmp/kagent-entrypoint-version.json
-printf '{"id":"sum","goal":"calculate 2 + 3"}\n' >/tmp/kagent-batch-input.jsonl
-PYTHONWARNINGS=ignore .venv/bin/kagent-batch /tmp/kagent-batch-input.jsonl /tmp/kagent-batch-output.jsonl --fail-on-failure >/tmp/kagent-batch-report.json
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli --version >/tmp/kagent-version.json
 KAGENT_SERVICE_IDEMPOTENCY_CACHE_SIZE=17 \
 PYTHONWARNINGS=ignore \
@@ -162,9 +160,10 @@ if grep "Traceback" /tmp/kagent-serve-invalid-env.stderr >/dev/null; then
 fi
 PYTHONWARNINGS=ignore sh scripts/smoke_service.sh
 PYTHONWARNINGS=ignore sh scripts/smoke_internal_runtime.sh >/tmp/kagent-internal-runtime-smoke.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli --deterministic "calculate 2 + 3 then count words in 'ship small reliable agents'" >/tmp/kagent-smoke.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli "calculate 2 + 3 then subtract 10 - 4" --plan >/tmp/kagent-plan.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli --deterministic "uppercase text in 'agent loop'" --inject-fault "uppercase text in 'agent loop'=empty-answer" --summary --output /tmp/kagent-summary-output.json >/tmp/kagent-summary.json
+PYTHONWARNINGS=ignore .venv/bin/python -m kagent.cli \
+    "capture hello" \
+    --runtime-plan '{"actions":[],"final_answer":"captured hello"}' \
+    >/tmp/kagent-smoke.json
 rm -rf /tmp/kagent-session-memory-dir
 mkdir -p /tmp/kagent-session-memory-dir
 chmod 0755 /tmp/kagent-session-memory-dir
@@ -356,12 +355,7 @@ for marker in (
     if marker not in memory_prompt:
         raise SystemExit(f"interactive memory missing redaction marker: {marker}")
 PY
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --fail-on-failure >/tmp/kagent-eval.json
-PYTHONWARNINGS=ignore .venv/bin/kagent-eval --list-cases >/tmp/kagent-entrypoint-eval-cases.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --list-cases >/tmp/kagent-eval-cases.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --category recovery >/tmp/kagent-eval-recovery.json
-PYTHONWARNINGS=ignore .venv/bin/python -m kagent.eval.evaluator --case subtraction_tool_success >/tmp/kagent-eval-subtraction.json
-printf '{"iteration":1,"duration_seconds":"1","status":"passed","checks_exit_code":0,"evaluator_passed":14,"evaluator_failed":0,"evaluator_slowest_case":"multi_step_success","evaluator_recovered_cases":"4","evaluator_recovery_rate":"0.29","evaluator_category_counts":{"failure":"3","recovery":"4","tool":"6","workflow":"1"}}\n' >/tmp/kagent-metrics.jsonl
+printf '{"iteration":1,"duration_seconds":"1","status":"passed","checks_exit_code":0}\n' >/tmp/kagent-metrics.jsonl
 PYTHONWARNINGS=ignore .venv/bin/python -m kagent.ops.metrics /tmp/kagent-metrics.jsonl --output /tmp/kagent-metrics-summary-output.json >/tmp/kagent-metrics-summary.json
 PYTHONWARNINGS=ignore .venv/bin/kagent-metrics /tmp/kagent-metrics.jsonl --require-recent-health healthy >/tmp/kagent-entrypoint-metrics-summary.json
 rm -rf /tmp/kagent-trace-prune-smoke
@@ -708,9 +702,7 @@ console_scripts = sorted(
 )
 expected_scripts = [
     "kagent",
-    "kagent-batch",
     "kagent-doctor",
-    "kagent-eval",
     "kagent-metrics",
     "kagent-release-evidence",
     "kagent-release-manifest",

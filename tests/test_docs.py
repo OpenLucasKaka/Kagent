@@ -144,7 +144,6 @@ def test_architecture_document_names_runtime_and_operational_boundaries():
     assert "has_errors=true" in architecture
     assert "has_failures=true" in architecture
     assert "has_approvals=true" in architecture
-    assert "Deterministic tools" in architecture
     assert "Operational gates" in architecture
     assert "unreadable trace files" in architecture
     assert "trace_read_failed" in architecture
@@ -167,8 +166,6 @@ def test_readme_documents_console_script_entrypoints():
     readme = Path("README.md").read_text()
 
     assert "kagent" in readme
-    assert "kagent-batch" in readme
-    assert "kagent-eval" in readme
     assert "kagent-metrics" in readme
     assert "kagent-doctor" in readme
     assert "kagent-release-manifest" in readme
@@ -201,7 +198,6 @@ def test_readme_documents_console_script_entrypoints():
     assert "writing it to disk" in readme
     assert "progress_event_count" in readme
     assert 'kagent "draft an internal rollout checklist"' in readme
-    assert "--deterministic" in readme
     assert "--runtime-plan" in readme
     assert "--max-iterations" in readme
     assert "JSON integers" in readme
@@ -269,18 +265,18 @@ def test_product_docs_describe_registry_updates_and_immutable_runtime_cache():
         assert "check GitHub" not in document
 
 
-def test_readme_positions_deterministic_graph_as_smoke_not_demo():
+def test_readme_positions_runtime_plan_as_llm_free_smoke():
     readme = Path("README.md").read_text()
 
-    assert "deterministic graph runs for local tests, smoke checks, and regression checks" in readme
-    assert "local tests, demos, and regression checks" not in readme
+    assert "deterministic runtime check without an LLM" in readme
+    assert "--deterministic" not in readme
 
 
 def test_architecture_document_names_service_boundary():
     architecture = Path("docs/architecture.md").read_text()
 
     assert "Service boundary" in architecture
-    assert "POST /run" in architecture
+    assert "POST /runtime/run" in architecture
 
 
 def test_architecture_document_tracks_production_service_contract():
@@ -319,7 +315,6 @@ def test_architecture_document_tracks_production_service_contract():
     assert "artifact metadata" in architecture
     assert "HEAD /health" in architecture
     assert "HEAD /ready" in architecture
-    assert "OPTIONS /run" in architecture
     assert "POST /runtime/resume" in architecture
     assert "trace persistence" in architecture
     assert "/runtime/run trace persistence" in architecture
@@ -356,11 +351,10 @@ def test_architecture_document_names_service_contract_module():
 
     assert "service/contract.py" in architecture
     assert "OpenAPI" in architecture
-    assert "RunRequest" in architecture
-    assert "RunResponse" in architecture
+    assert "RuntimeRunRequest" in architecture
+    assert "RuntimeRunResponse" in architecture
     assert "common response headers" in architecture
     assert "HEAD /health" in architecture
-    assert "OPTIONS /run" in architecture
     assert "/metrics.prom" in architecture
     assert "/openapi.json" in architecture
     assert "operationId" in architecture
@@ -382,11 +376,11 @@ def test_architecture_document_names_service_trace_store_module():
     assert "trace persistence" in architecture
 
 
-def test_architecture_document_names_service_run_module():
+def test_architecture_document_names_service_runtime_run_module():
     architecture = Path("docs/architecture.md").read_text()
 
-    assert "service_run.py" in architecture
-    assert "run request" in architecture
+    assert "service_runtime_run.py" in architecture
+    assert "runtime run request" in architecture
 
 
 def test_architecture_document_names_service_transport_module():

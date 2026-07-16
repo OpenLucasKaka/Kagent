@@ -55,8 +55,9 @@ scripts/production_approval_bundle.sh --strict
 
 The standard gate covers tests, Ruff, byte compilation, CLI smoke checks, real
 HTTP service smoke checks, internal subject runtime smoke checks, deployment
-doctor self-checks with runtime policy fingerprints, evaluator checks, metrics
-checks, no-build-isolation wheel build, isolated PEP 517 wheel build with an
+doctor self-checks with runtime policy fingerprints, metrics checks,
+deterministic runtime-plan smoke checks, no-build-isolation wheel build,
+isolated PEP 517 wheel build with an
 offline no-build-isolation fallback for local DNS/package-index outages,
 release manifest generation with wheel `sha256` hashes, manifest `verify`
 checks, `package mismatch` and `version mismatch` detection,
@@ -300,7 +301,7 @@ ready for SRE review.
 
 ## Runtime Controls
 
-- Optional bearer auth for `POST /run`.
+- Optional bearer auth for `POST /runtime/run` and `POST /runtime/run/stream`.
 - Optional named internal bearer tokens through
   `KAGENT_SERVICE_AUTH_TOKENS`, with `auth_subject` access-log audit
   fields, per-subject rate-limit isolation, subject-scoped runtime trace reads,
@@ -345,13 +346,13 @@ ready for SRE review.
 - Optional diagnostic endpoint bearer protection, required by production doctor
   gates while leaving health/readiness/version probes public.
 - Request body size limit before agent execution.
-- Per-client `/run` rate limit.
+- Per-client `/runtime/run` rate limit.
 - `Retry-After` headers on rate-limit and run-concurrency rejections.
 - `X-Forwarded-For` is ignored by default for rate limiting and must be
   explicitly trusted for reverse-proxy deployments.
-- In-flight `/run` concurrency cap with JSON `503` responses.
-- Bounded `/run` execution timeout with JSON `504` responses.
-- Configurable `/run` goal length cap with JSON `413` responses.
+- In-flight `/runtime/run` concurrency cap with JSON `503` responses.
+- Bounded `/runtime/run` execution timeout with JSON `504` responses.
+- Configurable `/runtime/run` goal length cap with JSON `413` responses.
 - full trace responses are disabled by default with JSON `403` responses unless
   an operator explicitly enables the HTTP response surface.
 - Configurable HTTP request read timeout for slow-client protection.
@@ -385,7 +386,7 @@ ready for SRE review.
 - `SIGTERM` handling for orchestrator shutdown with HTTP server close and exit
   status `143`.
 - Kubernetes termination grace period longer than the default run timeout.
-- `HEAD /health` and `OPTIONS /run` support for load balancers, probes, and
+- `HEAD /health` and `OPTIONS /runtime/run` support for load balancers, probes, and
   client method discovery.
 - JSON `405` responses include `Allow: GET, HEAD, OPTIONS, POST`.
 - `/metrics` runtime counters by path/status code, error code, average/max

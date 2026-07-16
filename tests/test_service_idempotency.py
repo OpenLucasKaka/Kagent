@@ -7,12 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from kagent.service import router as service_router
 from kagent.service.idempotency import (
     ServiceIdempotencyCache,
     SqliteServiceIdempotencyCache,
 )
-from kagent.service.runtime import ServiceConfig
 
 
 def _wait_until(predicate, *, timeout_seconds=1.0):
@@ -25,7 +23,7 @@ def _wait_until(predicate, *, timeout_seconds=1.0):
 
 
 def _assert_single_flight(cache_a, cache_b):
-    key = "POST /run\x1f__anonymous__\x1fretry-1"
+    key = "POST /runtime/run\x1f__anonymous__\x1fretry-1"
     body = b'{"goal":"single flight"}'
     execution_count = 0
     execution_lock = threading.Lock()
@@ -272,56 +270,3 @@ def test_idempotency_wait_timeout_returns_in_progress(backend, tmp_path):
     assert response is None
     assert claim_token == ""
     assert cache.snapshot()["idempotency_cache_wait_timeouts"] == "1"
-
-
-def test_service_router_returns_same_response_for_concurrent_idempotent_requests():
-    cache = ServiceIdempotencyCache(max_entries=8)
-    config = ServiceConfig(
-        idempotency_cache_size=8,
-        run_timeout_seconds=2.0,
-        request_timeout_seconds=1.0,
-    )
-    body = b'{"goal":"run once"}'
-    headers = {"Idempotency-Key": "router-single-flight"}
-    runner_started = threading.Event()
-    allow_runner_completion = threading.Event()
-    calls = []
-
-    def runner(goal, _config):
-        calls.append(goal)
-        runner_started.set()
-        assert allow_runner_completion.wait(timeout=1.0)
-        return {
-            "run_id": "shared-run-id",
-            "status": "done",
-            "answer": "done",
-            "events": [],
-            "tool_calls": [],
-            "verification_results": [],
-            "plan": [],
-        }
-
-    def request():
-        return service_router.handle_request(
-            "POST",
-            "/run",
-            body,
-            headers=headers,
-            config=config,
-            idempotency_cache=cache,
-            agent_runner=runner,
-        )
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(request)
-        assert runner_started.wait(timeout=1.0)
-        second = executor.submit(request)
-        _wait_until(lambda: cache.snapshot()["idempotency_cache_waits"] == "1")
-        allow_runner_completion.set()
-        first_response = first.result(timeout=2.0)
-        second_response = second.result(timeout=2.0)
-
-    assert calls == ["run once"]
-    assert first_response == second_response
-    assert first_response[0] == 200
-    assert first_response[1]["run_id"] == "shared-run-id"

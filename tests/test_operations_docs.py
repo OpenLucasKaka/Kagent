@@ -33,7 +33,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "KAGENT_SESSION_MEMORY_PATH" in runbook
     assert "session-memory.json" in runbook
     assert "`kagent \"goal\"`" in runbook
-    assert "--deterministic" in runbook
+    assert "--runtime-plan" in runbook
     assert "owner-only" in runbook
     assert "parent directories are created or tightened" in runbook
     assert "load and save paths" in runbook
@@ -96,7 +96,6 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "concurrency-saturation" in runbook
     assert "HEAD /health" in runbook
     assert "HEAD /ready" in runbook
-    assert "OPTIONS /run" in runbook
     assert "GET /metrics.prom" in runbook
     assert "GET /runtime/tools" in runbook
     assert "GET /runtime/graph" in runbook
@@ -460,7 +459,7 @@ def test_operations_runbook_documents_unified_kagent_home_migration():
     assert "`cache/npm-python` is rebuilt beneath the resolved root" in normalized
     assert "default layout under `~/.kagent`" in normalized
     assert "The project-local" in normalized
-    assert "$PWD/.kagent/runtime-workspace" in normalized
+    assert "$PWD/.kagent/runtime/runtime-workspace" in normalized
 
 
 def test_operations_runbook_documents_cross_replica_cancellation_triage():

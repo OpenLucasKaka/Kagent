@@ -32,7 +32,7 @@ DEFAULT_RUNTIME_MAX_ITERATIONS = 3
 def main() -> None:
     warnings.filterwarnings("ignore")
 
-    parser = argparse.ArgumentParser(description="Run the kagent.")
+    parser = argparse.ArgumentParser(description="Run the kagent.", allow_abbrev=False)
     parser.add_argument(
         "goal",
         nargs="?",
@@ -46,11 +46,6 @@ def main() -> None:
         help="Run the plan-act-observe runtime. This is the default.",
     )
     parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help="Start the kagent terminal agent that reads goals from stdin.",
-    )
-    parser.add_argument(
         "--interactive-json",
         action="store_true",
         help="Print full JSON traces in interactive runtime sessions.",
@@ -61,7 +56,7 @@ def main() -> None:
         metavar="PATH",
         help=(
             "Persist interactive runtime session memory to PATH. "
-            "Only valid with --runtime --interactive."
+            "Only valid in interactive mode."
         ),
     )
     parser.add_argument(
@@ -142,13 +137,13 @@ def main() -> None:
     if args.max_iterations is not None and args.max_iterations < 1:
         parser.error("--max-iterations must be at least 1")
     if args.interactive_json and not args.interactive:
-        parser.error("--interactive-json requires --interactive")
+        parser.error("--interactive-json requires interactive mode")
     if args.configure and args.goal is not None:
         parser.error("--configure cannot be combined with a goal")
     if args.session_memory and not args.interactive:
-        parser.error("--session-memory requires --interactive")
+        parser.error("--session-memory requires interactive mode")
     if args.interactive and args.output:
-        parser.error("--output is not supported with --interactive")
+        parser.error("--output is not supported in interactive mode")
     runtime_metadata, runtime_tags = _runtime_labels_from_args(
         args.metadata,
         args.tag,
@@ -237,8 +232,8 @@ def main() -> None:
                 config_error = f"could not use session memory: {exc}"
         elif args.goal is None:
             parser.error(
-                "goal is required unless --interactive, --list-tools, "
-                "--graph, --version, or --configure is used"
+                "goal is required unless --list-tools, --graph, --version, "
+                "or --configure is used"
             )
 
         else:
@@ -462,11 +457,11 @@ def _exit_runtime_provider_config_error(message: str) -> None:
 
 
 def _apply_default_cli_mode(args: argparse.Namespace) -> None:
+    args.interactive = False
     if getattr(args, "configure", False):
         return
     args.runtime = True
     if args.goal is None and not _is_introspection_command(args):
-        args.runtime = True
         args.interactive = True
 
 

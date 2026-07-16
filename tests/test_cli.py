@@ -26,7 +26,6 @@ def test_cli_defaults_goal_runs_to_runtime_mode():
         deterministic=False,
         runtime=False,
         runtime_plan="",
-        interactive=False,
         goal="write an internal rollout plan",
         list_tools=False,
         list_faults=False,
@@ -45,6 +44,38 @@ def test_cli_defaults_goal_runs_to_runtime_mode():
     assert args.runtime is True
     assert args.interactive is False
     assert args.deterministic is False
+
+
+def test_cli_help_does_not_advertise_removed_interactive_alias():
+    completed = subprocess.run(
+        [".venv/bin/python", "-m", "kagent.cli", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "\n  --interactive " not in completed.stdout
+    assert "--classic" not in completed.stdout
+
+
+def test_cli_rejects_removed_interactive_alias():
+    completed = subprocess.run(
+        [
+            ".venv/bin/python",
+            "-m",
+            "kagent.cli",
+            "--interactive",
+            "--runtime-plan",
+            '{"actions":[],"final_answer":"ready"}',
+        ],
+        input="exit\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "unrecognized arguments: --interactive" in completed.stderr
+    assert "Traceback" not in completed.stderr
 
 
 def test_cli_lists_registered_tools():

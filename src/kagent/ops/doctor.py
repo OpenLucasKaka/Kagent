@@ -4,7 +4,7 @@ import argparse
 from typing import Any, Dict, List, Optional
 
 from kagent import __version__
-from kagent.providers.llm import LLMProviderConfig
+from kagent.providers.llm import LLMProviderConfig, missing_provider_config_fields
 from kagent.runtime.tools import registered_runtime_tool_metadata
 from kagent.service.runtime import ServiceConfig
 from kagent.service.runtime_policy import (
@@ -185,12 +185,16 @@ def _policy_payload(
         if config.allow_full_trace_response:
             failures.append("full_trace_response_must_be_disabled")
     if require_runtime_provider:
-        if not llm_config.base_url:
-            failures.append("llm_base_url_required")
-        if not llm_config.model:
-            failures.append("llm_model_required")
-        if not llm_config.api_key:
-            failures.append("llm_api_key_required")
+        provider_failure_codes = {
+            "KAGENT_LLM_PROVIDER": "llm_provider_required",
+            "KAGENT_LLM_BASE_URL": "llm_base_url_required",
+            "KAGENT_LLM_MODEL": "llm_model_required",
+            "KAGENT_LLM_API_KEY": "llm_api_key_required",
+        }
+        failures.extend(
+            provider_failure_codes[field]
+            for field in missing_provider_config_fields(llm_config)
+        )
         if config.runtime_max_iterations < MIN_RUNTIME_PROVIDER_ITERATIONS:
             failures.append("runtime_iterations_too_low")
     if failures:

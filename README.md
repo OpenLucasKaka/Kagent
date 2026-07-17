@@ -26,7 +26,8 @@ prepares a private Python runtime under your user cache, installs kagent there,
 and then opens the terminal agent. If no provider is configured yet, kagent
 starts a first-time setup flow. The setup first asks you to choose Qwen,
 DeepSeek, Ollama, or OpenAI-compatible/custom from a provider menu, then asks
-for that provider's Base URL, model, and API key. Without a home override, the
+for that provider's Base URL, model, and API key. No provider is preselected,
+and no Base URL or model is pre-filled or inferred. Without a home override, the
 local provider config is stored at `~/.kagent/config/provider.json` with
 owner-only permissions. Use `kagent --classic` to bypass the Ink UI and run the
 Python CLI directly.
@@ -54,7 +55,8 @@ kagent --configure
 
 Environment variables still override the local config for CI or temporary
 operator sessions: `KAGENT_LLM_PROVIDER`, `KAGENT_LLM_BASE_URL`,
-`KAGENT_LLM_API_KEY`, and `KAGENT_LLM_MODEL`.
+`KAGENT_LLM_API_KEY`, and `KAGENT_LLM_MODEL`. Provider, Base URL, and model
+must be supplied explicitly; kagent does not infer one from another.
 
 ### User and project data
 

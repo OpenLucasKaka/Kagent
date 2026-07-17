@@ -2491,13 +2491,14 @@ def test_run_checks_runs_doctor_self_check():
     assert "/tmp/kagent-doctor-full-trace-production.json" in run_checks
     assert "doctor --production unexpectedly passed with full trace responses enabled" in run_checks
     assert "--require-runtime-provider" in run_checks
+    assert "KAGENT_LLM_PROVIDER=openai_compatible" in run_checks
     assert "KAGENT_LLM_BASE_URL=configured-provider-base" in run_checks
     assert "KAGENT_LLM_MODEL=agent-runtime-model" in run_checks
     assert "/tmp/kagent-doctor-runtime-provider.json" in run_checks
     assert "/tmp/kagent-doctor-runtime-provider-missing.json" in run_checks
     assert "llm_base_url_required" in run_checks
     assert "llm_model_required" in run_checks
-    assert "llm_api_key_required" in run_checks
+    assert "llm_provider_required" in run_checks
     assert "runtime_iterations_too_low" in run_checks
     assert "KAGENT_SERVICE_PORT=not-a-port" in run_checks
     assert "/tmp/kagent-doctor-invalid-env.stderr" in run_checks

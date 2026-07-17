@@ -245,6 +245,7 @@ def test_operations_runbook_documents_continuous_iteration_and_failure_triage():
     assert "KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS" in runbook
     assert "--runtime" in runbook
     assert "--runtime-plan" in runbook
+    assert "KAGENT_LLM_PROVIDER" in runbook
     assert "KAGENT_LLM_BASE_URL" in runbook
     assert "KAGENT_LLM_API_KEY" in runbook
     assert "KAGENT_LLM_MODEL" in runbook

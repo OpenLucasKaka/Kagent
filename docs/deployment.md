@@ -53,15 +53,17 @@ For deployments that depend on real Codex-style runtime planning, add the
 provider gate:
 
 ```sh
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS=2 \
 kagent-doctor --production --require-runtime-provider \
   --trace-dir /tmp/kagent-traces
 ```
 
-This rejects missing provider settings with `llm_base_url_required`,
-`llm_model_required`, or `llm_api_key_required`, and rejects one-iteration
+This rejects missing provider settings with `llm_provider_required`,
+`llm_base_url_required`, `llm_model_required`, or the provider-specific
+`llm_api_key_required`, and rejects one-iteration
 runtime budgets with `runtime_iterations_too_low`.
 
 ## Runtime Configuration
@@ -192,11 +194,11 @@ The service reads these environment variables:
 - `KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS`: maximum time to read a
   complete HTTP request before returning a structured slow-client timeout,
   default `10`.
-- `KAGENT_LLM_PROVIDER`: provider hint for non-interactive deployments.
+- `KAGENT_LLM_PROVIDER`: required provider adapter for non-interactive deployments.
   Supported values are `openai_compatible`, `deepseek`, `qwen`, and `ollama`.
   Interactive setup asks the operator to choose this provider from a menu before
-  collecting Base URL, model, and API key. When omitted in environment-only
-  setups, kagent infers the provider from the Base URL and model when possible.
+  collecting Base URL, model, and API key. Kagent never infers this value from
+  the Base URL or model.
 - `KAGENT_LLM_BASE_URL`: provider base URL. For current production adapters,
   use an OpenAI-compatible `/v1` endpoint.
 - `KAGENT_LLM_API_KEY`: provider bearer token.

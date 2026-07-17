@@ -990,6 +990,7 @@ def test_service_metrics_endpoint_reports_rate_limiter_snapshot():
 
 
 def test_service_prometheus_metrics_endpoint_reports_text_exposition(monkeypatch):
+    monkeypatch.setenv("KAGENT_LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("KAGENT_LLM_BASE_URL", "https://llm.example.test/v1")
     monkeypatch.setenv("KAGENT_LLM_MODEL", "agent-runtime-model")
     monkeypatch.setenv("KAGENT_LLM_API_KEY", "redactme")

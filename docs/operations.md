@@ -37,7 +37,8 @@ Run the opt-in real LLM runtime smoke before promoting a provider-backed
 deployment:
 
 ```sh
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 scripts/smoke_real_llm_runtime.sh
 ```
@@ -169,7 +170,8 @@ For provider-backed production promotion, run the static doctor gate before the
 live smoke:
 
 ```sh
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS=2 \
 kagent-doctor --production --require-runtime-provider \
@@ -329,6 +331,7 @@ The Codex-style runtime can use a fake provider for deterministic tests or an
 OpenAI-compatible chat-completions endpoint for real planning. Configure real
 planning with:
 
+- `KAGENT_LLM_PROVIDER`: explicitly selected supported provider adapter.
 - `KAGENT_LLM_BASE_URL`: base URL such as `https://api.example.com/v1`.
 - `KAGENT_LLM_API_KEY`: bearer token for the provider.
 - `KAGENT_LLM_MODEL`: model name sent to the chat-completions API.
@@ -338,6 +341,10 @@ planning with:
 - `KAGENT_LLM_RETRY_BACKOFF_SECONDS`: fixed sleep between provider
   retry attempts, default `0.25`. Numeric provider `Retry-After` response
   headers take precedence for retryable HTTP failures.
+
+Provider, Base URL, model, and API key are deployment identity. Kagent does not
+pre-fill, infer, replace, or fall back between these values. Timeout and retry
+settings are system execution policy and retain the defaults documented above.
 
 Provider config snapshots expose only whether an API key is configured; the key
 value is never returned in snapshots, traces, logs, metrics, or docs examples.

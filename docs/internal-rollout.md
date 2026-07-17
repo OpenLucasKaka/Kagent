@@ -45,12 +45,14 @@ scripts/smoke_service.sh
 scripts/smoke_internal_runtime.sh
 scripts/production_readiness_audit.py
 kagent-doctor --production --trace-dir /tmp/kagent-traces
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS=2 \
 kagent-doctor --production --require-runtime-provider \
   --trace-dir /tmp/kagent-traces
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 scripts/smoke_real_llm_runtime.sh \
   >/tmp/kagent-provider-smoke.json
@@ -174,7 +176,8 @@ before those artifacts are built.
 Use environment variables only; do not write provider secrets to files.
 
 ```sh
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 scripts/smoke_real_llm_runtime.sh \
   >/tmp/kagent-provider-smoke.json

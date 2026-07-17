@@ -5,7 +5,7 @@ import sys
 
 from kagent import __version__
 from kagent.ops.doctor import doctor_payload
-from kagent.providers.llm import LLMProviderConfig
+from kagent.providers.llm import LLMProviderConfig, ProviderKind
 from kagent.service.runtime import ServiceConfig
 
 
@@ -252,9 +252,9 @@ def test_doctor_payload_runtime_provider_gate_rejects_missing_provider_config(tm
     assert payload["status"] == "not_ready"
     assert payload["policy"]["status"] == "failed"
     assert payload["policy"]["failures"] == [
+        "llm_provider_required",
         "llm_base_url_required",
         "llm_model_required",
-        "llm_api_key_required",
         "runtime_iterations_too_low",
     ]
 
@@ -272,8 +272,8 @@ def test_doctor_payload_runtime_provider_gate_passes_when_provider_is_configured
         require_production_controls=True,
         require_runtime_provider=True,
         llm_config=LLMProviderConfig(
+            provider=ProviderKind.OPENAI_COMPATIBLE,
             base_url="https://llm.example.test/v1",
-            api_key="x",
             model="agent-runtime-model",
         ),
     )
@@ -481,6 +481,7 @@ def test_doctor_module_runtime_provider_gate_reads_llm_environment(tmp_path):
             "KAGENT_SERVICE_MAX_CONCURRENT_RUNS": "4",
             "KAGENT_SERVICE_PROTECT_DIAGNOSTICS": "true",
             "KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS": "2",
+            "KAGENT_LLM_PROVIDER": "openai_compatible",
             "KAGENT_LLM_BASE_URL": "https://llm.example.test/v1",
             "KAGENT_LLM_API_KEY": "x",
             "KAGENT_LLM_MODEL": "agent-runtime-model",
@@ -546,9 +547,9 @@ def test_doctor_module_runtime_provider_gate_exits_nonzero_when_missing_provider
     assert completed.returncode == 1
     assert payload["status"] == "not_ready"
     assert payload["policy"]["failures"] == [
+        "llm_provider_required",
         "llm_base_url_required",
         "llm_model_required",
-        "llm_api_key_required",
         "runtime_iterations_too_low",
     ]
 

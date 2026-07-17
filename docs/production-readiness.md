@@ -21,7 +21,8 @@ scripts/internal_rollout_acceptance.py \
 kagent-doctor --trace-dir /tmp/kagent-traces
 kagent-doctor --require-auth --trace-dir /tmp/kagent-traces
 kagent-doctor --production --trace-dir /tmp/kagent-traces
-# KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY, and KAGENT_LLM_MODEL
+# KAGENT_LLM_PROVIDER, KAGENT_LLM_BASE_URL, KAGENT_LLM_API_KEY,
+# and KAGENT_LLM_MODEL
 # must already be set in your shell or secret manager.
 KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS=2 \
 kagent-doctor --production --require-runtime-provider \
@@ -172,10 +173,11 @@ weaker release gate can pass with example credentials. If full trace HTTP
 responses are enabled, production doctor reports
 `full_trace_response_must_be_disabled`.
 Provider-backed deployments should add `--require-runtime-provider` to the
-production doctor gate. That gate fails when `KAGENT_LLM_BASE_URL`,
-`KAGENT_LLM_MODEL`, or `KAGENT_LLM_API_KEY` is missing,
-reporting `llm_base_url_required`, `llm_model_required`, or
-`llm_api_key_required`. It also requires at least two runtime planning
+production doctor gate. That gate fails when `KAGENT_LLM_PROVIDER`,
+`KAGENT_LLM_BASE_URL`, or `KAGENT_LLM_MODEL` is missing, reporting
+`llm_provider_required`, `llm_base_url_required`, or `llm_model_required`.
+Providers that require an API key also report `llm_api_key_required`. It also
+requires at least two runtime planning
 iterations and reports `runtime_iterations_too_low` when the configured budget
 cannot support one corrective replan. After the static provider gate passes,
 run `scripts/smoke_real_llm_runtime.sh` as live evidence that CLI runtime,

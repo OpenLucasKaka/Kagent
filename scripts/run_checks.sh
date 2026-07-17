@@ -100,6 +100,7 @@ KAGENT_SERVICE_RATE_LIMIT_PER_MINUTE=60 \
 KAGENT_SERVICE_MAX_CONCURRENT_RUNS=4 \
 KAGENT_SERVICE_PROTECT_DIAGNOSTICS=true \
 KAGENT_SERVICE_RUNTIME_MAX_ITERATIONS=2 \
+KAGENT_LLM_PROVIDER=openai_compatible \
 KAGENT_LLM_BASE_URL=configured-provider-base \
 KAGENT_LLM_API_KEY=x \
 KAGENT_LLM_MODEL=agent-runtime-model \
@@ -125,7 +126,7 @@ grep "llm_base_url_required" \
     /tmp/kagent-doctor-runtime-provider-missing.json >/dev/null
 grep "llm_model_required" \
     /tmp/kagent-doctor-runtime-provider-missing.json >/dev/null
-grep "llm_api_key_required" \
+grep "llm_provider_required" \
     /tmp/kagent-doctor-runtime-provider-missing.json >/dev/null
 grep "runtime_iterations_too_low" \
     /tmp/kagent-doctor-runtime-provider-missing.json >/dev/null

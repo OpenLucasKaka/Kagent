@@ -127,6 +127,7 @@ def test_environment_example_documents_service_runtime_knobs():
     assert "KAGENT_SERVICE_TRACE_DIR=" in env_example
     assert "KAGENT_SERVICE_RUNTIME_WORKSPACE_DIR=" in env_example
     assert "KAGENT_SERVICE_REQUEST_TIMEOUT_SECONDS=10" in env_example
+    assert "KAGENT_LLM_PROVIDER=" in env_example
     assert "KAGENT_LLM_BASE_URL=" in env_example
     llm_api_key_name = "KAGENT_LLM_API_KEY"
     assert f"{llm_api_key_name}=" in env_example

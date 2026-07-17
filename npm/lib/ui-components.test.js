@@ -166,7 +166,7 @@ const terminal_width_1 = require("./terminal-width");
         maxRows: 6,
         horizontalPadding: 1,
     }), {
-        position: "\u001b[?25h\u001b[1A\u001b[3C",
+        position: "\u001b[?25h\r\u001b[1A\u001b[3C",
         restore: "\r\u001b[1B",
     });
 });
@@ -178,7 +178,7 @@ const terminal_width_1 = require("./terminal-width");
         maxRows: 6,
         horizontalPadding: 0,
     }), {
-        position: "\u001b[?25h\u001b[1A\u001b[2C",
+        position: "\u001b[?25h\r\u001b[1A\u001b[2C",
         restore: "\r\u001b[1B",
     });
 });
@@ -190,7 +190,7 @@ const terminal_width_1 = require("./terminal-width");
         maxRows: 6,
         horizontalPadding: 0,
     }), {
-        position: "\u001b[?25h\u001b[2A\u001b[4C",
+        position: "\u001b[?25h\r\u001b[2A\u001b[4C",
         restore: "\r\u001b[2B",
     });
 });

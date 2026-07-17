@@ -227,11 +227,10 @@ def test_stdio_runtime_failed_completion_payload_includes_error_details(tmp_path
     )
 
 
-def test_stdio_runtime_uses_local_fast_plan_for_simple_open_app_requests(tmp_path):
+def test_stdio_runtime_does_not_fast_plan_open_app_requests_without_provider(tmp_path):
     request = {"type": "run_request", "goal": "打开qq"}
 
     env = _runtime_env(tmp_path)
-    env["KAGENT_PENDING_APPROVAL_PATH"] = str(tmp_path / "pending-approval.json")
 
     completed = subprocess.run(
         [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
@@ -243,42 +242,55 @@ def test_stdio_runtime_uses_local_fast_plan_for_simple_open_app_requests(tmp_pat
     )
 
     events = _jsonl(completed.stdout)
-    assert [event["type"] for event in events[:4]] == [
-        "runtime_ready",
-        "run_started",
-        "run_progress",
-        "run_progress",
-    ]
-    assert events[2]["event"]["type"] == "planner_started"
-    assert events[3]["event"]["type"] == "planner_completed"
-    assert events[-1]["type"] == "approval_required"
-    assert events[-1]["title"] == "Open an application"
-    assert events[-1]["target"] == "QQ"
+    assert events[1]["type"] == "run_started"
+    assert events[2]["type"] == "run_failed"
+    assert events[2]["error_code"] == "provider_not_configured"
     assert completed.stderr == ""
 
 
-def test_stdio_runtime_ignores_empty_modal_particle_open_app_request(tmp_path):
-    assert stdio_runtime._local_open_app_runtime_plan("打开啊") == ""
+def test_stdio_runtime_sends_open_app_language_to_live_provider(
+    monkeypatch,
+    tmp_path,
+):
+    provider_requests = []
+    runtime_calls = []
+    live_provider = object()
 
+    def fake_provider_from_request(request, _config):
+        provider_requests.append(dict(request))
+        return live_provider
 
-def test_stdio_runtime_strips_modal_particle_from_open_app_target(tmp_path):
-    request = {"type": "run_request", "goal": "打开飞书啊"}
+    def fake_run_runtime_agent(goal, **kwargs):
+        runtime_calls.append((goal, kwargs))
+        return {
+            "status": "done",
+            "answer": "planned by provider",
+            "goal": goal,
+        }
 
-    env = _runtime_env(tmp_path)
-    env["KAGENT_PENDING_APPROVAL_PATH"] = str(tmp_path / "pending-approval.json")
+    monkeypatch.setattr(
+        stdio_runtime,
+        "_provider_from_request",
+        fake_provider_from_request,
+    )
+    monkeypatch.setattr(stdio_runtime, "run_runtime_agent", fake_run_runtime_agent)
 
-    completed = subprocess.run(
-        [".venv/bin/python", "-m", "kagent.cli.stdio_runtime"],
-        input=f"{json.dumps(request, ensure_ascii=False)}\n",
-        capture_output=True,
-        text=True,
-        check=True,
-        env=env,
+    stdout = io.StringIO()
+    session = stdio_runtime.StdioRuntimeSession(
+        stdout,
+        memory_path=str(tmp_path / "session-memory.json"),
+        pending_approval_path=str(tmp_path / "pending.json"),
     )
 
-    events = _jsonl(completed.stdout)
-    assert events[-1]["type"] == "approval_required"
-    assert events[-1]["target"] == "Feishu"
+    session.handle({"type": "run_request", "goal": "打开飞书啊"})
+    session.wait_until_idle()
+
+    events = _jsonl(stdout.getvalue())
+    assert provider_requests == [{"type": "run_request", "goal": "打开飞书啊"}]
+    assert runtime_calls[0][0] == "打开飞书啊"
+    assert runtime_calls[0][1]["provider"] is live_provider
+    assert events[-1]["type"] == "run_completed"
+    assert events[-1]["answer"] == "planned by provider"
 
 
 def test_stdio_runtime_does_not_fast_plan_web_targets_as_open_apps(tmp_path):
